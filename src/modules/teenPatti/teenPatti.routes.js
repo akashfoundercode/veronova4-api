@@ -1,0 +1,1 @@
+"use strict";const express=require("express"),{API_ROUTES}=require("../../config/apiRoutes"),c=require("./teenPatti.controller"),r=express.Router();r.post(API_ROUTES.teenPatti.result,c.results);r.post(API_ROUTES.teenPatti.bet,c.bet);r.post(API_ROUTES.teenPatti.history,c.history);r.get(API_ROUTES.teenPatti.cron,c.cron);r.post(API_ROUTES.teenPatti.winAmount,c.win);module.exports=r;
