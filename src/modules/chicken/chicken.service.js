@@ -691,7 +691,7 @@ class ChickenService {
           id: r.id,
           type: r.type,
           frequency: r.frequency,
-          roast_multiplier: null,
+          roast_multiplier: r.roast_multiplier !== undefined && r.roast_multiplier !== null && Number(r.roast_multiplier) > 0 ? Number(r.roast_multiplier) : null,
           multiplier: [],
           created_at: r.created_at ?? null,
           updated_at: r.updated_at ?? null,
@@ -710,7 +710,8 @@ class ChickenService {
           types,
         );
         for (const r of rows) {
-          controls[r.types] = Number(r.roast_multiplier);
+          const key = String(r.types ?? r.type ?? r.id);
+          controls[key] = Number(r.roast_multiplier);
         }
       } catch {
         // roast_control fallback if table mock
@@ -731,19 +732,23 @@ class ChickenService {
     }
 
     for (const [t, g] of grouped) {
-      if (profit) {
+      const adminVal = controls[t] !== undefined && Number(controls[t]) > 0
+        ? Number(controls[t])
+        : (g.roast_multiplier !== null && Number(g.roast_multiplier) > 0 ? Number(g.roast_multiplier) : 0);
+
+      if (adminVal > 0) {
+        const exactMatch = g.multiplier.find((x) => Math.abs(x - adminVal) < 0.001);
+        g.roast_multiplier = exactMatch !== undefined ? exactMatch : adminVal;
+      } else if (profit) {
         g.roast_multiplier = Math.min(...g.multiplier);
-      } else if (controls[t] !== undefined && controls[t] > 0) {
-        const e = g.multiplier.filter((x) => x <= controls[t]);
-        g.roast_multiplier = e.length ? e[randomInt(e.length)] : Math.min(...g.multiplier);
       } else {
-        const first = g.multiplier.slice(0, 2);
-        g.roast_multiplier = first.length ? first[randomInt(first.length)] : 1.0;
+        g.roast_multiplier = g.multiplier.length ? g.multiplier[randomInt(g.multiplier.length)] : 1.0;
       }
     }
 
     const data = [...grouped.values()];
     return {
+      status: 200,
       success: data.length > 0,
       data,
     };
@@ -777,20 +782,43 @@ class ChickenService {
     };
   }
 
-  async updateRoastMultiplier({ id, roast_multiplier }) {
-    if (id === undefined || id === null || id === "") {
-      throw new AppError(400, "VALIDATION_ERROR", "The id field is required.");
+  async updateRoastMultiplier({ id, roast_multiplier, types, type }) {
+    if ((id === undefined || id === null || id === "") && (types === undefined && type === undefined)) {
+      throw new AppError(400, "VALIDATION_ERROR", "The id or type field is required.");
     }
     if (roast_multiplier === undefined || roast_multiplier === null || roast_multiplier === "") {
       throw new AppError(400, "VALIDATION_ERROR", "The roast_multiplier field is required.");
     }
 
     const pool = this.poolProvider();
-    const [result] = await pool.execute(
-      "UPDATE roast_control SET roast_multiplier = ? WHERE id = ?",
-      [roast_multiplier, id],
-    );
-    if (result.affectedRows === 0) throw new AppError(404, "NOT_FOUND", "Roast control not found.");
+    const typeNum = types !== undefined ? Number(types) : (type !== undefined ? Number(type) : null);
+    let result = null;
+
+    if (id !== undefined && id !== null && id !== "") {
+      const [res] = await pool.execute(
+        "UPDATE roast_control SET roast_multiplier = ? WHERE id = ?",
+        [roast_multiplier, id],
+      );
+      result = res;
+    }
+
+    if ((!result || result.affectedRows === 0) && typeNum) {
+      const [res] = await pool.execute(
+        "UPDATE roast_control SET roast_multiplier = ? WHERE types = ?",
+        [roast_multiplier, typeNum],
+      );
+      result = res;
+    }
+
+    if (!result || result.affectedRows === 0) {
+      try {
+        const [res] = await pool.execute(
+          "INSERT INTO roast_control (types, roast_multiplier) VALUES (?, ?) ON DUPLICATE KEY UPDATE roast_multiplier = ?",
+          [typeNum || id, roast_multiplier, roast_multiplier],
+        );
+        result = res;
+      } catch (_) {}
+    }
 
     return {
       status: true,

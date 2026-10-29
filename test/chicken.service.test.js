@@ -268,3 +268,49 @@ test("ChickenService.adminMultiplierList returns raw multiplier rows and roast_c
   assert.equal(result.data.roast_control.length, 1);
 });
 
+test("ChickenService.multiplier sends set roast_multiplier for easy, medium, hard, hardcore types", async () => {
+  const pool = {
+    async execute(sql) {
+      if (sql.includes("FROM multiplier")) {
+        return [[
+          { id: 1, type: 1, multiplier: "1.02;1.05;10.00;19.23", frequency: 1 },
+          { id: 2, type: 2, multiplier: "1.12;1.28;5.00;15.00", frequency: 1 },
+          { id: 3, type: 3, multiplier: "1.25;2.00;8.00;20.00", frequency: 1 },
+          { id: 4, type: 4, multiplier: "1.50;3.00;12.00;30.00", frequency: 1 },
+        ], []];
+      }
+      return [[], []];
+    },
+    async query(sql) {
+      if (sql.includes("FROM roast_control")) {
+        return [[
+          { id: 1, types: "1", roast_multiplier: 10.00 }, // Admin selected 10.00
+          { id: 2, types: "2", roast_multiplier: 5.00 },
+          { id: 3, types: "3", roast_multiplier: 0.00 }, // Random
+          { id: 4, types: "4", roast_multiplier: 12.00 },
+        ], []];
+      }
+      return [[], []];
+    },
+  };
+
+  const service = new ChickenService(() => pool);
+  const result = await service.multiplier();
+
+  assert.equal(result.status, 200);
+  assert.equal(result.success, true);
+  assert.equal(result.data.length, 4);
+
+  const easy = result.data.find((d) => d.type === 1);
+  assert.equal(easy.roast_multiplier, 10.00);
+
+  const medium = result.data.find((d) => d.type === 2);
+  assert.equal(medium.roast_multiplier, 5.00);
+
+  const hard = result.data.find((d) => d.type === 3);
+  assert.ok(hard.multiplier.includes(hard.roast_multiplier)); // picked from multipliers
+
+  const hardcore = result.data.find((d) => d.type === 4);
+  assert.equal(hardcore.roast_multiplier, 12.00);
+});
+

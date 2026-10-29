@@ -760,6 +760,24 @@ async function ensureAllTables() {
     `);
 
     await safeExec(`
+      CREATE TABLE IF NOT EXISTS roast_control (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        types VARCHAR(50) NOT NULL,
+        roast_multiplier DECIMAL(8, 2) NOT NULL DEFAULT 0.00,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
+      INSERT IGNORE INTO roast_control (id, types, roast_multiplier) VALUES
+      (1, '1', 0.00),
+      (2, '2', 0.00),
+      (3, '3', 0.00),
+      (4, '4', 0.00);
+    `);
+
+    await safeExec(`
       CREATE TABLE IF NOT EXISTS chicken_bets (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         user_id BIGINT UNSIGNED NOT NULL,

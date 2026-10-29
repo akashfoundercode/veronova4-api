@@ -1,5 +1,5 @@
 "use strict";
-//my name is djdhjdj
+
 const path = require("node:path");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 require("dotenv").config();
