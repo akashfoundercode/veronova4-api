@@ -143,10 +143,7 @@ class WingoService {
           );
           if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
             const lastNum = BigInt(lastResultRows[0].games_no);
-            const periodNum = /^\d+$/.test(nextGameNo) ? BigInt(nextGameNo) : 0n;
-            if (lastNum >= periodNum) {
-              nextGameNo = String(lastNum + 1n);
-            }
+            nextGameNo = String(lastNum + 1n);
           }
         } catch (_) {}
         await connection.execute(
@@ -205,9 +202,9 @@ class WingoService {
         );
         if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
           const lastNum = BigInt(lastResultRows[0].games_no);
-          const logNum = (period && /^\d+$/.test(period)) ? BigInt(period) : 0n;
-          if (logNum <= lastNum) {
-            period = String(lastNum + 1n);
+          const nextGameNo = String(lastNum + 1n);
+          if (period !== nextGameNo) {
+            period = nextGameNo;
             await connection.execute(
               "UPDATE betlogs SET games_no = ? WHERE game_id = ?",
               [period, game_id],
@@ -417,30 +414,23 @@ class WingoService {
       }
 
       let gameNo = periodOverride ? String(periodOverride) : null;
+      try {
+        const [lastResultRows] = await connection.execute(
+          "SELECT games_no FROM bet_results WHERE game_id = ? ORDER BY id DESC LIMIT 1",
+          [gameId],
+        );
+        if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
+          const lastNum = BigInt(lastResultRows[0].games_no);
+          const nextSeqGameNo = String(lastNum + 1n);
+          if (!gameNo || (/^\d+$/.test(gameNo) && BigInt(gameNo) <= lastNum)) {
+            gameNo = nextSeqGameNo;
+          }
+        }
+      } catch (_) {}
+
       if (!gameNo) {
         const logGameNo = logs[0]?.games_no ? String(logs[0].games_no) : null;
-        try {
-          const [lastResultRows] = await connection.execute(
-            "SELECT games_no FROM bet_results WHERE game_id = ? ORDER BY id DESC LIMIT 1",
-            [gameId],
-          );
-          if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
-            const lastNum = BigInt(lastResultRows[0].games_no);
-            const logNum = (logGameNo && /^\d+$/.test(logGameNo)) ? BigInt(logGameNo) : 0n;
-            if (logNum <= lastNum) {
-              gameNo = String(lastNum + 1n);
-            } else {
-              gameNo = logGameNo;
-            }
-          } else {
-            gameNo = logGameNo;
-          }
-        } catch (_) {
-          gameNo = logGameNo;
-        }
-      }
-      if (!gameNo) {
-        gameNo = formatPeriod(new Date(), gameId);
+        gameNo = logGameNo || formatPeriod(new Date(), gameId);
       }
       const [totalRows] = await connection.execute(
         "SELECT COALESCE(SUM(amount), 0) AS amount FROM bets WHERE game_id = ? AND games_no = ?",
@@ -737,7 +727,7 @@ class WingoService {
 
   async getLastResult(gameId) {
     const [rows] = await this.poolProvider().execute(
-      "SELECT * FROM bet_results WHERE game_id = ? ORDER BY created_at DESC LIMIT 1",
+      "SELECT * FROM bet_results WHERE game_id = ? ORDER BY id DESC LIMIT 1",
       [gameId],
     );
     return rows[0] ?? null;
@@ -856,10 +846,7 @@ class WingoService {
       );
       if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
         const lastNum = BigInt(lastResultRows[0].games_no);
-        const logNum = (gamesNo && /^\d+$/.test(gamesNo)) ? BigInt(gamesNo) : 0n;
-        if (logNum <= lastNum) {
-          gamesNo = String(lastNum + 1n);
-        }
+        gamesNo = String(lastNum + 1n);
       }
     } catch (_) {}
     const numberTotals = Array.from({ length: 10 }, (_, number) => ({

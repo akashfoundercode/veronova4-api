@@ -439,3 +439,47 @@ test("getWinAmount queries bets table with games_no, game_id, and userid", async
   });
   assert.deepEqual(executedParams, ["20261010010001", 1, 10]);
 });
+
+test("wingo strictly increments round number from last bet_results entry (e.g. ...37 -> ...38 -> ...39)", async () => {
+  const connection = createConnection((sql) => {
+    if (sql.startsWith("SELECT winning_percentage FROM game_settings")) {
+      return [{ winning_percentage: 90 }];
+    }
+    // betlogs might have had an old or mismatched number
+    if (sql.startsWith("SELECT id, games_no, number, amount FROM betlogs")) {
+      return [{ id: 1, games_no: "20250822213537", number: 0, amount: 0 }];
+    }
+    // bet_results ends at 20250822213537
+    if (sql.startsWith("SELECT games_no FROM bet_results")) {
+      return [{ games_no: "20250822213537" }];
+    }
+    if (sql.startsWith("SELECT COALESCE(SUM(amount)")) {
+      return [{ amount: 0 }];
+    }
+    if (sql.startsWith("SELECT number FROM admin_winner_results")) {
+      return [];
+    }
+    if (sql.startsWith("SELECT name FROM virtual_games")) {
+      return [{ name: "3" }, { name: "Small" }, { name: "Green" }];
+    }
+    if (sql.startsWith("SELECT number, multiplier FROM virtual_games")) {
+      return [{ number: 3, multiplier: 9 }];
+    }
+    return [];
+  });
+
+  const service = new WingoService(() => ({
+    getConnection: async () => connection,
+  }));
+
+  const roundResult = await service.settleRound(1, { forcedResult: 3 });
+  assert.equal(roundResult.gameNo, "20250822213538");
+
+  const insertCall = connection.calls.find(({ sql }) => sql.startsWith("INSERT INTO bet_results"));
+  assert.equal(insertCall.params[1], "20250822213538");
+
+  const updateBetlogs = connection.calls.find(({ sql }) =>
+    sql.startsWith("UPDATE betlogs SET amount = 0, games_no = ?"),
+  );
+  assert.equal(updateBetlogs.params[0], "20250822213539");
+});
