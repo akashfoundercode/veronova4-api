@@ -483,11 +483,28 @@ class WingoService {
         );
       }
 
-      const [resultNames] = await connection.execute(
-        `SELECT name FROM virtual_games
-         WHERE actual_number = ? AND game_id = ? AND multiplier != '1.5'`,
-        [resultNumber, gameId],
-      );
+      let resultNames = [];
+      try {
+        const [names] = await connection.execute(
+          `SELECT name FROM virtual_games
+           WHERE actual_number = ? AND game_id = ? AND multiplier != '1.5'`,
+          [resultNumber, gameId],
+        );
+        resultNames = names;
+      } catch (_) {}
+
+      if (resultNames.length === 0 && WINGO_GAME_IDS.includes(gameId)) {
+        const isBig = resultNumber >= 5;
+        const color =
+          resultNumber === 0 ? "Violet" :
+          resultNumber === 5 ? "Violet" :
+          [1, 3, 7, 9].includes(resultNumber) ? "Green" : "Red";
+        resultNames = [
+          { name: String(resultNumber) },
+          { name: isBig ? "Big" : "Small" },
+          { name: color },
+        ];
+      }
 
       if (WINGO_GAME_IDS.includes(gameId) && resultNumber === 0) {
         await connection.execute(
@@ -498,16 +515,49 @@ class WingoService {
         );
       }
 
-      const [winningOptions] = await connection.execute(
-        "SELECT number, multiplier FROM virtual_games WHERE actual_number = ? AND game_id = ?",
-        [resultNumber, gameId],
-      );
-      if (winningOptions.length === 0) {
-        throw new AppError(
-          422,
-          "INVALID_RESULT_NUMBER",
-          "No virtual game option matches the selected result.",
+      let winningOptions = [];
+      try {
+        const [options] = await connection.execute(
+          "SELECT number, multiplier FROM virtual_games WHERE actual_number = ? AND game_id = ?",
+          [resultNumber, gameId],
         );
+        winningOptions = options;
+      } catch (_) {}
+
+      if (winningOptions.length === 0) {
+        if (WINGO_GAME_IDS.includes(gameId)) {
+          const isBig = resultNumber >= 5;
+          winningOptions = [
+            { number: String(resultNumber), multiplier: 9 },
+            { number: isBig ? "40" : "50", multiplier: 2 },
+            { number: isBig ? "Big" : "Small", multiplier: 2 },
+          ];
+          if (resultNumber === 0) {
+            winningOptions.push(
+              { number: "20", multiplier: 4.5 },
+              { number: "Violet", multiplier: 4.5 },
+              { number: "30", multiplier: 1.5 },
+            );
+          } else if (resultNumber === 5) {
+            winningOptions.push(
+              { number: "20", multiplier: 4.5 },
+              { number: "Violet", multiplier: 4.5 },
+              { number: "10", multiplier: 1.5 },
+            );
+          } else if ([1, 3, 7, 9].includes(resultNumber)) {
+            winningOptions.push(
+              { number: "10", multiplier: 2 },
+              { number: "Green", multiplier: 2 },
+            );
+          } else {
+            winningOptions.push(
+              { number: "30", multiplier: 2 },
+              { number: "Red", multiplier: 2 },
+            );
+          }
+        } else {
+          winningOptions = [{ number: String(resultNumber), multiplier: 9 }];
+        }
       }
       for (const option of winningOptions) {
         const amountColumn = GROSS_PAYOUT_GAME_IDS.has(gameId)

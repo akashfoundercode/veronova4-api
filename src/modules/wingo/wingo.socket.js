@@ -9,6 +9,7 @@ const TIMER_INTERVAL_MS = 1000;
 const REQUEST_TIMEOUT_MS = 10000;
 
 function createWingoSocket(io, {
+  service = defaultWingoService,
   fetchImpl = globalThis.fetch,
   timerApiUrl = config.wingo.timerApiUrl,
   setIntervalImpl = setInterval,
@@ -43,25 +44,13 @@ function createWingoSocket(io, {
     } catch (_) {}
   }
 
-  async function fetchApi(gameId) {
-    const url = `${timerApiUrl}${gameId}`;
+  async function handleDueGame(gameId) {
+    // 1. Settle round directly in-process so round resets and increments in database
     try {
-      logger.log(`Calling Wingo API: ${url}`);
-      const response = await fetchImpl(url, {
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      if (!response.ok) {
-        throw new Error(`Wingo API returned HTTP ${response.status}.`);
-      }
-      logger.log(`Wingo API called successfully: ${url}`);
-    } catch (error) {
-      logger.error(`Error fetching ${url}:`, error.message);
-      // Fallback: If HTTP request fails or server is local/sandboxed,
-      // directly settle the round in-process so round resets and round number increments!
-      try {
-        logger.log(`[WingoSocket] Triggering in-process settleRound fallback for Game ${gameId}...`);
-        const result = await defaultWingoService.settleRound(gameId);
-        logger.log(`[WingoSocket] Direct settleRound success for Game ${gameId}: Period ${result.gameNo} -> Result ${result.resultNumber}`);
+      if (service && typeof service.settleRound === "function") {
+        logger.log(`[WingoSocket] Settling round for Game ${gameId}...`);
+        const result = await service.settleRound(gameId);
+        logger.log(`[WingoSocket] Settle success for Game ${gameId}: Period ${result.gameNo} -> Result ${result.resultNumber}`);
         const payload = {
           game_id: gameId,
           games_no: result.gameNo,
@@ -72,8 +61,25 @@ function createWingoSocket(io, {
           io.emit("wingo:round_settled", payload);
           io.emit("verenova_wingo_result", payload);
         } catch (_) {}
-      } catch (fallbackErr) {
-        logger.error(`[WingoSocket] Direct settleRound fallback failed for Game ${gameId}:`, fallbackErr.message);
+      }
+    } catch (settleErr) {
+      logger.error(`[WingoSocket] Settle failed for Game ${gameId}:`, settleErr.message);
+    }
+
+    // 2. Call timerApiUrl if configured
+    if (timerApiUrl) {
+      const url = `${timerApiUrl}${gameId}`;
+      try {
+        logger.log(`Calling Wingo API: ${url}`);
+        const response = await fetchImpl(url, {
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        if (!response.ok) {
+          throw new Error(`Wingo API returned HTTP ${response.status}.`);
+        }
+        logger.log(`Wingo API called successfully: ${url}`);
+      } catch (error) {
+        logger.error(`Error fetching ${url}:`, error.message);
       }
     }
   }
@@ -83,7 +89,7 @@ function createWingoSocket(io, {
     isApiCalling = true;
     try {
       while (pendingGameIds.length > 0) {
-        await fetchApi(pendingGameIds.shift());
+        await handleDueGame(pendingGameIds.shift());
       }
     } finally {
       isApiCalling = false;
@@ -136,7 +142,7 @@ function createWingoSocket(io, {
       // Calls remain serialized so simultaneous boundaries cannot overlap.
       pendingGameIds.push(...dueGameIds);
       if (pendingGameIds.length > 0 && !isApiCalling) {
-        void drainPendingGameIds();
+        await drainPendingGameIds();
       }
     } catch (error) {
       logger.error("Error updating Wingo timers:", error.message);

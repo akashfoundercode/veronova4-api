@@ -182,12 +182,15 @@ async function ensureAllTables() {
       CREATE TABLE IF NOT EXISTS virtual_games (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         game_id INT NOT NULL,
+        name VARCHAR(100) NULL,
         number VARCHAR(50) NULL,
         actual_number VARCHAR(50) NULL,
         multiplier DECIMAL(10, 2) NOT NULL DEFAULT 1.00,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await safeExec("ALTER TABLE virtual_games ADD COLUMN name VARCHAR(100) NULL");
 
     await safeExec(`
       CREATE TABLE IF NOT EXISTS cards (

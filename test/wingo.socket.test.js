@@ -103,3 +103,46 @@ test("Wingo socket emits the five legacy timers in its own namespace", async () 
   await harness.intervalCallback();
   assert.equal(requests.length, 1);
 });
+
+test("Wingo socket triggers direct in-process settleRound and emits round_settled when timer ends", async () => {
+  const harness = createSocketHarness();
+  const settledGames = [];
+  const mockService = {
+    async settleRound(gameId) {
+      settledGames.push(gameId);
+      return {
+        gameId,
+        gameNo: "20250822213539",
+        resultNumber: 7,
+      };
+    },
+  };
+
+  const wingoSocket = createWingoSocket(harness.io, {
+    service: mockService,
+    timerApiUrl: "",
+    setIntervalImpl: harness.setIntervalImpl,
+    clearIntervalImpl: harness.clearIntervalImpl,
+    logger: { log() {}, error() {} },
+  });
+
+  // Advance 30 seconds
+  for (let i = 0; i < 30; i += 1) {
+    await harness.intervalCallback();
+  }
+  assert.equal(settledGames.length, 0);
+
+  // 31st tick: timerBetTime reaches 0 -> settles Game 1
+  await harness.intervalCallback();
+  assert.deepEqual(settledGames, [1]);
+
+  const settledEmission = harness.emissions.find(({ event }) => event === "wingo:round_settled");
+  assert.ok(settledEmission);
+  assert.deepEqual(settledEmission.payload, {
+    game_id: 1,
+    games_no: "20250822213539",
+    win_number: 7,
+  });
+
+  wingoSocket.stop();
+});
