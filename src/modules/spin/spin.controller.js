@@ -11,13 +11,19 @@ function fail(error, res) {
 }
 
 async function bet(req, res) {
-  try { return res.status(200).json(await service.placeBets(req.body ?? {})); }
-  catch (error) { return fail(error, res); }
+  try {
+    const payload = {
+      ...(req.body ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+    };
+    return res.status(200).json(await service.placeBets(payload));
+  } catch (error) { return fail(error, res); }
 }
 
 async function history(req, res) {
   try {
-    const result = await service.getHistory({ user_id: req.query.user_id, limit: req.query.limit, offset: req.query.offset ?? 0 });
+    const userId = req.user?.id ? Number(req.user.id) : req.query.user_id;
+    const result = await service.getHistory({ user_id: userId, limit: req.query.limit, offset: req.query.offset ?? 0 });
     return res.status(200).json(result);
   } catch (error) { return fail(error, res); }
 }

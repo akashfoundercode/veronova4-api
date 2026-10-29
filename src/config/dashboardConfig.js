@@ -80,6 +80,9 @@ const DASHBOARD_ROUTES = Object.freeze({
   chickenUpdateGameRules: "/updateGameRules",
   chickenUpdateBetValues: "/updateBetValues",
   chickenAdminMultiplier: "/admin/multiplier",
+  chickenAdminBets: "/admin/chicken/bets",
+  chickenAdminHistory: "/admin/chicken/history",
+  chickenBetHistory: "/betHistory",
   // Jili Routes
   jiliGames: "/getjilligame",
   jiliLaunch: "/jilligame",
@@ -101,7 +104,7 @@ const DASHBOARD_ROUTES = Object.freeze({
 });
 
 const WINGO_CONFIG = Object.freeze({
-  socketUrl: "https://socket.funplay.services",
+  socketUrl: "wss://fcsocket.site",
   socketEvent: "funplay_wingo",
   modes: Object.freeze({
     1: Object.freeze({ id: 1, name: "30 Second", timerKey: "timerBetTime", duration: 30 }),

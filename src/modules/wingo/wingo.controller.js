@@ -384,6 +384,57 @@ async function fetchData(req, res) {
   }
 }
 
+async function livePools(req, res) {
+  try {
+    const gameId = validateWingoGameId(req.params.gameid ?? req.query.game_id ?? 1);
+    const data = await service.getLiveRoundSnapshot(gameId);
+    return res.status(200).json({ status: 200, message: "Live Wingo pools fetched", data });
+  } catch (error) {
+    if (error instanceof AppError) return responseError(res, 400, error.message);
+    throw error;
+  }
+}
+
+async function liveBets(req, res) {
+  try {
+    const gameId = validateWingoGameId(req.query.game_id ?? 1);
+    const data = await service.getLiveRoundSnapshot(gameId);
+    return res.status(200).json({
+      status: 200,
+      message: "Live Wingo bets fetched",
+      game_id: data.game_id,
+      games_no: data.games_no,
+      total_bets: data.active_bets_count,
+      data: data.active_bets,
+    });
+  } catch (error) {
+    if (error instanceof AppError) return responseError(res, 400, error.message);
+    throw error;
+  }
+}
+
+async function adminBetHistory(req, res) {
+  try {
+    const gameId = validateWingoGameId(req.query.game_id ?? 1);
+    const limit = req.query.limit === undefined ? 100 : requiredInteger(req.query.limit, "limit", { minimum: 1 });
+    const offset = req.query.offset === undefined ? 0 : requiredInteger(req.query.offset, "offset", { minimum: 0 });
+    if (limit > 500) return responseError(res, 400, "The limit must not exceed 500.");
+    const status = req.query.status === undefined ? undefined : requiredInteger(req.query.status, "status", { minimum: 0 });
+    if (status !== undefined && status > 2) return responseError(res, 400, "The status must be 0, 1, or 2.");
+    const result = await service.getAdminBetHistory({ gameId, limit, offset, status });
+    return res.status(200).json({
+      status: 200,
+      message: result.data.length ? "Wingo bet history fetched" : "No data found",
+      total: result.total,
+      count: result.data.length,
+      data: result.data,
+    });
+  } catch (error) {
+    if (error instanceof AppError) return responseError(res, 400, error.message);
+    throw error;
+  }
+}
+
 async function colourPredictionStore(req, res) {
   try {
     const body = req.body ?? {};
@@ -432,6 +483,9 @@ module.exports = {
   getResults,
   lastFiveResults,
   lastResult,
+  liveBets,
+  livePools,
+  adminBetHistory,
   results,
   winAmount,
 };

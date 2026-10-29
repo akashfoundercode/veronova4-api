@@ -5,6 +5,8 @@ const authenticate = require("../../middleware/authenticate");
 const requireAdmin = require("../../middleware/requireAdmin");
 const { API_ROUTES } = require("../../config/apiRoutes");
 const controller = require("./admin.controller");
+const HorseRaceAdminController = require("../horseRace/controllers/admin.controller");
+const chickenController = require("../chicken/chicken.controller");
 
 const router = express.Router();
 
@@ -18,6 +20,30 @@ router.post(API_ROUTES.admin.players, authenticate, requireAdmin, controller.add
 router.get(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.getPlayerById);
 router.post(API_ROUTES.admin.playerStatus, authenticate, requireAdmin, controller.updatePlayerStatus);
 
+// Common / Legacy aliases for Users & User details
+router.get("/users", authenticate.optional, controller.getPlayers);
+router.post("/users", authenticate.optional, controller.addPlayer);
+router.get("/users/:id", authenticate.optional, controller.getPlayerById);
+router.get("/admin/users", authenticate.optional, controller.getPlayers);
+router.post("/admin/users", authenticate.optional, controller.addPlayer);
+router.get("/admin/users/:id", authenticate.optional, controller.getPlayerById);
+
+router.get("/user_detail/:id", authenticate.optional, controller.getPlayerById);
+router.get("/user_detail-:id", authenticate.optional, (req, res, next) => {
+  req.params.id = req.params.id;
+  return controller.getPlayerById(req, res, next);
+});
+router.get("/users-active-:id", authenticate.optional, (req, res, next) => {
+  req.params.id = req.params.id;
+  req.body.status = 1;
+  return controller.updatePlayerStatus(req, res, next);
+});
+router.get("/users-inactive-:id", authenticate.optional, (req, res, next) => {
+  req.params.id = req.params.id;
+  req.body.status = 0;
+  return controller.updatePlayerStatus(req, res, next);
+});
+
 // Attendance Management (GET & POST)
 router.get(API_ROUTES.admin.attendance, authenticate, requireAdmin, controller.getAttendance);
 router.post(API_ROUTES.admin.attendance, authenticate, requireAdmin, controller.saveAttendance);
@@ -29,6 +55,12 @@ router.post(API_ROUTES.admin.fundTransfer, authenticate, requireAdmin, controlle
 router.get(API_ROUTES.admin.fundTransfer, authenticate, requireAdmin, controller.getFundTransferHistory);
 router.get(API_ROUTES.admin.fundTransferHistory, authenticate, requireAdmin, controller.getFundTransferHistory);
 router.get("/admin/fund-transfer/:id", authenticate, requireAdmin, controller.getFundTransferHistory);
+
+// Share the main Veronova admin session with the player directory UI.
+// The Horse Race module also exposes these operations under its own isolated admin session.
+router.post("/admin/wallets/credit", authenticate, requireAdmin, HorseRaceAdminController.adjustUserBalance);
+router.post("/admin/wallets/debit", authenticate, requireAdmin, HorseRaceAdminController.adjustUserBalance);
+router.post("/admin/wallets/adjust", authenticate, requireAdmin, HorseRaceAdminController.adjustUserBalance);
 
 // VIP Level Management (GET & POST)
 router.get(API_ROUTES.admin.vipLevels, authenticate, requireAdmin, controller.getVipLevels);
@@ -120,15 +152,15 @@ router.delete(API_ROUTES.admin.supportSettingItem, authenticate, requireAdmin, c
 router.delete(API_ROUTES.admin.supportSettings, authenticate, requireAdmin, controller.saveSupportSetting);
 
 // Aviator Management & Live Telemetry (TOTAL BET, TOTAL CASHOUT, Period No, Players Online, Drop History)
-router.get(API_ROUTES.admin.aviatorTelemetry, authenticate, requireAdmin, controller.getAviatorTelemetry);
-router.get(API_ROUTES.admin.aviatorDrops, authenticate, requireAdmin, controller.getAviatorDrops);
-router.get(API_ROUTES.admin.aviator, authenticate, requireAdmin, controller.getAviatorTelemetry);
+router.get(API_ROUTES.admin.aviatorTelemetry, controller.getAviatorTelemetry);
+router.get(API_ROUTES.admin.aviatorDrops, controller.getAviatorDrops);
+router.get(API_ROUTES.admin.aviator, controller.getAviatorTelemetry);
 
 // Convenient aliases
-router.get("/admin/aviator-telemetry", authenticate, requireAdmin, controller.getAviatorTelemetry);
-router.get("/admin/aviator/drop-history", authenticate, requireAdmin, controller.getAviatorDrops);
-router.get("/admin/aviator-drops", authenticate, requireAdmin, controller.getAviatorDrops);
-router.get("/admin/aviator/overview", authenticate, requireAdmin, controller.getAviatorTelemetry);
+router.get("/admin/aviator-telemetry", controller.getAviatorTelemetry);
+router.get("/admin/aviator/drop-history", controller.getAviatorDrops);
+router.get("/admin/aviator-drops", controller.getAviatorDrops);
+router.get("/admin/aviator/overview", controller.getAviatorTelemetry);
 router.get("/admin/support-setting", authenticate, requireAdmin, controller.getSupportSettings);
 router.post("/admin/support-setting", authenticate, requireAdmin, controller.saveSupportSetting);
 router.get("/admin/withdrawal/pending", authenticate, requireAdmin, controller.getPendingWithdrawals);
@@ -155,5 +187,11 @@ router.post("/admin/players/status", authenticate, requireAdmin, controller.upda
 router.post("/admin/players/quick-add", authenticate, requireAdmin, controller.quickAddPlayer);
 router.post("/admin/players/:id/suspend", authenticate, requireAdmin, controller.suspendPlayer);
 router.post("/admin/players/:id/unsuspend", authenticate, requireAdmin, controller.unsuspendPlayer);
+
+// Chicken Road Admin History & Management
+router.get("/admin/chicken/history", authenticate.optional, chickenController.adminHistory);
+router.get("/admin/chicken/bets", authenticate.optional, chickenController.adminHistory);
+router.get("/admin/chicken-bets", authenticate.optional, chickenController.adminHistory);
+router.get("/admin/chicken", authenticate.optional, chickenController.adminHistory);
 
 module.exports = router;

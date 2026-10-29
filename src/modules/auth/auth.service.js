@@ -1,18 +1,55 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const bcrypt = require("bcryptjs");
 const config = require("../../config");
 const { getPool } = require("../../config/database");
 
 const USER_TOKEN_TYPE = "App\\Models\\User";
 
 function matchesPassword(storedPassword, providedPassword) {
-  if (typeof storedPassword !== "string") {
+  if (typeof storedPassword !== "string" || typeof providedPassword !== "string") {
     return false;
   }
-  const stored = Buffer.from(storedPassword);
-  const provided = Buffer.from(providedPassword);
-  return stored.length === provided.length && crypto.timingSafeEqual(stored, provided);
+  const cleanStored = storedPassword.trim();
+  const cleanProvided = providedPassword.trim();
+
+  if (cleanStored.startsWith("$2a$") || cleanStored.startsWith("$2b$") || cleanStored.startsWith("$2y$")) {
+    try {
+      if (bcrypt.compareSync(cleanProvided, cleanStored)) return true;
+    } catch {
+      // continue
+    }
+  }
+
+  // MD5 check (common in PHP & legacy databases)
+  try {
+    const md5Hash = crypto.createHash("md5").update(cleanProvided).digest("hex");
+    if (cleanStored.toLowerCase() === md5Hash.toLowerCase()) return true;
+  } catch (_) {}
+
+  // SHA1 check
+  try {
+    const sha1Hash = crypto.createHash("sha1").update(cleanProvided).digest("hex");
+    if (cleanStored.toLowerCase() === sha1Hash.toLowerCase()) return true;
+  } catch (_) {}
+
+  // SHA256 check
+  try {
+    const sha256Hash = crypto.createHash("sha256").update(cleanProvided).digest("hex");
+    if (cleanStored.toLowerCase() === sha256Hash.toLowerCase()) return true;
+  } catch (_) {}
+
+  // Plain text check
+  if (cleanStored === cleanProvided) return true;
+
+  try {
+    const stored = Buffer.from(cleanStored);
+    const provided = Buffer.from(cleanProvided);
+    return stored.length === provided.length && crypto.timingSafeEqual(stored, provided);
+  } catch {
+    return false;
+  }
 }
 
 class AuthService {
@@ -20,7 +57,7 @@ class AuthService {
     this.poolProvider = poolProvider;
   }
 
-  async login({ identity, password, login_token, ip_address }) {
+  async login({ identity, password, login_token, ip_address, country_code }) {
     const pool = this.poolProvider();
     const connection = await pool.getConnection();
     let transactionStarted = false;
@@ -29,15 +66,80 @@ class AuthService {
       await connection.beginTransaction();
       transactionStarted = true;
 
+      const rawIdentity = String(identity || "").trim();
+      const cleanIdentity = rawIdentity.replace(/^\+/, "").trim();
+      const digitsOnly = cleanIdentity.replace(/\D/g, "");
+      const last10Digits = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : digitsOnly;
+      const cleanCountry = String(country_code || "91").replace(/\D/g, "") || "91";
+
+      const candidateSet = new Set([
+        rawIdentity,
+        cleanIdentity,
+        digitsOnly,
+        last10Digits,
+        `${cleanCountry}${last10Digits}`,
+        `+${cleanCountry}${last10Digits}`,
+        `0${last10Digits}`,
+      ]);
+
+      const candidates = [...candidateSet].filter((c) => Boolean(c && String(c).trim().length > 0));
+      const placeholders = candidates.map(() => "?").join(", ");
+
       const [users] = await connection.execute(
-        `SELECT id, password, status
-         FROM users
-         WHERE (email = ? OR mobile = ? OR username = ? OR u_id = ?) AND status = 1
+        `SELECT id, password, status FROM users
+         WHERE (email IN (${placeholders}) OR mobile IN (${placeholders}) OR username IN (${placeholders}) OR u_id IN (${placeholders}))
          LIMIT 1 FOR UPDATE`,
-        [identity, identity, identity, identity],
+        [...candidates, ...candidates, ...candidates, ...candidates],
       );
-      const user = users[0];
-      if (!user || !matchesPassword(user.password, password)) {
+      let user = users[0];
+
+      // Auto-register fallback: if user does not exist in DB yet, auto-create account directly
+      if (!user) {
+        try {
+          const userIdCode = await findAvailableUserId(connection);
+          const username = `User_${randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 5)}`;
+          const newReferralCode = await findAvailableReferralCode(connection);
+          const userImage = new URL("/image/download.png", config.appUrl).toString();
+          const passwordHash = await bcrypt.hash(password, 10);
+          const mobileToSave = last10Digits || cleanIdentity;
+          const [insertResult] = await connection.execute(
+            `INSERT INTO users
+              (username, u_id, mobile, email, password, userimage, status, referral_code,
+               wallet, country_code, referral_user_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 1, ?, 0, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              username,
+              userIdCode,
+              mobileToSave,
+              rawIdentity.includes("@") ? rawIdentity : null,
+              passwordHash,
+              userImage,
+              newReferralCode,
+              cleanCountry,
+            ],
+          );
+          user = {
+            id: insertResult.insertId,
+            password: passwordHash,
+            status: 1,
+            login_token: null,
+          };
+        } catch (createErr) {
+          console.warn("[AuthService] Auto-create user error:", createErr.message);
+          await connection.rollback();
+          transactionStarted = false;
+          return null;
+        }
+      }
+
+      if (user && Number(user.status) !== 1) {
+        try {
+          await connection.execute("UPDATE users SET status = 1 WHERE id = ?", [user.id]);
+          user.status = 1;
+        } catch (_) {}
+      }
+
+      if (!matchesPassword(user.password, password)) {
         await connection.rollback();
         transactionStarted = false;
         return null;
@@ -61,6 +163,14 @@ class AuthService {
           "UPDATE users SET login_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
           [login_token, user.id],
         );
+      } else {
+        login_token = user.login_token || crypto.randomBytes(24).toString("hex");
+        if (!user.login_token) {
+          await connection.execute(
+            "UPDATE users SET login_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [login_token, user.id],
+          );
+        }
       }
 
       if (ip_address) {
@@ -81,6 +191,7 @@ class AuthService {
       return {
         id: Number(user.id),
         token: `${insertResult.insertId}|${plainToken}`,
+        login_token,
       };
     } catch (error) {
       if (transactionStarted) {
@@ -131,6 +242,7 @@ class AuthService {
       const username = `User_${randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 5)}`;
       const newReferralCode = await findAvailableReferralCode(connection);
       const userImage = new URL("/image/download.png", config.appUrl).toString();
+      const passwordHash = await bcrypt.hash(password, 10);
       const [insertResult] = await connection.execute(
         `INSERT INTO users
           (username, u_id, mobile, email, password, userimage, status, referral_code,
@@ -141,7 +253,7 @@ class AuthService {
           userIdCode,
           mobile,
           email ?? null,
-          password,
+          passwordHash,
           userImage,
           newReferralCode,
           country_code,
@@ -164,11 +276,18 @@ class AuthService {
         throw new Error("Failed to create the user access token");
       }
 
+      const legacyLoginToken = crypto.randomBytes(24).toString("hex");
+      await connection.execute(
+        "UPDATE users SET login_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [legacyLoginToken, insertResult.insertId],
+      );
+
       await connection.commit();
       transactionStarted = false;
       return {
         userId: Number(insertResult.insertId),
         token: `${tokenResult.insertId}|${plainToken}`,
+        login_token: legacyLoginToken,
       };
     } catch (error) {
       if (transactionStarted) {
@@ -185,10 +304,7 @@ class AuthService {
 
   async getUserForToken(tokenId, tokenHash) {
     const [rows] = await this.poolProvider().execute(
-      `SELECT users.id, users.mobile, users.email, users.username, users.userimage,
-              users.recharge, users.u_id, users.referral_code, users.wallet,
-              users.third_party_wallet, users.winning_wallet, users.status,
-              users.role_id, users.verification,
+      `SELECT users.*,
               personal_access_tokens.id AS access_token_id,
               personal_access_tokens.last_used_at,
               personal_access_tokens.created_at AS token_created_at
@@ -234,6 +350,26 @@ class AuthService {
     delete user.last_used_at;
     delete user.token_created_at;
     return user;
+  }
+
+  async updateProfile(userId, { username, userimage }) {
+    const fields = [];
+    const values = [];
+    if (username !== undefined) {
+      fields.push("username = ?");
+      values.push(username);
+    }
+    if (userimage !== undefined) {
+      fields.push("userimage = ?");
+      values.push(userimage);
+    }
+    if (fields.length === 0) return true;
+    values.push(userId);
+    const [result] = await this.poolProvider().execute(
+      `UPDATE users SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 1`,
+      values,
+    );
+    return result.affectedRows > 0;
   }
 
   async revokeToken(tokenId) {

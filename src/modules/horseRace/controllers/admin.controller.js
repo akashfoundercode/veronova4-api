@@ -47,6 +47,11 @@ class AdminController {
                 reason,
             });
 
+            if (result.success && raceEngine.forcedCurrentWinner) {
+                socketService.syncForcedWinner(raceEngine.forcedCurrentWinner);
+                socketService.broadcastLiveRaceSnapshot().catch(() => {});
+            }
+
             return res.status(result.success ? 200 : (result.locked ? 409 : 400)).json(result);
         } catch (error) {
             next(error);

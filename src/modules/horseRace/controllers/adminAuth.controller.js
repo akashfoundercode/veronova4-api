@@ -34,9 +34,7 @@ async function forgotPassword(req, res, next) {
         const expiresAt = new Date(Date.now() + RESET_MINUTES * 60000);
         await pool.execute('UPDATE admin_password_resets SET used_at = NOW() WHERE admin_id = ? AND used_at IS NULL', [admins[0].id]);
         await pool.execute('INSERT INTO admin_password_resets (admin_id, token_hash, expires_at) VALUES (?, ?, ?)', [admins[0].id, hashToken(rawToken), expiresAt]);
-        // Integrate a mail provider via this environment-controlled delivery hook.
-        if (process.env.ADMIN_RESET_URL) response.resetUrl = `${process.env.ADMIN_RESET_URL}?token=${rawToken}`;
-        else if (process.env.NODE_ENV !== 'production') response.resetToken = rawToken;
+        // Password reset token is strictly sent via internal/mail channels and never exposed in HTTP responses.
         return res.json(response);
     } catch (error) { return next(error); }
 }

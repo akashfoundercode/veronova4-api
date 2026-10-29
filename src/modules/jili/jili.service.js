@@ -95,7 +95,11 @@ class JiliService {
       throw new AppError(400, "DEMO_ACCOUNT_UNAVAILABLE", "Game is not available for demo accounts.");
     }
 
-    const balance = amount !== null ? Math.trunc(amount) : Math.max(0, Math.trunc(Number(user.wallet ?? 0)));
+    const availableWallet = Math.max(0, Math.trunc(Number(user.wallet ?? 0)));
+    if (amount !== null && amount > availableWallet) {
+      throw new AppError(400, "INSUFFICIENT_FUNDS", "Insufficient wallet balance.");
+    }
+    const balance = amount !== null ? Math.trunc(amount) : availableWallet;
 
     const secretId = process.env.JILI_SECRET_ID;
     const secretKey = process.env.JILI_SECRET_KEY;

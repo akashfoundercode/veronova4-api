@@ -29,7 +29,7 @@ module.exports = {
     const payload = {
       ...req.query,
       ...req.body,
-      user_id: req.query?.user_id ?? req.query?.userid ?? req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: req.user?.id ? Number(req.user.id) : (req.query?.user_id ?? req.query?.userid ?? req.body?.user_id ?? req.body?.userid),
       amount: req.query?.amount ?? req.body?.amount,
       game_id: req.query?.game_id ?? req.query?.gameid ?? req.body?.game_id ?? req.body?.gameid,
     };

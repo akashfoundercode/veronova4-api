@@ -5,6 +5,13 @@ const AppError = require("../../shared/errors/AppError");
 
 const service = new CustomerServiceService();
 
+function resolveUserId(req) {
+  if (req.user?.id) {
+    return Number(req.user.id);
+  }
+  return req.body?.user_id ?? req.body?.userid ?? req.query?.user_id ?? req.query?.userid;
+}
+
 function extractFile(req, fieldName) {
   if (req.files && Array.isArray(req.files)) {
     const f = req.files.find((file) => file.fieldname === fieldName);
@@ -43,7 +50,7 @@ module.exports = {
   ifscModification: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
     };
     return service.ifscModification(payload);
   }),
@@ -52,7 +59,7 @@ module.exports = {
   deleteAccount: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       passbook_photo: extractFile(req, "passbook_photo"),
       identity_card_photo: extractFile(req, "identity_card_photo"),
       last_deposit_proof: extractFile(req, "last_deposit_proof"),
@@ -64,7 +71,7 @@ module.exports = {
   bankNameModification: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
     };
     return service.bankNameModification(payload);
   }),
@@ -74,7 +81,7 @@ module.exports = {
     const image = extractFile(req, "image") ?? req.body?.image;
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       image,
     };
     return service.gameIssueReport(payload);
@@ -84,7 +91,7 @@ module.exports = {
   changeLoginPassword: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       latest_deposit_receipt: extractFile(req, "latest_deposit_receipt"),
       photo_selfie_hold_passbook: extractFile(req, "photo_selfie_hold_passbook"),
       photo_selfie_hold_identity_card: extractFile(req, "photo_selfie_hold_identity_card"),
@@ -96,7 +103,7 @@ module.exports = {
   usdtUserVerification: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       screenshot_bdgwin_id: extractFile(req, "screenshot_bdgwin_id"),
       photo_government_card: extractFile(req, "photo_government_card"),
       photo_deposit_proof1: extractFile(req, "photo_deposit_proof1"),
@@ -112,7 +119,7 @@ module.exports = {
   submitOldUsdtAddress: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       depositProof: extractFile(req, "depositProof") ?? extractFile(req, "deposit_proof"),
       selfieId: extractFile(req, "selfieId") ?? extractFile(req, "selfie_id"),
       selfieUsdt: extractFile(req, "selfieUsdt") ?? extractFile(req, "selfie_usdt"),
@@ -124,7 +131,7 @@ module.exports = {
   aviatorLuckyBonus: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
     };
     return service.aviatorLuckyBonus(payload);
   }),
@@ -133,7 +140,7 @@ module.exports = {
   fetchByTypeId: wrap(async (req) => {
     const query = {
       ...req.query,
-      userid: req.query?.userid ?? req.query?.user_id ?? req.user?.id,
+      userid: resolveUserId(req),
     };
     return service.fetchByTypeId(query);
   }),
@@ -142,7 +149,7 @@ module.exports = {
   depositProblem: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       deposit_proof_recipt: extractFile(req, "deposit_proof_recipt"),
       bank_transaction_video: extractFile(req, "bank_transaction_video"),
       pdf_bank_statement: extractFile(req, "pdf_bank_statement"),
@@ -154,7 +161,7 @@ module.exports = {
   depositPendingList: wrap(async (req) => {
     const query = {
       ...req.query,
-      user_id: req.query?.user_id ?? req.query?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
     };
     return service.depositPendingList(query);
   }),
@@ -163,7 +170,7 @@ module.exports = {
   withdrawPendingList: wrap(async (req) => {
     const query = {
       ...req.query,
-      user_id: req.query?.user_id ?? req.query?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
     };
     return service.withdrawPendingList(query);
   }),
@@ -172,7 +179,7 @@ module.exports = {
   withdrawProblem: wrap(async (req) => {
     const payload = {
       ...req.body,
-      user_id: req.body?.user_id ?? req.body?.userid ?? req.user?.id,
+      user_id: resolveUserId(req),
       deposit_proof_recipt: extractFile(req, "deposit_proof_recipt"),
       bank_transaction_video: extractFile(req, "bank_transaction_video"),
       pdf_bank_statement: extractFile(req, "pdf_bank_statement"),

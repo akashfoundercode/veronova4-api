@@ -3,23 +3,27 @@
 const AppError = require("../../shared/errors/AppError");
 const { AviatorService } = require("./aviator.service");
 
-const service = new AviatorService();
+let service = new AviatorService();
+
+function setService(customService) {
+  service = customService;
+}
 
 function responseError(res, status, message) {
   return res.status(status === 400 ? 200 : status).json({ status, message });
 }
 
-function validateBetInput(input) {
-  const uid = Number(input.uid);
-  const gameId = Number(input.game_id);
-  const amount = Number(input.amount);
-  const number = Number(input.number);
-  const gameSerial = input.game_sr_num;
+function validateBetInput(input, user = null) {
+  const uid = Number(input.uid ?? input.userId ?? input.userid ?? input.user_id ?? user?.id);
+  const gameId = Number(input.game_id ?? 5);
+  const amount = Number(input.amount ?? input.bet_amount ?? input.betAmount);
+  const number = input.number !== undefined && input.number !== "" ? Number(input.number) : 1;
+  const gameSerial = input.game_sr_num ?? input.games_no ?? input.game_sr ?? input.period ?? "";
 
-  if (input.uid === undefined || input.uid === "" || !Number.isInteger(uid) || uid < 1) {
+  if (!Number.isInteger(uid) || uid < 1) {
     throw new AppError(400, "VALIDATION_ERROR", "The uid field is required.");
   }
-  if (input.number === undefined || input.number === "" || !Number.isInteger(number)) {
+  if (!Number.isInteger(number)) {
     throw new AppError(400, "VALIDATION_ERROR", "The number field is required.");
   }
   if (input.amount === undefined || input.amount === "" || !Number.isFinite(amount) || amount < 1) {
@@ -27,9 +31,6 @@ function validateBetInput(input) {
   }
   if (gameId !== 5) {
     throw new AppError(400, "VALIDATION_ERROR", "The selected game_id is invalid.");
-  }
-  if (gameSerial === undefined || gameSerial === null || String(gameSerial).trim() === "") {
-    throw new AppError(400, "VALIDATION_ERROR", "The game_sr_num field is required.");
   }
 
   const stopMultiplier = input.stop_multiplier === undefined || input.stop_multiplier === ""
@@ -52,7 +53,7 @@ function validateBetInput(input) {
 async function runBet(req, res, legacyWalletMode) {
   try {
     const source = req.method === "GET" ? req.query : req.body;
-    const input = validateBetInput(source ?? {});
+    const input = validateBetInput(source ?? {}, req.user);
     const result = await service.placeBet(input, { legacyWalletMode });
     return res.status(200).json(result);
   } catch (error) {
@@ -217,6 +218,39 @@ async function drops(req, res) {
   }
 }
 
+async function roundSettings(req, res) {
+  try {
+    const data = await service.getNextRoundSettings();
+    return res.status(200).json(data);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({ status: error.statusCode, message: error.message });
+    }
+    return res.status(500).json({ status: 500, message: error.message });
+  }
+}
+
+async function insertResult(req, res) {
+  try {
+    const payload = { ...(req.query || {}), ...(req.body || {}) };
+    const multiplier = Number(payload.adminmultiply ?? payload.multiplier ?? payload.price ?? payload.crash_point ?? 0);
+    const gameSrNum = String(payload.game_sr ?? payload.game_sr_num ?? payload.period ?? payload.game_id ?? "");
+    if (!gameSrNum) {
+      return res.status(400).json({ status: 400, message: "game_sr is required" });
+    }
+    if (!multiplier || multiplier <= 0) {
+      return res.status(400).json({ status: 400, message: "adminmultiply must be greater than 0" });
+    }
+    const result = await service.settleRound({ game_sr_num: gameSrNum, multiplier });
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({ status: error.statusCode, message: error.message });
+    }
+    return res.status(500).json({ status: 500, message: error.message });
+  }
+}
+
 module.exports = {
   adminService,
   bet,
@@ -226,7 +260,10 @@ module.exports = {
   decodeCashout,
   drops,
   history,
+  insertResult,
   lastFiveResult,
+  roundSettings,
+  setService,
   telemetry,
   validateBetInput,
 };

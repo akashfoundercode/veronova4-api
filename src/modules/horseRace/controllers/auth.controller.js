@@ -130,6 +130,10 @@ async function me(request, response) {
 
 async function logout(request, response) {
     await pool.execute('DELETE FROM user_sessions WHERE token_hash = ?', [request.sessionTokenHash]);
+    try {
+        const { socketService } = require('../services/socket.service');
+        if (request.user?.id) socketService.disconnectUser(request.user.id);
+    } catch (_) {}
     return response.status(200).json({
         success: true,
         message: 'Logged out successfully'

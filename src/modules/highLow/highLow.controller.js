@@ -10,16 +10,26 @@ function fail(error, res) {
 }
 
 async function bet(req, res) {
-  try { return res.status(200).json(await service.placeBet(req.body ?? {})); }
-  catch (error) { return fail(error, res); }
+  try {
+    const payload = {
+      ...(req.body ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+    };
+    return res.status(200).json(await service.placeBet(payload));
+  } catch (error) { return fail(error, res); }
 }
 async function settle(req, res) {
   try { return res.status(200).json(await service.settleRound(req.params.game_id)); }
   catch (error) { return fail(error, res); }
 }
 async function history(req, res) {
-  try { return res.status(200).json(await service.getBetHistory(req.query)); }
-  catch (error) { return fail(error, res); }
+  try {
+    const query = {
+      ...(req.query ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.query?.userid,
+    };
+    return res.status(200).json(await service.getBetHistory(query));
+  } catch (error) { return fail(error, res); }
 }
 async function winAmount(req, res) {
   try { return res.status(200).json(await service.getWinAmount(req.query)); }

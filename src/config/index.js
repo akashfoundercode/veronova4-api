@@ -1,9 +1,12 @@
 "use strict";
 
+const path = require("node:path");
+require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 require("dotenv").config();
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 const databasePort = Number.parseInt(process.env.DB_PORT ?? "3306", 10);
+const appUrl = (process.env.APP_URL ?? `http://127.0.0.1:${port}`).replace(/\/$/, "");
 
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error("PORT must be an integer between 1 and 65535");
@@ -24,10 +27,13 @@ module.exports = Object.freeze({
     connectionLimit: Number.parseInt(process.env.DB_CONNECTION_LIMIT ?? "10", 10),
   }),
   horseRace: Object.freeze({
-    database: process.env.HORSE_DB_DATABASE,
-    jwtSecret: process.env.HORSE_JWT_SECRET ?? process.env.JWT_SECRET,
+    jwtSecret: process.env.HORSE_JWT_SECRET ?? process.env.JWT_SECRET ?? "veronova_default_jwt_secret",
   }),
   resultsApiUrl:
+    process.env.RESULTS_API_URL ??
+    "https://root.usawin.vip/api/trx/results_by_periodno",
+  wingoResultApiUrl:
+    process.env.WINGO_RESULT_API_URL ??
     process.env.RESULTS_API_URL ??
     "https://root.usawin.vip/api/trx/results_by_periodno",
   aviator: Object.freeze({
@@ -38,7 +44,7 @@ module.exports = Object.freeze({
   wingo: Object.freeze({
     timerApiUrl:
       process.env.WINGO_TIMER_API_URL ??
-      "https://root.veronova.co.in/api/cron_news/",
+      `http://127.0.0.1:${port}/api/cron_news/`,
   }),
   trx: Object.freeze({
     resultFeedUrl:
@@ -49,5 +55,9 @@ module.exports = Object.freeze({
       "https://api.gamebridge.co.in/seller/v1/get-block-hash",
     managerKey: process.env.TRX_MANAGER_KEY,
   }),
-  appUrl: process.env.APP_URL ?? "http://localhost:3000",
+  appUrl,
+  corsOrigins: (process.env.CORS_ORIGINS ?? process.env.APP_URL ?? "http://localhost:3000")
+    .split(",")
+    .map((origin) => origin.trim().replace(/\/$/, ""))
+    .filter(Boolean),
 });

@@ -162,10 +162,27 @@ class WingoService {
       await connection.beginTransaction();
       transactionStarted = true;
 
-      const [logRows] = await connection.execute(
+      let [logRows] = await connection.execute(
         "SELECT id, games_no, number FROM betlogs WHERE game_id = ? ORDER BY id FOR UPDATE",
         [game_id],
       );
+      if (logRows.length === 0) {
+        const initialGameNo = formatPeriod(new Date(), game_id);
+        const numbers = WINGO_GAME_IDS.includes(Number(game_id))
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          : [0];
+        for (const num of numbers) {
+          await connection.execute(
+            "INSERT INTO betlogs (game_id, games_no, number, amount) VALUES (?, ?, ?, 0.00)",
+            [game_id, initialGameNo, String(num)],
+          );
+        }
+        const [seeded] = await connection.execute(
+          "SELECT id, games_no, number FROM betlogs WHERE game_id = ? ORDER BY id FOR UPDATE",
+          [game_id],
+        );
+        logRows = seeded;
+      }
       const period = logRows[0]?.games_no || (games_no !== undefined && games_no !== null && String(games_no).trim() !== "" ? String(games_no).trim() : null);
       if (!period) {
         throw new AppError(
@@ -257,7 +274,7 @@ class WingoService {
 
   async fetchProviderResult(gameId, period) {
     assertWingoGameId(gameId);
-    const url = new URL(config.resultsApiUrl);
+    const url = new URL(config.wingoResultApiUrl);
     url.searchParams.set("gameid", String(gameId));
     url.searchParams.set("period_no", String(period));
 
@@ -316,22 +333,47 @@ class WingoService {
     try {
       await connection.beginTransaction();
       transactionStarted = true;
-      const [settings] = await connection.execute(
-        "SELECT winning_percentage FROM game_settings WHERE id = ?",
-        [gameId],
-      );
-      if (settings.length === 0) {
-        throw new AppError(
-          404,
-          "GAME_NOT_FOUND",
-          `No winning percentage found for game_id: ${gameId}`,
+      let winPercentage = 90;
+      try {
+        const [settings] = await connection.execute(
+          "SELECT winning_percentage FROM game_settings WHERE id = ?",
+          [gameId],
         );
-      }
+        if (settings.length > 0 && settings[0].winning_percentage != null) {
+          winPercentage = Number(settings[0].winning_percentage);
+        } else {
+          try {
+            await connection.execute(
+              "INSERT IGNORE INTO game_settings (id, name, winning_percentage, status) VALUES (?, ?, 90, 1)",
+              [gameId, `Wingo Game ${gameId}`],
+            );
+          } catch (_) {}
+        }
+      } catch (_) {}
 
-      const [logs] = await connection.execute(
+      let [logs] = await connection.execute(
         "SELECT id, games_no, number, amount FROM betlogs WHERE game_id = ? ORDER BY id FOR UPDATE",
         [gameId],
       );
+      if (logs.length === 0) {
+        const initialGameNo = formatPeriod(new Date(), gameId);
+        const numbers = WINGO_GAME_IDS.includes(Number(gameId))
+          ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          : [0];
+        for (const num of numbers) {
+          try {
+            await connection.execute(
+              "INSERT INTO betlogs (game_id, games_no, number, amount) VALUES (?, ?, ?, 0.00)",
+              [gameId, initialGameNo, String(num)],
+            );
+          } catch (_) {}
+        }
+        const [seeded] = await connection.execute(
+          "SELECT id, games_no, number, amount FROM betlogs WHERE game_id = ? ORDER BY id FOR UPDATE",
+          [gameId],
+        );
+        logs = seeded;
+      }
       if (logs.length === 0) {
         throw new AppError(
           409,
@@ -346,7 +388,7 @@ class WingoService {
         [gameId, gameNo],
       );
       const totalAmount = Number(totalRows[0].amount ?? 0);
-      const winLimit = totalAmount * (Number(settings[0].winning_percentage) / 100);
+      const winLimit = totalAmount * (winPercentage / 100);
 
       const [adminResults] =
         forcedResult === undefined
@@ -441,12 +483,27 @@ class WingoService {
         [gameId, gameNo],
       );
       for (const bet of winningBets) {
-        await connection.execute(
-          `UPDATE users
-           SET wallet = wallet + ?, winning_wallet = winning_wallet + ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-          [bet.win_amount, bet.win_amount, bet.userid],
-        );
+        try {
+          await connection.execute(
+            `UPDATE users
+             SET wallet = COALESCE(wallet, 0) + ?, winning_wallet = COALESCE(winning_wallet, 0) + ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bet.win_amount, bet.win_amount, bet.userid],
+          );
+        } catch (_) {
+          await connection.execute(
+            `UPDATE users
+             SET wallet = COALESCE(wallet, 0) + ?, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?`,
+            [bet.win_amount, bet.userid],
+          );
+        }
+        try {
+          await connection.execute(
+            "UPDATE wallets SET balance = COALESCE(balance, 0) + ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?",
+            [bet.win_amount, bet.userid],
+          );
+        } catch (_) {}
       }
 
       await connection.execute(
@@ -488,10 +545,41 @@ class WingoService {
       }
 
       insertResultSql += ", created_at, updated_at) ";
-      await connection.execute(
-        insertResultSql + insertResultValuesSql,
-        resultValues,
-      );
+      try {
+        await connection.execute(
+          insertResultSql + insertResultValuesSql,
+          resultValues,
+        );
+      } catch (insertErr) {
+        const isDuplicateKey =
+          insertErr &&
+          (insertErr.code === "ER_DUP_ENTRY" ||
+            String(insertErr.message || "").includes("Duplicate entry"));
+        if (isDuplicateKey) {
+          const [maxRows] = await connection.execute(
+            "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM bet_results",
+          );
+          const nextId = Number(maxRows[0]?.next_id || 1);
+          const fallbackSql = insertResultSql
+            .replace("INSERT INTO bet_results\n        (", "INSERT INTO bet_results (id, ")
+            .replace("INSERT INTO bet_results (", "INSERT INTO bet_results (id, ");
+          const fallbackValuesSql = insertResultValuesSql.replace(
+            "VALUES (",
+            "VALUES (?, ",
+          );
+          await connection.execute(fallbackSql + fallbackValuesSql, [
+            nextId,
+            ...resultValues,
+          ]);
+          try {
+            await connection.execute(
+              "ALTER TABLE bet_results MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+            );
+          } catch (_) {}
+        } else {
+          throw insertErr;
+        }
+      }
 
       await connection.execute(
         "UPDATE betlogs SET amount = 0, games_no = games_no + 1 WHERE game_id = ?",
@@ -685,6 +773,107 @@ class WingoService {
       );
       return { bets, gameid: Number(gameId) };
     }
+  }
+
+  async getLiveRoundSnapshot(gameId) {
+    assertWingoGameId(gameId);
+    const pool = this.poolProvider();
+    const [logs] = await pool.execute(
+      `SELECT games_no, number, amount
+       FROM betlogs WHERE game_id = ? ORDER BY id ASC`,
+      [gameId],
+    );
+    const gamesNo = logs[0]?.games_no ?? null;
+    const numberTotals = Array.from({ length: 10 }, (_, number) => ({
+      number,
+      amount: 0,
+      size: number >= 5 ? "Big" : "Small",
+    }));
+    for (const row of logs) {
+      const number = Number(row.number);
+      if (Number.isInteger(number) && number >= 0 && number <= 9) {
+        numberTotals[number].amount = Number(row.amount ?? 0);
+      }
+    }
+
+    let activeBets = [];
+    if (gamesNo !== null) {
+      const [bets] = await pool.execute(
+        `SELECT b.id, b.userid, u.username, b.number, b.amount, b.trade_amount,
+                b.status, b.games_no, b.game_id, b.created_at
+         FROM bets b
+         LEFT JOIN users u ON u.id = b.userid
+         WHERE b.game_id = ? AND b.games_no = ? AND b.status = 0
+         ORDER BY b.id DESC`,
+        [gameId, String(gamesNo)],
+      );
+      activeBets = bets.map((bet) => ({
+        ...bet,
+        id: Number(bet.id),
+        userid: Number(bet.userid),
+        amount: Number(bet.amount ?? 0),
+        trade_amount: Number(bet.trade_amount ?? 0),
+      }));
+    }
+
+    const total = (values) => values.reduce((sum, item) => sum + item.amount, 0);
+    const color = {
+      green: total(numberTotals.filter(({ number }) => [1, 3, 7, 9].includes(number))),
+      violet: total(numberTotals.filter(({ number }) => [0, 5].includes(number))),
+      red: total(numberTotals.filter(({ number }) => [2, 4, 6, 8].includes(number))),
+    };
+    const size = {
+      small: total(numberTotals.filter(({ number }) => number <= 4)),
+      big: total(numberTotals.filter(({ number }) => number >= 5)),
+    };
+
+    return {
+      game_id: Number(gameId),
+      gameid: Number(gameId),
+      games_no: gamesNo,
+      period: gamesNo,
+      active_bets_count: activeBets.length,
+      total_bets_count: activeBets.length,
+      total_amount: Number(activeBets.reduce((sum, bet) => sum + bet.amount, 0).toFixed(2)),
+      pools: { color, size, numbers: numberTotals },
+      active_bets: activeBets,
+    };
+  }
+
+  async getAdminBetHistory({ gameId, limit, offset, status }) {
+    assertWingoGameId(gameId);
+    const where = ["b.game_id = ?"];
+    const values = [gameId];
+    if (status !== undefined && status !== "") {
+      where.push("b.status = ?");
+      values.push(status);
+    }
+    const pool = this.poolProvider();
+    const [countRows] = await pool.execute(
+      `SELECT COUNT(*) AS total FROM bets b WHERE ${where.join(" AND ")}`,
+      values,
+    );
+    const [rows] = await pool.execute(
+      `SELECT b.id, b.userid, u.username, u.mobile, b.game_id, b.games_no,
+              b.number, b.amount, b.commission, b.trade_amount, b.win_amount,
+              b.win_number, b.status, b.created_at, b.updated_at
+       FROM bets b LEFT JOIN users u ON u.id = b.userid
+       WHERE ${where.join(" AND ")}
+       ORDER BY b.id DESC LIMIT ? OFFSET ?`,
+      [...values, limit, offset],
+    );
+    return {
+      total: Number(countRows[0]?.total ?? 0),
+      data: rows.map((row) => ({
+        ...row,
+        id: Number(row.id),
+        userid: Number(row.userid),
+        amount: Number(row.amount ?? 0),
+        commission: Number(row.commission ?? 0),
+        trade_amount: Number(row.trade_amount ?? 0),
+        win_amount: Number(row.win_amount ?? 0),
+      })),
+    };
   }
 }
 

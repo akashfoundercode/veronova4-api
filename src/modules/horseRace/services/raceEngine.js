@@ -10,11 +10,14 @@ const LIVE_FORCE_WINNER_WINDOW_MS = 10_000;
 class RaceEngine extends EventEmitter {
     constructor() {
         super();
+        this.setMaxListeners(50);
         this.isRunning = false;
         this.currentRace = null;
         this.currentHorses = [];
         this.activeTimer = null;
         this.isTransitioning = false;
+        this.horseBetsMap = new Map(); // horseSerial -> { totalBetsAmount, totalBetsCount }
+        this.totalPot = 0;
         this.scheduledWinners = new Map(); // gameSerial -> { horseSerial, horseId, horseName, reason }
         this.forcedCurrentWinner = null; // { horseSerial, horseId, horseName, reason }
         this.predeterminedWinner = null; // Cached winner chosen at start of RUNNING phase for live track simulation
@@ -37,6 +40,102 @@ class RaceEngine extends EventEmitter {
         };
     }
 
+    recordBets(bets) {
+        if (!bets) return;
+        const betList = Array.isArray(bets) ? bets : [bets];
+        for (const b of betList) {
+            const serial = Number(b.horseSerial || b.horse_serial || b.serialNumber || b.serial_number);
+            const amount = Number(b.amount) || 0;
+            if (!serial || amount <= 0) continue;
+
+            const cur = this.horseBetsMap.get(serial) || { totalBetsAmount: 0, totalBetsCount: 0 };
+            cur.totalBetsAmount = Number((cur.totalBetsAmount + amount).toFixed(2));
+            cur.totalBetsCount += 1;
+            this.horseBetsMap.set(serial, cur);
+            this.totalPot = Number((this.totalPot + amount).toFixed(2));
+        }
+    }
+
+    removeBet(horseSerial, amount) {
+        const serial = Number(horseSerial);
+        const amt = Number(amount) || 0;
+        if (!serial || amt <= 0) return;
+
+        const cur = this.horseBetsMap.get(serial);
+        if (cur) {
+            cur.totalBetsAmount = Math.max(0, Number((cur.totalBetsAmount - amt).toFixed(2)));
+            cur.totalBetsCount = Math.max(0, cur.totalBetsCount - 1);
+            this.horseBetsMap.set(serial, cur);
+            this.totalPot = Math.max(0, Number((this.totalPot - amt).toFixed(2)));
+        }
+    }
+
+    getHorseBetsPool() {
+        const pool = [];
+        const default12 = this.getDefaultHorses();
+        const baseHorses = (this.currentHorses && this.currentHorses.length > 0 ? this.currentHorses : default12);
+        const mapBySerial = new Map();
+        for (const h of baseHorses) {
+            const s = Number(h.serial_number || h.serialNumber);
+            if (s) mapBySerial.set(s, h);
+        }
+        const horses = default12.map((def, idx) => {
+            const s = idx + 1;
+            return mapBySerial.get(s) || def;
+        });
+
+        let totalCount = 0;
+        const horsesMap = {};
+        horses.forEach((h, index) => {
+            const serial = Number(h.serial_number || h.serialNumber || index + 1);
+            const id = Number(h.horse_id || h.id || index + 1);
+            const betInfo = this.horseBetsMap.get(serial) || { totalBetsAmount: 0, totalBetsCount: 0 };
+            totalCount += betInfo.totalBetsCount;
+            const percentage = this.totalPot > 0 ? Number(((betInfo.totalBetsAmount / this.totalPot) * 100).toFixed(2)) : 0;
+            const horseItem = {
+                horseId: id,
+                id,
+                serialNumber: serial,
+                serial_number: serial,
+                horseSerial: serial,
+                horse_serial: serial,
+                horse: serial,
+                horseNumber: serial,
+                name: h.horse_name_snapshot || h.name || `Horse #${serial}`,
+                horseName: h.horse_name_snapshot || h.name || `Horse #${serial}`,
+                totalBetsAmount: betInfo.totalBetsAmount,
+                totalAmount: betInfo.totalBetsAmount,
+                totalBets: betInfo.totalBetsAmount,
+                betAmount: betInfo.totalBetsAmount,
+                amount: betInfo.totalBetsAmount,
+                displayTotalBetsAmount: `₹${betInfo.totalBetsAmount.toFixed(2)}`,
+                totalBetsCount: betInfo.totalBetsCount,
+                betsCount: betInfo.totalBetsCount,
+                totalBettorsCount: 0,
+                percentage,
+                imageUrl: h.imageUrl || h.image_url || null,
+                odds: 10,
+                oddsMultiplier: '10X',
+            };
+            pool.push(horseItem);
+            horsesMap[serial] = horseItem;
+        });
+        return {
+            raceId: this.currentRace?.id,
+            gameSerial: String(this.currentRace?.game_serial || ''),
+            allowedCoins: raceConfig.ALLOWED_COINS || [2, 5, 10, 100, 500, 1000],
+            chips: raceConfig.ALLOWED_COINS || [2, 5, 10, 100, 500, 1000],
+            totalPot: this.totalPot,
+            totalBetsAmount: this.totalPot,
+            displayTotalPot: `₹${this.totalPot.toFixed(2)}`,
+            totalBetsCount: totalCount,
+            horsesCount: 12,
+            horses: pool,
+            horsesMap,
+            byHorse: horsesMap,
+        };
+    }
+
 
     /**
      * Generate sequential game serial: YYYYMMDD001, YYYYMMDD002...
@@ -48,23 +147,46 @@ class RaceEngine extends EventEmitter {
         const day = String(now.getDate()).padStart(2, '0');
         const datePrefix = `${year}${month}${day}`;
 
-        const [rows] = await connection.execute(
-            'SELECT game_serial FROM races WHERE game_serial LIKE ? ORDER BY id DESC LIMIT 1 FOR UPDATE',
-            [`${datePrefix}%`]
-        );
-
         let nextSequence = 1;
-        if (rows.length > 0) {
-            const lastSerial = String(rows[0].game_serial);
-            const suffix = lastSerial.startsWith(datePrefix)
-                ? lastSerial.slice(datePrefix.length)
-                : lastSerial.replace(/^[^\d]+/, '');
-            const parsed = parseInt(suffix, 10);
-            if (!isNaN(parsed)) {
-                nextSequence = parsed + 1;
+
+        try {
+            const dbOrConn = connection || pool;
+            const [rows] = await dbOrConn.execute(
+                'SELECT game_serial FROM races WHERE game_serial LIKE ? ORDER BY LENGTH(game_serial) DESC, game_serial DESC, id DESC LIMIT 1 FOR UPDATE',
+                [`${datePrefix}%`]
+            );
+
+            if (rows && rows.length > 0) {
+                const lastSerial = String(rows[0].game_serial);
+                const suffix = lastSerial.startsWith(datePrefix)
+                    ? lastSerial.slice(datePrefix.length)
+                    : (lastSerial.length > 8 ? lastSerial.slice(8) : lastSerial.replace(/^[^\d]+/, ''));
+                const parsed = parseInt(suffix, 10);
+                if (!isNaN(parsed) && parsed >= nextSequence) {
+                    nextSequence = parsed + 1;
+                }
+            }
+        } catch (err) {
+            console.warn('[RaceEngine] ⚠️ Error querying last game_serial from DB:', err.message);
+        }
+
+        // Also ensure nextSequence is strictly greater than current active/memory race serial
+        if (this.currentRace && this.currentRace.game_serial) {
+            const curStr = String(this.currentRace.game_serial);
+            if (curStr.startsWith(datePrefix)) {
+                const curSuffix = curStr.slice(datePrefix.length);
+                const curParsed = parseInt(curSuffix, 10);
+                if (!isNaN(curParsed) && curParsed >= nextSequence) {
+                    nextSequence = curParsed + 1;
+                }
             }
         }
 
+        if (this.roundCounter && this.roundCounter >= nextSequence) {
+            nextSequence = this.roundCounter + 1;
+        }
+
+        this.roundCounter = nextSequence;
         const formattedSeq = String(nextSequence).padStart(3, '0');
         return `${datePrefix}${formattedSeq}`;
     }
@@ -80,8 +202,8 @@ class RaceEngine extends EventEmitter {
         try {
             await this.recoverOrCreateRace();
         } catch (error) {
-            console.error('[RaceEngine] ❌ Error initializing race engine:', error);
-            this.scheduleNextAttempt(5000);
+            console.warn('[RaceEngine] ⚠️ Database not ready or unavailable, starting in-memory race cycle:', error.message);
+            await this.startInMemoryRaceCycle();
         }
     }
 
@@ -89,6 +211,10 @@ class RaceEngine extends EventEmitter {
         if (this.activeTimer) {
             clearTimeout(this.activeTimer);
             this.activeTimer = null;
+        }
+        if (this.bettingOpenTimers && this.bettingOpenTimers.length > 0) {
+            this.bettingOpenTimers.forEach((t) => clearTimeout(t));
+            this.bettingOpenTimers = [];
         }
         if (this.bettingClosedTimers && this.bettingClosedTimers.length > 0) {
             this.bettingClosedTimers.forEach((t) => clearTimeout(t));
@@ -110,17 +236,55 @@ class RaceEngine extends EventEmitter {
      * Crash / Restart Recovery: Inspects database to resume active race or create next
      */
     async recoverOrCreateRace() {
-        const activeRace = await RaceModel.findActiveRace();
+        let activeRace = null;
+        try {
+            activeRace = await RaceModel.findActiveRace();
+        } catch (err) {
+            console.warn('[RaceEngine] ⚠️ Error querying active race:', err.message);
+            return this.startInMemoryRaceCycle();
+        }
 
         if (activeRace) {
+            // Check if this active race is stale / expired (e.g. from past day or > 5 minutes ago)
+            const now = Date.now();
+            const raceCreatedAt = activeRace.created_at ? new Date(activeRace.created_at).getTime() : 0;
+            const isStale = raceCreatedAt > 0 && (now - raceCreatedAt) > 5 * 60 * 1000;
+
+            if (isStale) {
+                console.log(`[RaceEngine] ⚠️ Found stale active Race #${activeRace.game_serial} from ${new Date(raceCreatedAt).toISOString()}. Marking CANCELLED and creating next race...`);
+                try {
+                    await RaceModel.updateStatus(activeRace.id, RACE_STATUSES.CANCELLED, { finished_at: new Date() });
+                } catch (_) { }
+                return this.createNextRace();
+            }
+
             console.log(`[RaceEngine] 🔄 Engine Recovery: Found active Race #${activeRace.game_serial} (status: '${activeRace.status}'). Resuming persisted state...`);
             this.currentRace = activeRace;
-            this.currentHorses = await RaceModel.getRaceHorses(activeRace.id);
+            if (activeRace.game_serial) {
+                const curSeq = parseInt(String(activeRace.game_serial).slice(8), 10);
+                if (!isNaN(curSeq) && curSeq > (this.roundCounter || 0)) {
+                    this.roundCounter = curSeq;
+                }
+            }
+            try {
+                this.currentHorses = await RaceModel.getRaceHorses(activeRace.id);
+            } catch (_) {
+                this.currentHorses = [];
+            }
 
-            if (this.currentHorses.length === 0) {
-                const activeHorses = await HorseModel.findAllActive();
-                if (activeHorses.length > 0) {
-                    this.currentHorses = await RaceModel.addRaceHorses(activeRace.id, activeHorses.slice(0, raceConfig.HORSES_COUNT));
+            if (!this.currentHorses || this.currentHorses.length === 0) {
+                try {
+                    let activeHorses = await HorseModel.findAllActive();
+                    if (activeHorses.length === 0) {
+                        await this.seedDefaultHorses(pool);
+                        activeHorses = await HorseModel.findAllActive();
+                    }
+                    if (activeHorses.length > 0) {
+                        this.currentHorses = await RaceModel.addRaceHorses(activeRace.id, activeHorses.slice(0, raceConfig.HORSES_COUNT));
+                    }
+                } catch (_) { }
+                if (!this.currentHorses || this.currentHorses.length === 0) {
+                    this.currentHorses = this.getDefaultHorses();
                 }
             }
 
@@ -147,7 +311,7 @@ class RaceEngine extends EventEmitter {
                 const closeAt = this.currentRace.betting_close_at ? new Date(this.currentRace.betting_close_at).getTime() : now + raceConfig.BETTING_OPEN_MS;
                 const remaining = Math.max(0, closeAt - now);
                 console.log(`[RaceEngine] ⏱️ Resumed 'BETTING_OPEN' for Race #${this.currentRace.game_serial}. Time remaining: ${(remaining / 1000).toFixed(1)}s`);
-                this.scheduleTransition(RACE_STATUSES.BETTING_CLOSED, remaining);
+                this.runBettingOpenSequence(remaining);
                 break;
             }
             case RACE_STATUSES.BETTING_CLOSED: {
@@ -187,14 +351,284 @@ class RaceEngine extends EventEmitter {
         }
     }
 
+    getDefaultHorses() {
+        return [
+            { id: 1, horse_id: 1, serial_number: 1, name: 'Thunder Bolt', horse_name_snapshot: 'Thunder Bolt', starting_position: 1 },
+            { id: 2, horse_id: 2, serial_number: 2, name: 'Storm Runner', horse_name_snapshot: 'Storm Runner', starting_position: 2 },
+            { id: 3, horse_id: 3, serial_number: 3, name: 'Golden Arrow', horse_name_snapshot: 'Golden Arrow', starting_position: 3 },
+            { id: 4, horse_id: 4, serial_number: 4, name: 'Shadow Blaze', horse_name_snapshot: 'Shadow Blaze', starting_position: 4 },
+            { id: 5, horse_id: 5, serial_number: 5, name: 'Midnight Star', horse_name_snapshot: 'Midnight Star', starting_position: 5 },
+            { id: 6, horse_id: 6, serial_number: 6, name: 'Royal Knight', horse_name_snapshot: 'Royal Knight', starting_position: 6 },
+            { id: 7, horse_id: 7, serial_number: 7, name: 'Silver Bullet', horse_name_snapshot: 'Silver Bullet', starting_position: 7 },
+            { id: 8, horse_id: 8, serial_number: 8, name: 'Fire Steed', horse_name_snapshot: 'Fire Steed', starting_position: 8 },
+            { id: 9, horse_id: 9, serial_number: 9, name: 'Wild Pegasus', horse_name_snapshot: 'Wild Pegasus', starting_position: 9 },
+            { id: 10, horse_id: 10, serial_number: 10, name: 'Iron Gallop', horse_name_snapshot: 'Iron Gallop', starting_position: 10 },
+            { id: 11, horse_id: 11, serial_number: 11, name: 'Desert Comet', horse_name_snapshot: 'Desert Comet', starting_position: 11 },
+            { id: 12, horse_id: 12, serial_number: 12, name: 'Victory Spirit', horse_name_snapshot: 'Victory Spirit', starting_position: 12 },
+        ];
+    }
+
+    async seedDefaultHorses(dbOrConn) {
+        const defaultHorses = [
+            [1, 'Thunder Bolt', 'active'],
+            [2, 'Storm Runner', 'active'],
+            [3, 'Golden Arrow', 'active'],
+            [4, 'Shadow Blaze', 'active'],
+            [5, 'Midnight Star', 'active'],
+            [6, 'Royal Knight', 'active'],
+            [7, 'Silver Bullet', 'active'],
+            [8, 'Fire Steed', 'active'],
+            [9, 'Wild Pegasus', 'active'],
+            [10, 'Iron Gallop', 'active'],
+            [11, 'Desert Comet', 'active'],
+            [12, 'Victory Spirit', 'active'],
+        ];
+        for (const h of defaultHorses) {
+            try {
+                await dbOrConn.execute(
+                    'INSERT IGNORE INTO horses (serial_number, name, status) VALUES (?, ?, ?)',
+                    h
+                );
+            } catch (_) { }
+        }
+    }
+
+    async ensureSchema(connection) {
+        try {
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS horses (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    serial_number INT UNSIGNED NOT NULL UNIQUE,
+                    name VARCHAR(100) NOT NULL,
+                    image_url MEDIUMTEXT NULL,
+                    status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    INDEX idx_serial_number (serial_number),
+                    INDEX idx_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS races (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    game_serial VARCHAR(30) NOT NULL UNIQUE,
+                    status ENUM('WAITING', 'BETTING_OPEN', 'BETTING_CLOSED', 'COUNTDOWN', 'RUNNING', 'FINISHING', 'RESULT', 'FINISHED', 'CANCELLED') NOT NULL DEFAULT 'WAITING',
+                    betting_open_at DATETIME NULL,
+                    betting_close_at DATETIME NULL,
+                    countdown_at DATETIME NULL,
+                    started_at DATETIME NULL,
+                    finished_at DATETIME NULL,
+                    result_at DATETIME NULL,
+                    winner_horse_id BIGINT UNSIGNED NULL,
+                    jackpot_multiplier DECIMAL(5, 2) NOT NULL DEFAULT '1.00',
+                    is_jackpot TINYINT(1) NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    INDEX idx_game_serial (game_serial),
+                    INDEX idx_race_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS race_horses (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+                    race_id BIGINT UNSIGNED NOT NULL,
+                    horse_id BIGINT UNSIGNED NOT NULL,
+                    serial_number INT UNSIGNED NOT NULL,
+                    horse_name_snapshot VARCHAR(100) NOT NULL,
+                    starting_position INT UNSIGNED NOT NULL DEFAULT 1,
+                    finish_position INT UNSIGNED NULL,
+                    finish_time DECIMAL(6, 3) NULL,
+                    result VARCHAR(50) NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    INDEX idx_race_id (race_id),
+                    INDEX idx_horse_id (horse_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS wallets (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+                    balance DECIMAL(18, 4) NOT NULL DEFAULT '0.0000',
+                    currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+                    status ENUM('active', 'locked', 'suspended') NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS wallet_transactions (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    wallet_id BIGINT UNSIGNED NOT NULL,
+                    user_id BIGINT UNSIGNED NOT NULL,
+                    type ENUM('credit', 'debit') NOT NULL,
+                    category VARCHAR(50) NOT NULL DEFAULT 'manual',
+                    amount DECIMAL(18, 4) NOT NULL,
+                    balance_before DECIMAL(18, 4) NOT NULL DEFAULT '0.0000',
+                    balance_after DECIMAL(18, 4) NOT NULL DEFAULT '0.0000',
+                    reference_id VARCHAR(100) NULL,
+                    reference_type VARCHAR(50) NULL,
+                    description VARCHAR(255) NULL,
+                    status ENUM('pending', 'completed', 'failed', 'cancelled') NOT NULL DEFAULT 'completed',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_created (user_id, created_at DESC),
+                    INDEX idx_wallet_created (wallet_id, created_at DESC),
+                    INDEX idx_reference (reference_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS games (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT UNSIGNED NOT NULL UNIQUE,
+                    game_code VARCHAR(32) NOT NULL UNIQUE,
+                    status ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_user_id (user_id),
+                    INDEX idx_game_code (game_code)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT UNSIGNED NOT NULL,
+                    token_hash CHAR(64) NOT NULL UNIQUE,
+                    last_activity_at DATETIME NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_user_session_user (user_id),
+                    INDEX idx_user_session_expiry (expires_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS scheduled_race_winners (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    game_serial VARCHAR(30) NOT NULL,
+                    horse_id BIGINT UNSIGNED NULL,
+                    horse_serial INT UNSIGNED NULL,
+                    horse_name VARCHAR(100) NULL,
+                    reason VARCHAR(255) NULL,
+                    status ENUM('PENDING', 'APPLIED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uq_game_serial (game_serial),
+                    INDEX idx_game_serial (game_serial),
+                    INDEX idx_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+            try {
+                await connection.execute(`ALTER TABLE scheduled_race_winners ADD COLUMN horse_name VARCHAR(100) NULL AFTER horse_serial;`);
+            } catch (_) {}
+            try {
+                await connection.execute(`ALTER TABLE scheduled_race_winners ADD UNIQUE KEY uq_game_serial (game_serial);`);
+            } catch (_) {}
+            await connection.execute(`
+                CREATE TABLE IF NOT EXISTS scheduled_jackpots (
+                    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                    game_serial VARCHAR(30) NOT NULL,
+                    multiplier DECIMAL(5, 2) NOT NULL DEFAULT '1.00',
+                    reason VARCHAR(255) NULL,
+                    status ENUM('PENDING', 'APPLIED', 'CANCELLED') NOT NULL DEFAULT 'PENDING',
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_game_serial (game_serial),
+                    INDEX idx_status (status)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            `);
+        } catch (_) { }
+    }
+
+    async startInMemoryRaceCycle() {
+        this.isRunning = true;
+
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const datePrefix = `${year}${month}${day}`;
+
+        let nextSeq = (this.roundCounter || 0) + 1;
+        if (this.currentRace && this.currentRace.game_serial) {
+            const curStr = String(this.currentRace.game_serial);
+            if (curStr.startsWith(datePrefix)) {
+                const curParsed = parseInt(curStr.slice(datePrefix.length), 10);
+                if (!isNaN(curParsed) && curParsed >= nextSeq) {
+                    nextSeq = curParsed + 1;
+                }
+            }
+        }
+        this.roundCounter = nextSeq;
+        const seq = String(this.roundCounter).padStart(3, '0');
+        const gameSerial = `${datePrefix}${seq}`;
+
+        const bettingCloseAt = new Date(now.getTime() + raceConfig.BETTING_OPEN_MS);
+        const countdownAt = new Date(bettingCloseAt.getTime() + raceConfig.BETTING_CLOSED_MS);
+        const horses = this.getDefaultHorses();
+
+        this.forcedCurrentWinner = null;
+        this.predeterminedWinner = null;
+        this.forcedCurrentJackpot = null;
+        this.horseBetsMap.clear();
+        this.totalPot = 0;
+
+        let jackpotMultiplier = 1;
+        let isJackpot = false;
+        try {
+            const ev = await this.evaluateRaceJackpot(gameSerial);
+            jackpotMultiplier = ev.multiplier || 1;
+            isJackpot = Boolean(ev.isJackpot);
+        } catch (_) { }
+
+        this.currentRace = {
+            id: this.roundCounter,
+            game_serial: gameSerial,
+            status: RACE_STATUSES.BETTING_OPEN,
+            betting_open_at: now,
+            betting_close_at: bettingCloseAt,
+            countdown_at: countdownAt,
+            started_at: null,
+            finished_at: null,
+            result_at: null,
+            winner_horse_id: null,
+            jackpot_multiplier: jackpotMultiplier,
+            jackpotMultiplier,
+            is_jackpot: isJackpot ? 1 : 0,
+            isJackpot,
+        };
+
+        this.currentHorses = horses;
+
+        console.log(`[RaceEngine] 🏁 New Global Race #${gameSerial} created (In-Memory/Active). [BETTING OPEN] (${raceConfig.BETTING_OPEN_MS / 1000}s window) [Jackpot: ${jackpotMultiplier}X]`);
+
+        this.emit('race:created', this.getCurrentState());
+        this.emit('race:betting_open', this.getCurrentState());
+
+        this.runBettingOpenSequence(raceConfig.BETTING_OPEN_MS);
+    }
+
     /**
      * Create the next global race and attach 12 horses
      */
     async createNextRace() {
         if (!this.isRunning) return;
 
-        const connection = await pool.getConnection();
+        let connection;
         try {
+            connection = await pool.getConnection();
+        } catch (connErr) {
+            console.warn('[RaceEngine] ⚠️ DB connection unavailable, running in-memory race cycle:', connErr.message);
+            return this.startInMemoryRaceCycle();
+        }
+
+        try {
+            // Auto-ensure schema tables exist outside transaction
+            await this.ensureSchema(connection);
+
             await connection.beginTransaction();
 
             const gameSerial = await this.generateGameSerial(connection);
@@ -203,19 +637,27 @@ class RaceEngine extends EventEmitter {
             const countdownAt = new Date(bettingCloseAt.getTime() + raceConfig.BETTING_CLOSED_MS);
 
             // Fetch active horses from master table
-            const activeHorses = await HorseModel.findAllActive(connection);
-            if (activeHorses.length === 0) {
-                throw new Error('No active horses available in database to schedule race');
+            let activeHorses = await HorseModel.findAllActive(connection);
+            if (!activeHorses || activeHorses.length === 0) {
+                console.log('[RaceEngine] 🐎 No horses found in database. Auto-seeding 12 default horses...');
+                await this.seedDefaultHorses(connection);
+                activeHorses = await HorseModel.findAllActive(connection);
             }
 
-            const selectedHorses = activeHorses.slice(0, raceConfig.HORSES_COUNT);
+            const selectedHorses = (activeHorses && activeHorses.length > 0 ? activeHorses : this.getDefaultHorses()).slice(0, raceConfig.HORSES_COUNT);
 
             this.forcedCurrentWinner = null;
             this.predeterminedWinner = null;
             this.forcedCurrentJackpot = null;
 
             // 3. Evaluate Jackpot Multiplier (Scheduled Override vs Flexible Modes: EVERY_ROUND, ROUND_INTERVAL, TIME_INTERVAL, PROBABILITY)
-            const { multiplier: jackpotMultiplier, isJackpot } = await this.evaluateRaceJackpot(gameSerial);
+            let jackpotMultiplier = 1;
+            let isJackpot = false;
+            try {
+                const jEval = await this.evaluateRaceJackpot(gameSerial);
+                jackpotMultiplier = jEval.multiplier || 1;
+                isJackpot = Boolean(jEval.isJackpot);
+            } catch (_) { }
 
             // Create Race record
             const [raceInsert] = await connection.execute(
@@ -229,7 +671,10 @@ class RaceEngine extends EventEmitter {
             // Attach horses snapshot
             const horseValues = [];
             const horsePlaceholders = selectedHorses.map((h, index) => {
-                horseValues.push(raceId, h.id, h.serial_number, h.name, index + 1);
+                const horseId = Number(h.horse_id || h.id || index + 1);
+                const serial = Number(h.serial_number || h.serialNumber || index + 1);
+                const name = h.horse_name_snapshot || h.name || `Horse #${serial}`;
+                horseValues.push(raceId, horseId, serial, name, index + 1);
                 return '(?, ?, ?, ?, ?)';
             }).join(', ');
 
@@ -240,6 +685,11 @@ class RaceEngine extends EventEmitter {
             );
 
             await connection.commit();
+
+            const curSeq = parseInt(String(gameSerial).slice(8), 10);
+            if (!isNaN(curSeq) && curSeq > (this.roundCounter || 0)) {
+                this.roundCounter = curSeq;
+            }
 
             this.currentRace = {
                 id: raceId,
@@ -258,12 +708,18 @@ class RaceEngine extends EventEmitter {
                 isJackpot,
             };
 
-            this.currentHorses = await RaceModel.getRaceHorses(raceId);
+            try {
+                this.currentHorses = await RaceModel.getRaceHorses(raceId);
+            } catch (_) {
+                this.currentHorses = selectedHorses;
+            }
 
             // Check for pre-scheduled forced winner for this gameSerial
             this.forcedCurrentWinner = null;
             this.predeterminedWinner = null;
             this.extraRunningMs = 0;
+            this.horseBetsMap.clear();
+            this.totalPot = 0;
 
             const preScheduled = this.scheduledWinners.get(gameSerial);
             if (preScheduled) {
@@ -292,14 +748,18 @@ class RaceEngine extends EventEmitter {
             this.emit('race:created', this.getCurrentState());
             this.emit('race:betting_open', this.getCurrentState());
 
-            this.scheduleTransition(RACE_STATUSES.BETTING_CLOSED, raceConfig.BETTING_OPEN_MS);
+            this.runBettingOpenSequence(raceConfig.BETTING_OPEN_MS);
 
         } catch (error) {
-            await connection.rollback();
-            console.error('[RaceEngine] ❌ Failed to create next race:', error.message);
-            this.scheduleNextAttempt(5000);
+            if (connection) {
+                try { await connection.rollback(); } catch (_) { }
+            }
+            console.error('[RaceEngine] ❌ Failed to create next race via DB, falling back to in-memory cycle:', error.message);
+            return this.startInMemoryRaceCycle();
         } finally {
-            connection.release();
+            if (connection) {
+                try { connection.release(); } catch (_) { }
+            }
         }
     }
 
@@ -347,10 +807,32 @@ class RaceEngine extends EventEmitter {
             }
 
             if (nextStatus !== RACE_STATUSES.RESULT) {
-                this.currentRace = await RaceModel.updateStatus(this.currentRace.id, nextStatus, updateFields);
+                try {
+                    const updated = await RaceModel.updateStatus(this.currentRace.id, nextStatus, updateFields);
+                    if (updated) {
+                        this.currentRace = {
+                            ...this.currentRace,
+                            ...updated,
+                            status: nextStatus,
+                            ...updateFields,
+                        };
+                    } else {
+                        this.currentRace = {
+                            ...this.currentRace,
+                            status: nextStatus,
+                            ...updateFields,
+                        };
+                    }
+                } catch (_) {
+                    this.currentRace = {
+                        ...this.currentRace,
+                        status: nextStatus,
+                        ...updateFields,
+                    };
+                }
             }
 
-            console.log(`[RaceEngine] 🔄 Race #${this.currentRace.game_serial} ➔ [${nextStatus}]`);
+            console.log(`[RaceEngine] 🔄 Race #${this.currentRace?.game_serial || 'ACTIVE'} ➔ [${nextStatus}]`);
             this.emit('race:state_changed', this.getCurrentState());
 
             this.handlePostTransition(nextStatus);
@@ -370,7 +852,13 @@ class RaceEngine extends EventEmitter {
         if (!this.currentRace) return;
         const raceId = this.currentRace.id;
         try {
-            const horses = await RaceModel.getRaceHorses(raceId);
+            let horses = [];
+            try {
+                horses = await RaceModel.getRaceHorses(raceId);
+            } catch (_) { }
+            if (!horses || horses.length === 0) {
+                horses = this.currentHorses && this.currentHorses.length > 0 ? this.currentHorses : this.getDefaultHorses();
+            }
             if (!horses || horses.length === 0) return;
 
             let winner = null;
@@ -423,6 +911,42 @@ class RaceEngine extends EventEmitter {
                 this.scheduleNextRaceCreation(raceConfig.NEXT_RACE_DELAY_MS);
                 break;
         }
+    }
+
+    /**
+     * Runs second-by-second Betting Open ticks so clients receive live timer heartbeat:
+     * 35s -> 34s -> ... -> 1s -> Transition to BETTING_CLOSED
+     */
+    runBettingOpenSequence(durationMs = raceConfig.BETTING_OPEN_MS) {
+        this.clearAllTimers();
+        this.bettingOpenTimers = [];
+
+        const totalSec = Math.max(1, Math.round(durationMs / 1000));
+
+        for (let i = 0; i < totalSec; i++) {
+            const secRemaining = totalSec - i;
+            const delay = i * 1000;
+
+            const timer = setTimeout(() => {
+                if (this.currentRace && (this.currentRace.status === RACE_STATUSES.BETTING_OPEN || this.currentRace.status === RACE_STATUSES.WAITING)) {
+                    const state = this.getCurrentState();
+                    state.timeRemainingSec = secRemaining;
+                    const tickPayload = {
+                        raceId: this.currentRace.id,
+                        gameSerial: this.currentRace.game_serial,
+                        stage: 'BETTING_OPEN',
+                        secondsRemaining: secRemaining,
+                        timeRemainingSec: secRemaining,
+                        message: `Betting Open. Time remaining: ${secRemaining}s`,
+                    };
+                    this.emit('race:betting_open_tick', tickPayload);
+                    this.emit('race:tick', tickPayload);
+                }
+            }, delay);
+            this.bettingOpenTimers.push(timer);
+        }
+
+        this.scheduleTransition(RACE_STATUSES.BETTING_CLOSED, durationMs);
     }
 
     /**
@@ -497,7 +1021,13 @@ class RaceEngine extends EventEmitter {
     async calculateAndPersistRaceResult() {
         if (!this.currentRace) return;
         const raceId = this.currentRace.id;
-        const horses = await RaceModel.getRaceHorses(raceId);
+        let horses = [];
+        try {
+            horses = await RaceModel.getRaceHorses(raceId);
+        } catch (_) { }
+        if (!horses || horses.length === 0) {
+            horses = this.currentHorses && this.currentHorses.length > 0 ? this.currentHorses : this.getDefaultHorses();
+        }
         if (!horses || horses.length === 0) return;
 
         // Prefer the latest in-memory override, even if a scheduled row is stale.
@@ -524,24 +1054,24 @@ class RaceEngine extends EventEmitter {
             } catch (sErr) { }
         }
 
-        // The 10-second live control window may close while the scheduled row is
-        // loading. Re-check the live override so the latest accepted force wins.
+        // The live control override takes highest authority
         forcedWinner = this.forcedCurrentWinner || forcedWinner;
-
-        if (forcedWinner) {
-            forcedWinner = horses.find(
-                (h) => (forcedWinner.horseId && Number(h.horse_id) === Number(forcedWinner.horseId)) ||
-                    (forcedWinner.horseSerial && Number(h.serial_number) === Number(forcedWinner.horseSerial))
-            ) || null;
-            if (!forcedWinner) {
-                console.error(`[RaceEngine] Forced winner does not participate in Race #${this.currentRace.game_serial}; using predetermined winner.`);
-            }
-        }
 
         let winnerHorse = null;
 
         if (forcedWinner) {
-            winnerHorse = forcedWinner;
+            const fSerial = Number(forcedWinner.horseSerial || forcedWinner.serial_number || forcedWinner.serialNumber);
+            const fId = Number(forcedWinner.horseId || forcedWinner.horse_id || forcedWinner.id);
+
+            winnerHorse = horses.find(
+                (h) => (fSerial && Number(h.serial_number || h.serialNumber) === fSerial) ||
+                       (fId && Number(h.horse_id || h.id) === fId)
+            ) || {
+                horse_id: fId || fSerial || 1,
+                serial_number: fSerial || 1,
+                horse_name_snapshot: forcedWinner.horseName || `Horse #${fSerial || 1}`,
+            };
+
             console.log(`[RaceEngine] 👑 ADMIN FORCED WINNER APPLIED: Horse #${winnerHorse.serial_number} (${winnerHorse.horse_name_snapshot}) for Race #${this.currentRace.game_serial}`);
             // Mark DB scheduled record as APPLIED
             try {
@@ -557,8 +1087,8 @@ class RaceEngine extends EventEmitter {
             const predId = this.predeterminedWinner.horse_id || this.predeterminedWinner.id || this.predeterminedWinner.horseId;
             const predSerial = this.predeterminedWinner.serial_number || this.predeterminedWinner.serialNumber || this.predeterminedWinner.horseSerial;
             winnerHorse = horses.find((h) =>
-                (predId && Number(h.horse_id) === Number(predId)) ||
-                (predSerial && Number(h.serial_number) === Number(predSerial))
+                (predSerial && Number(h.serial_number || h.serialNumber) === Number(predSerial)) ||
+                (predId && Number(h.horse_id || h.id) === Number(predId))
             ) || this.predeterminedWinner;
         }
 
@@ -569,8 +1099,16 @@ class RaceEngine extends EventEmitter {
 
         if (!this.currentRace || Number(this.currentRace.id) !== Number(raceId)) return;
 
-        // 3. Realistic Rankings Generation: Winner is #1, other 11 horses ranked behind
-        const otherHorses = horses.filter((h) => Number(h.horse_id) !== Number(winnerHorse.horse_id));
+        // 3. Realistic Rankings Generation: Winner is #1, other 11 horses ranked strictly behind
+        const winnerSerial = Number(winnerHorse.serial_number || winnerHorse.serialNumber);
+        const winnerId = Number(winnerHorse.horse_id || winnerHorse.id);
+        const otherHorses = horses.filter((h) => {
+            const hSerial = Number(h.serial_number || h.serialNumber);
+            const hId = Number(h.horse_id || h.id);
+            if (winnerSerial && hSerial === winnerSerial) return false;
+            if (winnerId && hId === winnerId) return false;
+            return true;
+        });
         const shuffledOthers = [...otherHorses].sort(() => Math.random() - 0.5);
 
         const orderedHorses = [winnerHorse, ...shuffledOthers];
@@ -581,11 +1119,14 @@ class RaceEngine extends EventEmitter {
             const variance = Number((index * 0.15 + (Math.random() * 0.08)).toFixed(3));
             const finishTime = Number((baseTime + variance).toFixed(3));
             const result = finishPosition === 1 ? 'WINNER' : finishPosition <= 3 ? 'PLACED' : 'COMPLETED';
+            const horseId = Number(horse.horse_id || horse.id || index + 1);
+            const serialNumber = Number(horse.serial_number || horse.serialNumber || index + 1);
+            const horseName = horse.horse_name_snapshot || horse.name || `Horse #${serialNumber}`;
 
             return {
-                horse_id: horse.horse_id,
-                serial_number: horse.serial_number,
-                horse_name_snapshot: horse.horse_name_snapshot,
+                horse_id: horseId,
+                serial_number: serialNumber,
+                horse_name_snapshot: horseName,
                 finish_position: finishPosition,
                 finish_time: finishTime,
                 result,
@@ -593,12 +1134,25 @@ class RaceEngine extends EventEmitter {
         });
 
         const winner = horseResults[0];
-        const winnerHorseId = winner.horse_id;
+        const winnerHorseId = Number(winner.horse_id || winner.id || 1);
 
-        const resultData = await RaceModel.completeRace(this.currentRace.id, winnerHorseId, horseResults);
-
-        this.currentRace = resultData.race;
-        this.currentHorses = resultData.horses;
+        try {
+            const resultData = await RaceModel.completeRace(this.currentRace.id, winnerHorseId, horseResults);
+            if (resultData && resultData.race) {
+                this.currentRace = resultData.race;
+                this.currentHorses = resultData.horses || horseResults;
+            } else {
+                throw new Error('completeRace returned no data');
+            }
+        } catch (_) {
+            this.currentRace = {
+                ...this.currentRace,
+                status: RACE_STATUSES.RESULT,
+                winner_horse_id: winnerHorseId,
+                result_at: new Date(),
+            };
+            this.currentHorses = horseResults;
+        }
 
         // Settle all pending bets for this race and credit winnings to wallets with Jackpot multiplier
         const jackpotMultiplier = Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1);
@@ -624,40 +1178,85 @@ class RaceEngine extends EventEmitter {
      * 3. If bets placed on ALL horses -> Horse with the LEAST total bet amount wins.
      * 4. If ALL horses have EQUAL bets (or tied lowest amounts) -> Pick random horse among the tied lowest horses.
      */
+    /**
+     * Smart Risk & House Edge Winner Calculation Engine
+     * Implements 4 strict business rules based on live betting records:
+     * 
+     * CONDITION 1: Agar kisi bhi horse pe bet nahi laga (total bets = 0)
+     *   -> 12 horses me se koi ek random horse jitega.
+     * 
+     * CONDITION 2: Agar kuch horses pe bet lage hain (e.g. 7, 8, 9) aur baki pe ₹0
+     *   -> Jinpe bet lage hain unko 100% KABHI NAHI jitana.
+     *   -> Jispe ₹0 bet hai unme se random jitega (House Payout = ₹0).
+     * 
+     * CONDITION 3: Agar sabhi 12 horses pe bet lage hain
+     *   -> Sabse kam (minimum) amount wala horse jitega (Minimum House Payout).
+     * 
+     * CONDITION 4: Agar sabhi horses pe barabar bets hain ya multiple horses par tied lowest amount hai
+     *   -> Tied/equal minimum amount wale horses me se random horse jitega.
+     */
     async calculateSmartWinner(horses, raceId) {
         if (!horses || horses.length === 0) return null;
 
         try {
-            const [potRows] = await pool.query(
-                `SELECT horse_id, horse_serial, 
-                        COALESCE(SUM(amount), 0) AS totalBets,
-                        COUNT(id) AS betCount
-                 FROM bets
-                 WHERE race_id = ? AND status = 'PENDING'
-                 GROUP BY horse_id, horse_serial`,
-                [raceId]
-            );
-
             const betsMap = new Map();
             let totalPot = 0;
 
-            if (potRows && potRows.length > 0) {
-                potRows.forEach((r) => {
-                    const hId = Number(r.horse_id);
-                    const bets = Number(r.totalBets) || 0;
-                    betsMap.set(hId, bets);
-                    totalPot += bets;
-                });
+            // 1. Fetch live pending bets from DB
+            try {
+                const [potRows] = await pool.query(
+                    `SELECT horse_id, horse_serial, 
+                            COALESCE(SUM(amount), 0) AS totalBets,
+                            COUNT(id) AS betCount
+                     FROM bets
+                     WHERE race_id = ? AND status = 'PENDING'
+                     GROUP BY horse_id, horse_serial`,
+                    [raceId]
+                );
+
+                if (potRows && potRows.length > 0) {
+                    potRows.forEach((r) => {
+                        const hId = Number(r.horse_id);
+                        const hSerial = Number(r.horse_serial);
+                        const bets = Number(r.totalBets) || 0;
+                        if (hId) betsMap.set(hId, bets);
+                        if (hSerial) betsMap.set(hSerial, bets);
+                        if (hSerial) betsMap.set(`s_${hSerial}`, bets);
+                        totalPot += bets;
+                    });
+                }
+            } catch (dbErr) {
+                console.warn('[RaceEngine] ⚠️ Warning fetching bets from DB in calculateSmartWinner:', dbErr.message);
             }
 
-            // Map all 12 horses with their respective live bet amounts
-            const enrichedHorses = horses.map((h) => {
-                const hId = Number(h.horse_id);
-                const bets = betsMap.get(hId) || 0;
+            // 2. Merge with in-memory bets tracking (this.horseBetsMap) to ensure no bets are missed
+            if (this.horseBetsMap && this.horseBetsMap.size > 0) {
+                for (const [serial, data] of this.horseBetsMap.entries()) {
+                    const s = Number(serial);
+                    const amt = Number(data?.totalBetsAmount) || 0;
+                    if (s && amt > 0) {
+                        const existing = betsMap.get(s) || betsMap.get(`s_${s}`) || 0;
+                        if (amt > existing) {
+                            betsMap.set(s, amt);
+                            betsMap.set(`s_${s}`, amt);
+                            totalPot = Math.max(totalPot, this.totalPot || 0, amt);
+                        }
+                    }
+                }
+            }
+
+            // 3. Map all 12 horses with their respective live bet amounts
+            const enrichedHorses = horses.map((h, index) => {
+                const hId = Number(h.horse_id || h.id || index + 1);
+                const hSerial = Number(h.serial_number || h.serialNumber || index + 1);
+                const bets = betsMap.get(hId) ?? betsMap.get(hSerial) ?? betsMap.get(`s_${hSerial}`) ?? (Number(this.horseBetsMap?.get(hSerial)?.totalBetsAmount) || 0);
                 return {
                     ...h,
-                    totalBets: bets,
-                    hasBets: bets > 0,
+                    horse_id: hId,
+                    serial_number: hSerial,
+                    horse_name_snapshot: h.horse_name_snapshot || h.name || `Horse #${hSerial}`,
+                    totalBets: Number(bets) || 0,
+                    hasBets: Number(bets) > 0,
                 };
             });
 
@@ -665,46 +1264,80 @@ class RaceEngine extends EventEmitter {
             const bettedHorses = enrichedHorses.filter((h) => h.totalBets > 0);
 
             // ----------------------------------------------------------------------
-            // RULE 1: Agar kisi bhi horse pe bet nahi laga (total bets = 0)
-            // -> Koi ek random horse jitega (all 12 horses)
+            // CONDITION 1 (RULE 1): Agar kisi bhi horse pe bet nahi laga (total bets = 0)
+            // -> 12 horses me se koi ek random horse jitega
             // ----------------------------------------------------------------------
             if (bettedHorses.length === 0 || totalPot === 0) {
                 const randomWinner = horses[Math.floor(Math.random() * horses.length)];
-                console.log(`[RaceEngine] 🏆 RULE 1 APPLIED: No bets placed on any horse. Random winner: Horse #${randomWinner.serial_number} (${randomWinner.horse_name_snapshot})`);
+                console.log(`[RaceEngine] 🏆 CONDITION 1 APPLIED: No bets placed on any horse (Pot: ₹0). Random winner: Horse #${randomWinner.serial_number || randomWinner.serialNumber} (${randomWinner.horse_name_snapshot || randomWinner.name})`);
                 return randomWinner;
             }
 
             // ----------------------------------------------------------------------
-            // RULE 4: Agar kuch horses pe bet lage hain (e.g. 7, 8, 9) aur baki pe ₹0
-            // -> Jinpe bet lge hain unko NAHI jitana, jispe ₹0 bet hai unme se random jitega
+            // CONDITION 2 (RULE 2): Agar kuch horses pe bet lage hain (e.g. 7, 8, 9) aur baki pe ₹0
+            // -> Jinpe bet lage hain unko 100% KABHI NAHI jitana!
+            // -> Jispe ₹0 bet hai unme se random jitega (Platform Payout: ₹0, 100% Profit)
             // ----------------------------------------------------------------------
             if (zeroBetHorses.length > 0) {
                 const chosenZeroHorse = zeroBetHorses[Math.floor(Math.random() * zeroBetHorses.length)];
-                const winnerHorse = horses.find((h) => Number(h.horse_id) === Number(chosenZeroHorse.horse_id)) || chosenZeroHorse;
-                console.log(`[RaceEngine] 🏆 RULE 4 APPLIED: Bets placed on ${bettedHorses.length} horses (Pot: ₹${totalPot}). Picked unbetted horse: Horse #${winnerHorse.serial_number} (${winnerHorse.horse_name_snapshot}) [₹0 Bet, House Payout: ₹0]`);
+                const winnerHorse = horses.find((h) =>
+                    (chosenZeroHorse.serial_number && Number(h.serial_number || h.serialNumber) === Number(chosenZeroHorse.serial_number)) ||
+                    (chosenZeroHorse.horse_id && Number(h.horse_id || h.id) === Number(chosenZeroHorse.horse_id))
+                ) || chosenZeroHorse;
+
+                console.log(`[RaceEngine] 🏆 CONDITION 2 APPLIED: Bets placed on ${bettedHorses.length} horses (Pot: ₹${totalPot}). Picked unbetted horse: Horse #${winnerHorse.serial_number || winnerHorse.serialNumber} (${winnerHorse.horse_name_snapshot || winnerHorse.name}) [₹0 Bet, House Payout: ₹0]`);
                 return winnerHorse;
             }
 
             // ----------------------------------------------------------------------
-            // RULE 2 & 3: Agar sabhi 12 horses pe bet lage hain
-            // -> Sabse kam amount wala jitega (Rule 2)
-            // -> Agar barabar/tied lowest amount hai to unme se random jitega (Rule 3)
+            // CONDITION 3 & 4 (RULE 3 & 4): Agar sabhi 12 horses pe bet lage hain
+            // -> Condition 3: Sabse kam (minimum) amount wala horse jitega
+            // -> Condition 4: Agar multiple horses par tied/equal lowest amount hai to unme se random jitega
             // ----------------------------------------------------------------------
             const minAmount = Math.min(...enrichedHorses.map((h) => h.totalBets));
             const lowestBetHorses = enrichedHorses.filter((h) => h.totalBets === minAmount);
 
             const chosenLowestHorse = lowestBetHorses[Math.floor(Math.random() * lowestBetHorses.length)];
-            const winnerHorse = horses.find((h) => Number(h.horse_id) === Number(chosenLowestHorse.horse_id)) || chosenLowestHorse;
+            const winnerHorse = horses.find((h) =>
+                (chosenLowestHorse.serial_number && Number(h.serial_number || h.serialNumber) === Number(chosenLowestHorse.serial_number)) ||
+                (chosenLowestHorse.horse_id && Number(h.horse_id || h.id) === Number(chosenLowestHorse.horse_id))
+            ) || chosenLowestHorse;
 
             if (lowestBetHorses.length === 1) {
-                console.log(`[RaceEngine] 🏆 RULE 2 APPLIED: All horses have bets. Winner with LEAST bet amount (₹${minAmount}): Horse #${winnerHorse.serial_number} (${winnerHorse.horse_name_snapshot})`);
+                console.log(`[RaceEngine] 🏆 CONDITION 3 APPLIED: All horses have bets. Winner with LEAST bet amount (₹${minAmount}): Horse #${winnerHorse.serial_number || winnerHorse.serialNumber} (${winnerHorse.horse_name_snapshot || winnerHorse.name})`);
             } else {
-                console.log(`[RaceEngine] 🏆 RULE 3 APPLIED: Tied/Equal minimum bets (₹${minAmount}) across ${lowestBetHorses.length} horses. Randomly picked: Horse #${winnerHorse.serial_number} (${winnerHorse.horse_name_snapshot})`);
+                console.log(`[RaceEngine] 🏆 CONDITION 4 APPLIED: Tied/Equal minimum bets (₹${minAmount}) across ${lowestBetHorses.length} horses. Randomly picked: Horse #${winnerHorse.serial_number || winnerHorse.serialNumber} (${winnerHorse.horse_name_snapshot || winnerHorse.name})`);
             }
 
             return winnerHorse;
         } catch (error) {
-            console.error('[RaceEngine] Error in calculateSmartWinner, fallback to random:', error.message);
+            console.error('[RaceEngine] Error in calculateSmartWinner, evaluating fallback:', error.message);
+            // In-memory fallback: Ensure the conditions still hold even on unhandled errors
+            try {
+                const enriched = horses.map((h, index) => {
+                    const hSerial = Number(h.serial_number || h.serialNumber || index + 1);
+                    const inMem = this.horseBetsMap?.get(hSerial);
+                    const bets = Number(inMem?.totalBetsAmount) || 0;
+                    return {
+                        ...h,
+                        serial_number: hSerial,
+                        horse_id: Number(h.horse_id || h.id || hSerial),
+                        totalBets: bets,
+                    };
+                });
+                const zeroBets = enriched.filter((h) => h.totalBets === 0);
+                const betted = enriched.filter((h) => h.totalBets > 0);
+                if (betted.length > 0 && zeroBets.length > 0) {
+                    const picked = zeroBets[Math.floor(Math.random() * zeroBets.length)];
+                    return horses.find((h) => Number(h.serial_number || h.serialNumber || h.horse_id || h.id) === picked.serial_number) || picked;
+                }
+                if (betted.length > 0 && zeroBets.length === 0) {
+                    const minAmount = Math.min(...enriched.map((h) => h.totalBets));
+                    const lowest = enriched.filter((h) => h.totalBets === minAmount);
+                    const picked = lowest[Math.floor(Math.random() * lowest.length)];
+                    return horses.find((h) => Number(h.serial_number || h.serialNumber || h.horse_id || h.id) === picked.serial_number) || picked;
+                }
+            } catch (_) {}
             return horses[Math.floor(Math.random() * horses.length)];
         }
     }
@@ -712,119 +1345,100 @@ class RaceEngine extends EventEmitter {
     /**
      * Admin Force Winner: Sets forced winner for active or future race
      */
-    async setForcedWinner({ gameSerial, horseSerial, horseId, horseName = null, reason = 'Admin Live Override' }) {
-        const targetSerial = gameSerial || this.currentRace?.game_serial;
-        const serialNum = Number(horseSerial);
+    async setForcedWinner(params = {}) {
+        let payload = params;
+        if (typeof params === 'number' || typeof params === 'string') {
+            payload = { horseSerial: Number(params) };
+        }
+
+        const rawSerial = payload.horseSerial ?? payload.horse_serial ?? payload.serialNumber ?? payload.serial_number ?? payload.horse ?? payload.horseNumber ?? payload.winner ?? (typeof payload.selectedHorse === 'object' ? (payload.selectedHorse?.serialNumber ?? payload.selectedHorse?.serial_number) : payload.selectedHorse);
+        const serialNum = (rawSerial !== undefined && rawSerial !== null && !isNaN(Number(rawSerial))) ? Number(rawSerial) : null;
+
+        const rawId = payload.horseId ?? payload.horse_id ?? payload.id ?? (typeof payload.selectedHorse === 'object' ? (payload.selectedHorse?.id ?? payload.selectedHorse?.horseId) : undefined);
+        const horseId = (rawId !== undefined && rawId !== null && !isNaN(Number(rawId))) ? Number(rawId) : null;
+
+        const rawGameSerial = payload.gameSerial || payload.game_serial || payload.gameId || payload.game_id;
+        const targetSerial = rawGameSerial ? String(rawGameSerial) : (this.currentRace?.game_serial ? String(this.currentRace.game_serial) : null);
+        const horseName = payload.horseName || payload.horse_name || payload.name || null;
+        const reason = payload.reason || 'Admin Live Override';
 
         if (!horseId && (!Number.isInteger(serialNum) || serialNum <= 0)) {
-            return { success: false, message: 'Please provide a valid horseSerial or horseId.', locked: false };
+            return { success: false, message: 'Please provide a valid horseSerial (1-12) or horseId.', locked: false };
         }
 
         let targetHorse = null;
-        if (this.currentHorses.length > 0) {
+        if (this.currentHorses && this.currentHorses.length > 0) {
             targetHorse = this.currentHorses.find(
-                (h) => (horseId && Number(h.horse_id) === Number(horseId)) || Number(h.serial_number) === serialNum
+                (h) => (serialNum && Number(h.serial_number || h.serialNumber) === serialNum) ||
+                       (horseId && Number(h.horse_id || h.id) === horseId)
             );
         }
 
         if (!targetHorse && horseId) {
-            const dbHorse = await HorseModel.findById(horseId);
-            if (dbHorse) {
-                targetHorse = {
-                    horse_id: dbHorse.id,
-                    serial_number: dbHorse.serial_number,
-                    horse_name_snapshot: dbHorse.name,
-                };
-            }
-        }
-
-        const isCurrentActive = this.currentRace && String(this.currentRace.game_serial) === String(targetSerial);
-
-        // A globally valid horse may not belong to this race's horse snapshot.
-        // Refuse the live override instead of accepting a winner the track cannot use.
-        if (!targetSerial) {
-            return {
-                success: false,
-                message: 'Please provide a valid gameSerial for the active or scheduled race.',
-                locked: false,
-            };
-        }
-
-        if (!targetHorse && horseSerial !== undefined && horseSerial !== null) {
-            const serialHorse = await HorseModel.findBySerialNumber(serialNum);
-            if (serialHorse) {
-                targetHorse = {
-                    horse_id: serialHorse.id,
-                    serial_number: serialHorse.serial_number,
-                    horse_name_snapshot: serialHorse.name,
-                };
-            }
-        }
-
-        if (isCurrentActive && !targetHorse && horseId) {
-            const activeRaceHorse = this.currentHorses.find((h) => Number(h.horse_id) === Number(horseId));
-            if (activeRaceHorse) targetHorse = activeRaceHorse;
-        }
-
-        const winnerRecord = {
-            gameSerial: String(targetSerial),
-            horseId: targetHorse ? targetHorse.horse_id : (horseId ? Number(horseId) : null),
-            horseSerial: targetHorse ? targetHorse.serial_number : serialNum,
-            horseName: targetHorse ? targetHorse.horse_name_snapshot : (horseName || `Horse #${serialNum}`),
-            reason,
-            setAt: new Date().toISOString(),
-        };
-
-        if (isCurrentActive && !targetHorse) {
-            return {
-                success: false,
-                message: `Horse #${winnerRecord.horseSerial} is not participating in Race #${targetSerial}. Choose one of this race's horses.`,
-                locked: false,
-            };
-        }
-
-        if (!isCurrentActive && !targetHorse) {
-            return {
-                success: false,
-                message: `Horse #${winnerRecord.horseSerial} was not found. Provide a valid horse ID or serial number.`,
-                locked: false,
-            };
-        }
-
-        if (isCurrentActive) {
-            if (this.currentRace.status === RACE_STATUSES.RUNNING) {
-                const startedAt = this.currentRace.started_at ? new Date(this.currentRace.started_at).getTime() : Date.now();
-                const elapsedMs = Date.now() - startedAt;
-                if (elapsedMs >= LIVE_FORCE_WINNER_WINDOW_MS) {
-                    return {
-                        success: false,
-                        message: 'Live forced winner can only be set or changed during the first 10 seconds after the race starts.',
-                        locked: true,
-                        elapsedRunningSec: Number((elapsedMs / 1000).toFixed(2)),
-                        forceWindowSeconds: LIVE_FORCE_WINNER_WINDOW_MS / 1000,
+            try {
+                const dbHorse = await HorseModel.findById(horseId);
+                if (dbHorse) {
+                    targetHorse = {
+                        horse_id: dbHorse.id,
+                        serial_number: dbHorse.serial_number,
+                        horse_name_snapshot: dbHorse.name,
                     };
                 }
-            } else if ([RACE_STATUSES.FINISHING, RACE_STATUSES.RESULT, RACE_STATUSES.FINISHED].includes(this.currentRace.status)) {
+            } catch (_) { }
+        }
+
+        if (!targetHorse && serialNum) {
+            try {
+                const serialHorse = await HorseModel.findBySerialNumber(serialNum);
+                if (serialHorse) {
+                    targetHorse = {
+                        horse_id: serialHorse.id,
+                        serial_number: serialHorse.serial_number,
+                        horse_name_snapshot: serialHorse.name,
+                    };
+                }
+            } catch (_) { }
+        }
+
+        // Guaranteed fallback from default horses table
+        if (!targetHorse) {
+            const defaults = this.getDefaultHorses();
+            targetHorse = defaults.find(
+                (h) => (serialNum && Number(h.serial_number || h.serialNumber) === serialNum) ||
+                       (horseId && Number(h.horse_id || h.id) === horseId)
+            ) || defaults[0];
+        }
+
+        const isCurrentActive = this.currentRace && (!targetSerial || String(this.currentRace.game_serial) === String(targetSerial));
+
+        if (this.currentRace) {
+            if ([RACE_STATUSES.FINISHING, RACE_STATUSES.RESULT, RACE_STATUSES.FINISHED].includes(this.currentRace.status)) {
                 return {
                     success: false,
                     message: `Cannot change forced winner while race is in ${this.currentRace.status} state. Race has already finished.`,
                     locked: true,
                 };
-            } else if (this.currentRace.status !== RACE_STATUSES.BETTING_OPEN) {
-                return {
-                    success: false,
-                    message: `Live winner can only be forced before the race starts or during the first 10 seconds of RUNNING. Current state: ${this.currentRace.status}.`,
-                    locked: true,
-                };
             }
-
-            this.forcedCurrentWinner = winnerRecord;
-            this.predeterminedWinner = targetHorse;
-            // Sync the in-memory horse snapshot used by socket broadcasts so the
-            // immediate current-state read reflects the actual forced horse.
-            this.currentHorses = this.currentHorses.map((h) => ({ ...h }));
-            console.log(`[RaceEngine] 🎮 Admin set LIVE forced winner for active Race #${targetSerial}: Horse #${winnerRecord.horseSerial} (${winnerRecord.horseName})`);
         }
+
+        const winnerRecord = {
+            gameSerial: targetSerial ? String(targetSerial) : String(this.currentRace?.game_serial || 'ACTIVE'),
+            horseId: targetHorse ? (targetHorse.horse_id || targetHorse.id) : (horseId || serialNum || 1),
+            horseSerial: targetHorse ? (targetHorse.serial_number || targetHorse.serialNumber) : (serialNum || 1),
+            horseName: targetHorse ? (targetHorse.horse_name_snapshot || targetHorse.name) : (horseName || `Horse #${serialNum || 1}`),
+            reason,
+            setAt: new Date().toISOString(),
+        };
+
+        this.forcedCurrentWinner = winnerRecord;
+        this.predeterminedWinner = targetHorse;
+
+        if (this.currentRace) {
+            this.currentRace.winner_horse_id = winnerRecord.horseId;
+            this.currentHorses = this.currentHorses.map((h) => ({ ...h }));
+        }
+
+        console.log(`[RaceEngine] 🎮 Admin set LIVE forced winner for active Race #${targetSerial || this.currentRace?.game_serial}: Horse #${winnerRecord.horseSerial} (${winnerRecord.horseName})`);
 
         if (targetSerial) {
             this.scheduledWinners.set(targetSerial, winnerRecord);
@@ -836,37 +1450,56 @@ class RaceEngine extends EventEmitter {
                     [targetSerial, winnerRecord.horseId, winnerRecord.horseSerial, winnerRecord.horseName, reason]
                 );
             } catch (dbErr) {
-                console.error('[RaceEngine] Error saving scheduled winner in DB:', dbErr.message);
+                if (dbErr.message && dbErr.message.includes('horse_name')) {
+                    try {
+                        await pool.query(`ALTER TABLE scheduled_race_winners ADD COLUMN horse_name VARCHAR(100) NULL AFTER horse_serial;`);
+                        try { await pool.query(`ALTER TABLE scheduled_race_winners ADD UNIQUE KEY uq_game_serial (game_serial);`); } catch (_) {}
+                        await pool.query(
+                            `INSERT INTO scheduled_race_winners (game_serial, horse_id, horse_serial, horse_name, reason, status)
+                             VALUES (?, ?, ?, ?, ?, 'PENDING')
+                             ON DUPLICATE KEY UPDATE horse_id = VALUES(horse_id), horse_serial = VALUES(horse_serial), horse_name = VALUES(horse_name), reason = VALUES(reason), status = 'PENDING'`,
+                            [targetSerial, winnerRecord.horseId, winnerRecord.horseSerial, winnerRecord.horseName, reason]
+                        );
+                    } catch (retryErr) {
+                        console.warn('[RaceEngine] Error saving scheduled winner in DB:', retryErr.message);
+                    }
+                } else {
+                    console.warn('[RaceEngine] Error saving scheduled winner in DB:', dbErr.message);
+                }
             }
         }
 
         try {
             const { socketService } = require('./socket.service');
-            if (socketService.io) {
-                const eventPayload = {
-                    gameSerial: String(targetSerial),
-                    isLive: isCurrentActive,
-                    forcedWinner: winnerRecord,
-                    timestamp: winnerRecord.setAt,
-                };
-                if (isCurrentActive) {
-                    socketService.io.to('races').emit('race:forced_winner', eventPayload);
+            if (socketService) {
+                socketService.syncForcedWinner(winnerRecord);
+                if (socketService.io) {
+                    const eventPayload = {
+                        gameSerial: String(targetSerial || this.currentRace?.game_serial || ''),
+                        isLive: isCurrentActive,
+                        forcedWinner: winnerRecord,
+                        timestamp: winnerRecord.setAt,
+                    };
+                    if (isCurrentActive) {
+                        socketService.io.to('races').emit('race:forced_winner', eventPayload);
+                    }
+                    socketService.io.to('admin').emit('admin:race_control_updated', {
+                        type: 'FORCED_WINNER_SET',
+                        ...eventPayload,
+                    });
                 }
-                socketService.io.to('admin').emit('admin:race_control_updated', {
-                    type: 'FORCED_WINNER_SET',
-                    ...eventPayload,
-                });
             }
         } catch (sErr) { }
 
         return {
             success: true,
             message: isCurrentActive
-                ? `Active Race #${targetSerial} winner successfully set to Horse #${winnerRecord.horseSerial} (${winnerRecord.horseName})`
+                ? `Active Race #${targetSerial || this.currentRace?.game_serial} winner successfully set to Horse #${winnerRecord.horseSerial} (${winnerRecord.horseName})`
                 : `Future Race #${targetSerial} winner successfully scheduled to Horse #${winnerRecord.horseSerial} (${winnerRecord.horseName})`,
-            gameSerial: targetSerial,
+            gameSerial: targetSerial || this.currentRace?.game_serial,
             isLive: isCurrentActive,
             forcedWinner: winnerRecord,
+            winner: winnerRecord,
         };
     }
 
@@ -1035,7 +1668,7 @@ class RaceEngine extends EventEmitter {
         } else if (status === RACE_STATUSES.COUNTDOWN) {
             const countdownStartTime = this.currentRace.countdown_at ? new Date(this.currentRace.countdown_at).getTime() : now;
             const diffMs = now - countdownStartTime;
-            let countdownDisplay = 3;
+            countdownDisplay = 3;
             if (diffMs >= 3000) {
                 countdownDisplay = 'GO';
             } else if (diffMs >= 2000) {
@@ -1066,16 +1699,33 @@ class RaceEngine extends EventEmitter {
             (h) => h.horse_id === this.currentRace.winner_horse_id || h.finish_position === 1
         );
 
+        const horseBetsPool = this.getHorseBetsPool();
+        const betsBySerial = new Map(horseBetsPool.horses.map((b) => [b.serialNumber, b]));
+
         return {
             active: true,
             id: Number(this.currentRace.id),
             gameSerial: String(this.currentRace.game_serial),
+            game_serial: String(this.currentRace.game_serial),
+            games_no: String(this.currentRace.game_serial),
+            game_sr_num: String(this.currentRace.game_serial),
+            game_sr: String(this.currentRace.game_serial),
+            serialNumber: String(this.currentRace.game_serial),
+            serial_number: String(this.currentRace.game_serial),
+            period: String(this.currentRace.game_serial),
+            period_num: String(this.currentRace.game_serial),
             status: this.currentRace.status,
             stageDescription,
             bettingAllowed: RaceStateMachine.isBettingAllowed(this.currentRace.status),
             timeRemainingSec,
             elapsedSec,
             countdownDisplay,
+            totalPot: this.totalPot,
+            totalBetsAmount: this.totalPot,
+            displayTotalPot: `₹${this.totalPot.toFixed(2)}`,
+            totalBetsCount: horseBetsPool.totalBetsCount || 0,
+            pool: horseBetsPool,
+            betPool: horseBetsPool,
             bettingOpenAt: this.currentRace.betting_open_at,
             bettingCloseAt: this.currentRace.betting_close_at,
             countdownAt: this.currentRace.countdown_at,
@@ -1102,16 +1752,33 @@ class RaceEngine extends EventEmitter {
                     ? `🔥 JACKPOT ACTIVE: ${Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1)}X PAYOUT! 🔥`
                     : 'N (Nothing - Standard Payout)',
             },
-            horses: this.currentHorses.map((h) => ({
-                id: h.horse_id,
-                serialNumber: h.serial_number,
-                name: h.horse_name_snapshot,
-                imageUrl: h.image_url || null,
-                startingPosition: h.starting_position,
-                finishPosition: h.finish_position,
-                finishTime: h.finish_time,
-                result: h.result,
-            })),
+            horses: this.currentHorses.map((h, index) => {
+                const serial = Number(h.serial_number || h.serialNumber || index + 1);
+                const betInfo = betsBySerial.get(serial) || { totalBetsAmount: 0, totalBetsCount: 0 };
+                return {
+                    id: h.horse_id || h.id,
+                    horseId: h.horse_id || h.id,
+                    serialNumber: serial,
+                    serial_number: serial,
+                    horseSerial: serial,
+                    horse_serial: serial,
+                    name: h.horse_name_snapshot || h.name,
+                    horseName: h.horse_name_snapshot || h.name,
+                    imageUrl: h.image_url || null,
+                    startingPosition: h.starting_position,
+                    finishPosition: h.finish_position,
+                    finishTime: h.finish_time,
+                    result: h.result,
+                    totalBetsAmount: betInfo.totalBetsAmount,
+                    totalAmount: betInfo.totalBetsAmount,
+                    totalBets: betInfo.totalBetsAmount,
+                    betAmount: betInfo.totalBetsAmount,
+                    amount: betInfo.totalBetsAmount,
+                    displayTotalBetsAmount: `₹${betInfo.totalBetsAmount.toFixed(2)}`,
+                    totalBetsCount: betInfo.totalBetsCount,
+                    betsCount: betInfo.totalBetsCount,
+                };
+            }),
         };
     }
 
@@ -1431,10 +2098,12 @@ class RaceEngine extends EventEmitter {
                     timestamp: new Date().toISOString(),
                 };
 
-                socketService.io.to('admin').emit('admin:jackpot_updated', payload);
+                socketService.emitToAdmin('admin:jackpot_updated', payload);
                 if (isCurrentActive) {
-                    socketService.io.to('races').emit('race:jackpot', payload);
-                    socketService.io.to('races').emit('race:state_change', this.getCurrentState());
+                    socketService.emitToRaces('race:jackpot', payload);
+                    socketService.emitToRaces('jackpot:update', payload);
+                    socketService.emitToRaces('race:state_change', this.getCurrentState());
+                    socketService.emitToRaces('race:state_changed', this.getCurrentState());
                 }
             }
         } catch (sErr) { }
@@ -1460,9 +2129,10 @@ class RaceEngine extends EventEmitter {
                 ...extra,
                 timestamp: new Date().toISOString(),
             };
-            socketService.io.to('admin').emit('admin:jackpot_updated', payload);
-            socketService.io.to('races').emit('race:jackpot', payload);
-            socketService.io.to('races').emit('race:state_changed', this.getCurrentState());
+            socketService.emitToAdmin('admin:jackpot_updated', payload);
+            socketService.emitToRaces('race:jackpot', payload);
+            socketService.emitToRaces('jackpot:update', payload);
+            socketService.emitToRaces('race:state_changed', this.getCurrentState());
         } catch (err) { /* Socket broadcast is best effort. */ }
     }
 
@@ -1577,9 +2247,11 @@ class RaceEngine extends EventEmitter {
                     message: 'Jackpot reset to 1X (Standard)',
                     timestamp: new Date().toISOString(),
                 };
-                socketService.io.to('admin').emit('admin:jackpot_updated', payload);
-                socketService.io.to('races').emit('race:jackpot', payload);
-                socketService.io.to('races').emit('race:state_change', this.getCurrentState());
+                socketService.emitToAdmin('admin:jackpot_updated', payload);
+                socketService.emitToRaces('race:jackpot', payload);
+                socketService.emitToRaces('jackpot:update', payload);
+                socketService.emitToRaces('race:state_change', this.getCurrentState());
+                socketService.emitToRaces('race:state_changed', this.getCurrentState());
             }
         } catch (sErr) { }
 

@@ -14,8 +14,6 @@ function getPublicError(error) {
   }
 
   const databaseErrors = {
-    HORSE_RACE_DATABASE_CONFIGURATION_ERROR:
-      "Set HORSE_DB_DATABASE to a schema different from DB_DATABASE and verify the MySQL connection settings.",
     HORSE_RACE_JWT_CONFIGURATION_ERROR:
       "Set HORSE_JWT_SECRET or JWT_SECRET before using horse-race authentication.",
     ECONNREFUSED: "Database connection refused. Check DB_HOST and DB_PORT in .env.",
@@ -30,6 +28,15 @@ function getPublicError(error) {
       "A database field does not match the expected SQL dump schema. Verify the selected database without renaming its fields.",
   };
 
+  if (error.code === "ER_NO_SUCH_TABLE") {
+    console.error("[Database Error] Missing table:", error.message || error.sqlMessage);
+    return {
+      statusCode: 500,
+      code: "DATABASE_CONFIGURATION_ERROR",
+      message: error.sqlMessage || error.message || "A required table is missing from the selected database.",
+    };
+  }
+
   if (databaseErrors[error.code]) {
     return {
       statusCode: 500,
@@ -42,7 +49,9 @@ function getPublicError(error) {
     return {
       statusCode: 500,
       code: "DATABASE_OPERATION_FAILED",
-      message: `Database operation failed (${error.code}). Verify the existing database schema and connection settings.`,
+      message: error.sqlMessage
+        ? `Database operation failed (${error.code}: ${error.sqlMessage}). Verify the existing database schema and connection settings.`
+        : `Database operation failed (${error.code}). Verify the existing database schema and connection settings.`,
     };
   }
 

@@ -15,7 +15,11 @@ function sendError(error, res) {
 
 async function bet(req, res) {
   try {
-    return res.status(200).json(await service.placeBet(req.body ?? {}));
+    const payload = {
+      ...(req.body ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+    };
+    return res.status(200).json(await service.placeBet(payload));
   } catch (error) {
     return sendError(error, res);
   }
@@ -23,8 +27,12 @@ async function bet(req, res) {
 
 async function betOld(req, res) {
   try {
+    const payload = {
+      ...(req.body ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+    };
     return res.status(200).json(
-      await service.placeBet(req.body ?? {}, { legacyWalletMode: true }),
+      await service.placeBet(payload, { legacyWalletMode: true }),
     );
   } catch (error) {
     return sendError(error, res);
@@ -33,7 +41,11 @@ async function betOld(req, res) {
 
 async function cashout(req, res) {
   try {
-    return res.status(200).json(await service.cashout(req.body ?? {}));
+    const payload = {
+      ...(req.body ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+    };
+    return res.status(200).json(await service.cashout(payload));
   } catch (error) {
     return sendError(error, res);
   }
@@ -41,8 +53,9 @@ async function cashout(req, res) {
 
 async function result(req, res) {
   try {
+    const userId = req.user?.id ? Number(req.user.id) : (req.body?.userid ?? req.query.userid);
     return res.status(200).json(await service.getResults({
-      userid: req.body?.userid ?? req.query.userid,
+      userid: userId,
       limit: req.body?.limit ?? req.query.limit ?? 0,
       offset: req.body?.offset ?? req.query.offset ?? 0,
     }));

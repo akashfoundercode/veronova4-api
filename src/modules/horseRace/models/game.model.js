@@ -36,22 +36,30 @@ class GameModel {
      * Find a user's permanent game by user_id
      */
     static async findByUserId(userId, connection = pool) {
-        const [rows] = await connection.execute(
-            'SELECT id, user_id, game_code, status, created_at, updated_at FROM games WHERE user_id = ? LIMIT 1',
-            [userId]
-        );
-        return rows[0] || null;
+        try {
+            const [rows] = await connection.execute(
+                'SELECT id, user_id, game_code, status, created_at, updated_at FROM games WHERE user_id = ? LIMIT 1',
+                [userId]
+            );
+            return rows[0] || null;
+        } catch (_) {
+            return null;
+        }
     }
 
     /**
      * Find game by ID
      */
     static async findById(id, connection = pool) {
-        const [rows] = await connection.execute(
-            'SELECT id, user_id, game_code, status, created_at, updated_at FROM games WHERE id = ? LIMIT 1',
-            [id]
-        );
-        return rows[0] || null;
+        try {
+            const [rows] = await connection.execute(
+                'SELECT id, user_id, game_code, status, created_at, updated_at FROM games WHERE id = ? LIMIT 1',
+                [id]
+            );
+            return rows[0] || null;
+        } catch (_) {
+            return null;
+        }
     }
 
     /**

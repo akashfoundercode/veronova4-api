@@ -2,10 +2,29 @@
 
 const { API_ROUTES } = require("../../config/apiRoutes");
 const config = require("../../config");
+const { AviatorService } = require("./aviator.service");
+
+/**
+ * ============================================================================
+ * LIVE GAME API URL
+ * ============================================================================
+ * Live game ka URL change karne ke liye:
+ * 1. .env file mein: AVIATOR_RESULT_API_URL=https://root.veronova.co.in/Aviator/
+ * 2. Ya yahan DEFAULT_AVIATOR_API_URL ko change karein.
+ */
+const DEFAULT_AVIATOR_API_URL =
+  process.env.AVIATOR_RESULT_API_URL ||
+  config?.aviator?.resultApiUrl ||
+  "https://root.veronova.co.in/Aviator/";
 
 const INITIAL_BET_TIME = 10;
 const ROUND_PAUSE_MS = 3000;
 const REQUEST_TIMEOUT_MS = 10000;
+
+function normalizeBaseUrl(url) {
+  const base = url || DEFAULT_AVIATOR_API_URL;
+  return base.endsWith("/") ? base : `${base}/`;
+}
 
 function multiplierStep(multiplier) {
   if (multiplier > 50) return 0.08;
@@ -17,10 +36,11 @@ function multiplierStep(multiplier) {
   return 0.01;
 }
 
-function createAviatorSocket(io, {
+function createAviatorSocket(winplay_socket, {
   fetchImpl = globalThis.fetch,
-  resultApiUrl = config.aviator.resultApiUrl,
+  resultApiUrl = DEFAULT_AVIATOR_API_URL,
   random = Math.random,
+  resultStore = new AviatorService(),
   setTimeoutImpl = setTimeout,
   clearTimeoutImpl = clearTimeout,
   logger = console,
@@ -29,7 +49,15 @@ function createAviatorSocket(io, {
     throw new TypeError("Aviator socket requires a fetch implementation.");
   }
 
-  const socket = io.of(API_ROUTES.aviator.socketNamespace);
+  let activeApiUrl = normalizeBaseUrl(resultApiUrl);
+
+  // Namespace support (e.g. /aviator) as well as root socket
+  const namespace = (winplay_socket && typeof winplay_socket.of === "function")
+    ? winplay_socket.of(API_ROUTES.aviator.socketNamespace)
+    : winplay_socket;
+
+  let forceCrash = false;
+
   const state = {
     betTime: INITIAL_BET_TIME,
     multiplier: 1,
@@ -50,14 +78,34 @@ function createAviatorSocket(io, {
   };
   let roundResultInserted = false;
 
-  function emitState(target = socket) {
+  function emitToEmitter(emitter, jsonPayload) {
+    if (!emitter || typeof emitter.emit !== "function") return;
+    emitter.emit(API_ROUTES.aviator.socketEvent, jsonPayload);
+    if (API_ROUTES.aviator.socketEvent !== "demobdg_aviator") {
+      emitter.emit("demobdg_aviator", jsonPayload);
+    }
+  }
+
+  function emitState(target) {
     const payload = {
       betTime: state.betTime,
       status: state.status,
       period: state.period,
       timer: state.multiplier.toFixed(2),
     };
-    target.emit(API_ROUTES.aviator.socketEvent, JSON.stringify(payload, null, 2));
+    const jsonPayload = JSON.stringify(payload, null, 2);
+
+    if (target) {
+      emitToEmitter(target, jsonPayload);
+      return;
+    }
+
+    if (namespace) {
+      emitToEmitter(namespace, jsonPayload);
+    }
+    if (winplay_socket && winplay_socket !== namespace) {
+      emitToEmitter(winplay_socket, jsonPayload);
+    }
   }
 
   async function requestJson(url, options) {
@@ -72,7 +120,17 @@ function createAviatorSocket(io, {
   }
 
   async function loadRoundSettings() {
-    const result = await requestJson(`${resultApiUrl}result_half_new.php`);
+    let result;
+    if (resultStore && typeof resultStore.getNextRoundSettings === "function") {
+      try {
+        result = await resultStore.getNextRoundSettings();
+      } catch {
+        result = null;
+      }
+    }
+    if (!result && activeApiUrl && typeof fetchImpl === "function") {
+      result = await requestJson(`${activeApiUrl}result_half_new.php`);
+    }
     if (!result || typeof result !== "object") {
       throw new Error("Aviator API returned an invalid round response.");
     }
@@ -90,14 +148,28 @@ function createAviatorSocket(io, {
   }
 
   async function insertRoundResult() {
-    const response = await requestJson(`${resultApiUrl}result_insert_new.php`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        adminmultiply: state.multiplier,
-        game_sr: state.period,
-      }),
-    });
+    let response;
+    if (resultStore && typeof resultStore.settleRound === "function") {
+      try {
+        response = await resultStore.settleRound({
+          game_sr_num: state.period,
+          multiplier: state.multiplier,
+        });
+      } catch (error) {
+        // Fall back to external API if local persistence throws (e.g. mock test environment)
+        response = null;
+      }
+    }
+    if (!response && activeApiUrl && typeof fetchImpl === "function") {
+      response = await requestJson(`${activeApiUrl}result_insert_new.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminmultiply: state.multiplier,
+          game_sr: state.period,
+        }),
+      });
+    }
 
     logger.log("Aviator result insert response:", response);
   }
@@ -126,7 +198,7 @@ function createAviatorSocket(io, {
 
       if (state.phase === "flying") {
         state.multiplier += multiplierStep(state.multiplier);
-        if (state.multiplier >= state.crashMultiplier) {
+        if (forceCrash || state.multiplier >= state.crashMultiplier) {
           state.phase = "crashed";
           state.status = 2;
           state.betTime = 2;
@@ -156,6 +228,7 @@ function createAviatorSocket(io, {
       state.betTime = INITIAL_BET_TIME;
       state.multiplier = 1;
       state.crashMultiplier = 0;
+      forceCrash = false;
       state.timeout = setTimeoutImpl(tick, 1000);
     } catch (error) {
       logger.error("Aviator socket update failed:", error.message);
@@ -164,16 +237,59 @@ function createAviatorSocket(io, {
     }
   }
 
-  socket.on("connection", (client) => emitState(client));
+  function handleConnection(clientSocket) {
+    emitState(clientSocket);
+
+    // Support force drop / crash event
+    if (clientSocket && typeof clientSocket.on === "function") {
+      clientSocket.on("aviator_drop_now", () => {
+        logger.log("🔥 FORCE CRASH RECEIVED (aviator_drop_now)");
+        forceCrash = true;
+      });
+
+      clientSocket.on("force_crash", () => {
+        logger.log("🔥 FORCE CRASH RECEIVED (force_crash)");
+        forceCrash = true;
+      });
+
+      clientSocket.on("demobdg_aviator_control", () => {
+        logger.log("🔥 FORCE CRASH RECEIVED (demobdg_aviator_control)");
+        forceCrash = true;
+      });
+    }
+  }
+
+  if (namespace && typeof namespace.on === "function") {
+    namespace.on("connection", handleConnection);
+  }
+  if (winplay_socket && winplay_socket !== namespace && typeof winplay_socket.on === "function") {
+    winplay_socket.on("connection", handleConnection);
+  }
+
   state.timeout = setTimeoutImpl(tick, 0);
 
   return {
-    namespace: socket,
+    namespace,
     stop() {
       state.stopped = true;
       if (state.timeout !== undefined) clearTimeoutImpl(state.timeout);
     },
+    forceCrash() {
+      logger.log("🔥 FORCE CRASH TRIGGERED PROGRAMMATICALLY");
+      forceCrash = true;
+    },
+    setResultApiUrl(newUrl) {
+      activeApiUrl = normalizeBaseUrl(newUrl);
+      logger.log("Aviator API URL updated to:", activeApiUrl);
+    },
+    getResultApiUrl() {
+      return activeApiUrl;
+    },
+    getState() {
+      return { ...state, forceCrash };
+    },
   };
 }
 
-module.exports = { createAviatorSocket };
+module.exports = createAviatorSocket;
+module.exports.createAviatorSocket = createAviatorSocket;

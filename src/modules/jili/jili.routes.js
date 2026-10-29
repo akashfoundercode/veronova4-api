@@ -8,7 +8,7 @@ const authenticate = require("../../middleware/authenticate");
 const router = express.Router();
 
 router.get(API_ROUTES.jili.games, controller.games);
-router.get(API_ROUTES.jili.launch, authenticate.optional, controller.launch);
-router.post(API_ROUTES.jili.launch, authenticate.optional, controller.launch);
+router.get(API_ROUTES.jili.launch, authenticate, controller.launch);
+router.post(API_ROUTES.jili.launch, authenticate, controller.launch);
 
 module.exports = router;

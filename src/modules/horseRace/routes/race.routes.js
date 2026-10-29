@@ -35,7 +35,17 @@ router.get(routes.previousGames, RaceController.getPreviousGameResults);
 
 // All Matches Results / History (Winners, Serial Numbers, Full Horse Ranking)
 router.get(routes.matchesResults, RaceController.getAllMatchesResults);
+router.get('/match', RaceController.getAllMatchesResults);
+router.get('/matches', RaceController.getAllMatchesResults);
+router.get('/all-matches', RaceController.getAllMatchesResults);
 router.get(routes.history, RaceController.getAllMatchesResults);
+
+// Direct horses & result aliases (Must precede /:id)
+router.get('/horses', RaceController.getRaceHorses);
+router.get('/current/horses', RaceController.getRaceHorses);
+router.get('/result', RaceController.getRaceResult);
+router.get('/current/result', RaceController.getRaceResult);
+router.get('/current/result-screen', optionalAuth, RaceController.getFinishScreenResult);
 
 // Parameterized Race Endpoints
 router.get(routes.idResultScreen, optionalAuth, RaceController.getFinishScreenResult);

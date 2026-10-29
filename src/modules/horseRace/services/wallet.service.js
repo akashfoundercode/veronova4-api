@@ -47,12 +47,21 @@ class WalletService {
         };
     }
 
-    // Get wallet or auto-create one if missing
+    // Get wallet or auto-create one if missing, always synced with shared users.wallet
     static async getOrCreateWallet(userId, db = pool) {
+        let userBalance = null;
+        try {
+            const [users] = await db.execute('SELECT wallet FROM users WHERE id = ? LIMIT 1', [userId]);
+            if (users[0] && users[0].wallet !== undefined && users[0].wallet !== null) {
+                userBalance = Number(users[0].wallet);
+            }
+        } catch (_) {}
+
         let wallet = await WalletModel.findByUserId(userId, db);
         if (!wallet) {
             try {
-                wallet = await WalletModel.create(userId, '0.0000', 'INR', 'active', db);
+                const initialBalance = userBalance !== null ? userBalance.toFixed(4) : '0.0000';
+                wallet = await WalletModel.create(userId, initialBalance, 'INR', 'active', db);
             } catch (err) {
                 // In case of race condition / duplicate entry, re-fetch
                 if (err.code === 'ER_DUP_ENTRY') {
@@ -62,6 +71,15 @@ class WalletService {
                 }
             }
         }
+
+        // Keep wallets table synced with shared users.wallet across all games
+        if (wallet && userBalance !== null && Number(wallet.balance) !== userBalance) {
+            try {
+                await WalletModel.updateBalance(wallet.id, userBalance.toFixed(4), db);
+                wallet.balance = userBalance.toFixed(4);
+            } catch (_) {}
+        }
+
         return wallet;
     }
 
@@ -173,21 +191,35 @@ class WalletService {
         try {
             await connection.beginTransaction();
 
+            // Lock the user row in the shared `users` table for update to ensure atomic cross-game balance
+            let userBalance = null;
+            try {
+                const [userRows] = await connection.execute(
+                    'SELECT id, wallet, winning_wallet FROM users WHERE id = ? FOR UPDATE',
+                    [userId]
+                );
+                if (userRows && userRows.length > 0 && userRows[0].wallet !== undefined && userRows[0].wallet !== null) {
+                    userBalance = Number(userRows[0].wallet);
+                }
+            } catch (_) {}
+
             // Lock the wallet row for update
             let wallet = await WalletModel.findByUserIdForUpdate(userId, connection);
             if (!wallet) {
                 // Auto create inside transaction if not present
-                await WalletModel.create(userId, '0.0000', 'INR', 'active', connection);
+                const initialBal = userBalance !== null ? userBalance.toFixed(4) : '0.0000';
+                await WalletModel.create(userId, initialBal, 'INR', 'active', connection);
                 wallet = await WalletModel.findByUserIdForUpdate(userId, connection);
             }
 
-            if (wallet.status !== 'active') {
+            if (wallet && wallet.status !== 'active') {
                 const error = new Error(`Wallet is ${wallet.status}`);
                 error.statusCode = 403;
                 throw error;
             }
 
-            const currentBalance = Number(wallet.balance);
+            // The authoritative balance is always the shared users.wallet
+            const currentBalance = userBalance !== null ? userBalance : Number(wallet?.balance || 0);
             let newBalance;
 
             if (type === 'credit') {
@@ -209,8 +241,21 @@ class WalletService {
             const exactBalanceAfter = newBalance.toFixed(4);
             const exactAmount = numericAmount.toFixed(4);
 
-            // Update balance in wallets table
-            await WalletModel.updateBalance(wallet.id, exactBalanceAfter, connection);
+            // Synchronize balance atomically across users and wallets tables
+            try {
+                if (type === 'credit' && (category === 'bet_win' || category === 'win' || category === 'payout')) {
+                    await connection.execute(
+                        'UPDATE users SET wallet = ?, winning_wallet = winning_wallet + ? WHERE id = ?',
+                        [exactBalanceAfter, numericAmount, userId]
+                    );
+                } else {
+                    await connection.execute('UPDATE users SET wallet = ? WHERE id = ?', [exactBalanceAfter, userId]);
+                }
+            } catch (_) {}
+
+            if (wallet) {
+                await WalletModel.updateBalance(wallet.id, exactBalanceAfter, connection);
+            }
 
             // Record transaction in audit log
             const transactionId = await WalletModel.createTransaction(

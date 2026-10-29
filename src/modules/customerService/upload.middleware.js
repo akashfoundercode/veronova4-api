@@ -40,7 +40,7 @@ const fileFilter = (req, file, cb) => {
   ) {
     cb(null, true);
   } else {
-    cb(null, true); // Don't crash on slightly different mimetypes
+    cb(new Error("Invalid file type. Only image, PDF, and video files are permitted."));
   }
 };
 
@@ -48,7 +48,8 @@ const uploadInstance = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB
+    fileSize: 10 * 1024 * 1024, // 10MB per file
+    files: 10, // max 10 files
   },
 });
 

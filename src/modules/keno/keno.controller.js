@@ -12,7 +12,11 @@ function respondError(error, res) {
 
 async function placeBet(req, res) {
   try {
-    return res.status(200).json(await service.placeBet(req.body ?? {}));
+    const payload = {
+      ...(req.body ?? {}),
+      userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+    };
+    return res.status(200).json(await service.placeBet(payload));
   } catch (error) { return respondError(error, res); }
 }
 

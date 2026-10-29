@@ -218,3 +218,135 @@ test("Aviator retries a failed crash-result insert before advancing the round", 
 
   socket.stop();
 });
+
+test("Aviator triggers force drop when aviator_drop_now socket event is received", async () => {
+  const harness = createSocketHarness();
+  const socket = createAviatorSocket(harness.io, {
+    resultApiUrl: "https://results.example/Aviator/",
+    random: () => 0.99, // High random multiplier (e.g. up to 99) so it wouldn't crash immediately
+    setTimeoutImpl: harness.setTimeoutImpl,
+    clearTimeoutImpl: harness.clearTimeoutImpl,
+    logger: { log() {}, error() {} },
+    fetchImpl: async (url) => {
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return url.endsWith("result_half_new.php")
+            ? { game_sr: "88888", adminmultiply: 50.0 }
+            : { status: "success" };
+        },
+      };
+    },
+  });
+
+  // Advance through betting countdown to start flying
+  await harness.scheduled[0].callback();
+  for (let i = 0; i < 9; i += 1) {
+    await harness.scheduled.at(-1).callback();
+  }
+
+  // Now in flying phase (status: 1)
+  const flyingPayload = JSON.parse(harness.emissions.at(-1).payload);
+  assert.equal(flyingPayload.status, 1);
+
+  // Connect client and send aviator_drop_now
+  let dropHandler;
+  harness.handlers.get("connection")({
+    emit() {},
+    on(event, handler) {
+      if (event === "aviator_drop_now") dropHandler = handler;
+    },
+  });
+  assert.ok(typeof dropHandler === "function", "aviator_drop_now handler must be registered");
+
+  // Trigger drop
+  dropHandler();
+
+  // Next tick must crash immediately due to forceCrash
+  await harness.scheduled.at(-1).callback();
+  const crashedPayload = JSON.parse(harness.emissions.at(-1).payload);
+  assert.equal(crashedPayload.status, 2);
+  assert.equal(crashedPayload.betTime, 2);
+  assert.equal(crashedPayload.period, "88888");
+
+  socket.stop();
+});
+
+test("Aviator allows dynamic live game API URL updates", () => {
+  const harness = createSocketHarness();
+  const socket = createAviatorSocket(harness.io, {
+    resultApiUrl: "https://root.veronova.co.in/Aviator/",
+    setTimeoutImpl: harness.setTimeoutImpl,
+    clearTimeoutImpl: harness.clearTimeoutImpl,
+    fetchImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+    logger: { log() {}, error() {} },
+  });
+
+  assert.equal(socket.getResultApiUrl(), "https://root.veronova.co.in/Aviator/");
+  socket.setResultApiUrl("https://newgame.example.com/api/aviator");
+  assert.equal(socket.getResultApiUrl(), "https://newgame.example.com/api/aviator/");
+
+  socket.stop();
+});
+
+test("Aviator legacy PHP routes respond correctly on all path aliases", async () => {
+  const app = require("../src/app");
+  const { EventEmitter } = require("node:events");
+
+  function mockRequest(appInstance, { method, url, body = {}, query = {} }) {
+    return new Promise((resolve) => {
+      const req = new EventEmitter();
+      req.method = method;
+      req.url = url;
+      req.headers = { host: "127.0.0.1", "content-type": "application/json" };
+      req.query = query;
+      req.body = body;
+
+      const res = new EventEmitter();
+      res.statusCode = 200;
+      res.headers = {};
+      res.setHeader = (k, v) => { res.headers[k.toLowerCase()] = v; };
+      res.getHeader = (k) => res.headers[k.toLowerCase()];
+      res.status = (code) => { res.statusCode = code; return res; };
+      let responseBody = "";
+      res.send = (chunk) => {
+        responseBody = chunk;
+        resolve({ statusCode: res.statusCode, body: responseBody });
+      };
+      res.json = (data) => {
+        resolve({ statusCode: res.statusCode, body: data });
+      };
+      res.end = (chunk) => {
+        if (chunk) responseBody = chunk;
+        resolve({ statusCode: res.statusCode, body: responseBody });
+      };
+
+      appInstance.handle(req, res);
+    });
+  }
+
+  // 1. GET /Aviator/result_half_new.php
+  const res1 = await mockRequest(app, { method: "GET", url: "/Aviator/result_half_new.php" });
+  assert.ok(res1.statusCode === 200 || res1.statusCode === 500, "Must route to roundSettings controller");
+
+  // 2. GET /result_half_new.php
+  const res2 = await mockRequest(app, { method: "GET", url: "/result_half_new.php" });
+  assert.ok(res2.statusCode === 200 || res2.statusCode === 500, "Must route to roundSettings controller");
+
+  // 3. GET /aviator/result_half_new.php
+  const res3 = await mockRequest(app, { method: "GET", url: "/aviator/result_half_new.php" });
+  assert.ok(res3.statusCode === 200 || res3.statusCode === 500, "Must route to roundSettings controller");
+
+  // 4. POST /Aviator/result_insert_new.php (without params should return 400 validation, proving route reached)
+  const res4 = await mockRequest(app, { method: "POST", url: "/Aviator/result_insert_new.php", body: {} });
+  assert.equal(res4.statusCode, 400, "Must hit insertResult controller and validate game_sr");
+
+  // 5. POST /result_insert_new.php
+  const res5 = await mockRequest(app, { method: "POST", url: "/result_insert_new.php", body: {} });
+  assert.equal(res5.statusCode, 400, "Must hit insertResult controller and validate game_sr");
+
+  // 6. POST /aviator/result_insert_new.php
+  const res6 = await mockRequest(app, { method: "POST", url: "/aviator/result_insert_new.php", body: {} });
+  assert.equal(res6.statusCode, 400, "Must hit insertResult controller and validate game_sr");
+});

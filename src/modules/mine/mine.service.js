@@ -94,11 +94,12 @@ class MineService {
 
   async cashout({ userid, win_amount, multipler, status }) {
     const userId = requiredInteger(userid, "userid");
-    const winAmount = requiredNumber(win_amount, "win_amount");
     const multiplier = requiredNumber(multipler, "multipler");
-    const betStatus = requiredInteger(status, "status");
     if (userId < 1) {
       throw new AppError(400, "VALIDATION_ERROR", "The userid must be a positive integer.");
+    }
+    if (multiplier <= 0) {
+      throw new AppError(400, "VALIDATION_ERROR", "The multipler must be greater than zero.");
     }
 
     const connection = await this.poolProvider().getConnection();
@@ -128,22 +129,31 @@ class MineService {
         );
       }
 
+      const activeBet = bets[0];
+      const betAmount = Number(activeBet.amount);
+      const calculatedWin = Number.isFinite(betAmount) && betAmount > 0
+        ? Number((betAmount * multiplier).toFixed(2))
+        : (win_amount !== undefined ? Number(win_amount) : 0);
+      const finalWinAmount = Number.isFinite(calculatedWin) ? calculatedWin : 0;
+      // Strictly enforce terminal status 1 for cashout, ignoring any client attempt to remain 0
+      const terminalStatus = 1;
+
       await connection.execute(
         `UPDATE minegame_bet
          SET status = ?, multipler = ?, win_amount = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [betStatus, multiplier, winAmount, bets[0].id],
+        [terminalStatus, multiplier, finalWinAmount, activeBet.id],
       );
       await connection.execute(
         "UPDATE users SET wallet = wallet + ? WHERE id = ?",
-        [winAmount, userId],
+        [finalWinAmount, userId],
       );
       await connection.commit();
       transactionStarted = false;
       return {
         status: 200,
         message: "CashOut successfully",
-        win_amount: winAmount,
+        win_amount: finalWinAmount,
       };
     } catch (error) {
       if (transactionStarted) await connection.rollback();

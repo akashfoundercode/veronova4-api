@@ -1,5 +1,6 @@
 "use strict";
 
+const bcrypt = require("bcryptjs");
 const { getPool } = require("../../config/database");
 const AppError = require("../../shared/errors/AppError");
 
@@ -670,7 +671,10 @@ class CustomerServiceService {
     await this.ensureTables();
     const pool = this.poolProvider();
     const [rows] = await pool.execute(
-      "SELECT * FROM change_login_passwords ORDER BY id DESC LIMIT 100",
+      `SELECT id, user_id, bdg_win_id, latest_deposit_receipt, photo_selfie_hold_passbook,
+              photo_selfie_hold_identity_card, status, remarks, created_at, updated_at
+       FROM change_login_passwords
+       ORDER BY id DESC LIMIT 100`,
     );
     return { status: 200, success: true, count: rows.length, data: rows };
   }

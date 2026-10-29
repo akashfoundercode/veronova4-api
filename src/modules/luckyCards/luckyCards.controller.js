@@ -12,12 +12,22 @@ function createController(size) {
   return {
     service,
     bet: async (req, res) => {
-      try { return res.status(200).json(await service.placeBets(req.body ?? {})); }
-      catch (error) { return fail(error, res); }
+      try {
+        const payload = {
+          ...(req.body ?? {}),
+          userid: req.user?.id ? Number(req.user.id) : req.body?.userid,
+        };
+        return res.status(200).json(await service.placeBets(payload));
+      } catch (error) { return fail(error, res); }
     },
     history: async (req, res) => {
-      try { return res.status(200).json(await service.getHistory(req.query)); }
-      catch (error) { return fail(error, res); }
+      try {
+        const query = {
+          ...(req.query ?? {}),
+          user_id: req.user?.id ? Number(req.user.id) : req.query?.user_id,
+        };
+        return res.status(200).json(await service.getHistory(query));
+      } catch (error) { return fail(error, res); }
     },
     results: async (req, res) => {
       try { return res.status(200).json(await service.getResults(req.query.user_id)); }

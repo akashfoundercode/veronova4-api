@@ -1,6 +1,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const bcrypt = require("bcryptjs");
 const config = require("../../config");
 const { getPool } = require("../../config/database");
 const AppError = require("../../shared/errors/AppError");
@@ -1788,6 +1789,7 @@ class AdminService {
         : `User_${randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 5)}`;
       const newReferralCode = await findAvailableReferralCode(connection);
       const userImage = new URL("/image/download.png", config.appUrl).toString();
+      const passwordHash = await bcrypt.hash(password, 10);
 
       const [insertResult] = await connection.execute(
         `INSERT INTO users
@@ -1800,7 +1802,7 @@ class AdminService {
           userIdCode,
           normalizedMobile,
           normalizedEmail,
-          password,
+          passwordHash,
           userImage,
           newReferralCode,
           initialWallet,
@@ -4371,48 +4373,72 @@ class AdminService {
       throw new AppError(400, "VALIDATION_ERROR", "Valid deposit ID is required.");
     }
 
-    const [existing] = await pool.execute(
-      `SELECT
-         p.*,
-         COALESCE(u.username, CONCAT('User_', p.user_id)) AS username,
-         u.u_id,
-         u.mobile
-       FROM payins p
-       LEFT JOIN users u ON u.id = p.user_id
-       WHERE p.id = ? LIMIT 1`,
-      [targetId],
-    );
-    if (existing.length === 0) {
-      throw new AppError(404, "DEPOSIT_NOT_FOUND", `Deposit with ID '${targetId}' not found`);
-    }
+    const runner = pool.getConnection ? await pool.getConnection() : pool;
+    let txActive = false;
+    let isApprove = false;
 
-    const cur = existing[0];
-    const rawAction = String(data.action ?? data.status ?? "").toLowerCase().trim();
-    const isApprove = rawAction === "approve" || rawAction === "success" || rawAction === "2";
-    const isReject = rawAction === "reject" || rawAction === "rejected" || rawAction === "3";
+    try {
+      if (runner.beginTransaction) {
+        await runner.beginTransaction();
+        txActive = true;
+      }
 
-    if (!isApprove && !isReject) {
-      throw new AppError(400, "VALIDATION_ERROR", "Status or action must be 'approve' / 'success' or 'reject'.");
-    }
+      const [existing] = await runner.execute(
+        `SELECT
+           p.*,
+           COALESCE(u.username, CONCAT('User_', p.user_id)) AS username,
+           u.u_id,
+           u.mobile
+         FROM payins p
+         LEFT JOIN users u ON u.id = p.user_id
+         WHERE p.id = ? LIMIT 1 FOR UPDATE`,
+        [targetId],
+      );
+      if (existing.length === 0) {
+        throw new AppError(404, "DEPOSIT_NOT_FOUND", `Deposit with ID '${targetId}' not found`);
+      }
 
-    if (isApprove) {
-      // If currently pending, credit wallet
-      if (Number(cur.status) === 1) {
-        await pool.execute(
+      const cur = existing[0];
+      const rawAction = String(data.action ?? data.status ?? "").toLowerCase().trim();
+      isApprove = rawAction === "approve" || rawAction === "success" || rawAction === "2";
+      const isReject = rawAction === "reject" || rawAction === "rejected" || rawAction === "3";
+
+      if (!isApprove && !isReject) {
+        throw new AppError(400, "VALIDATION_ERROR", "Status or action must be 'approve' / 'success' or 'reject'.");
+      }
+
+      if (Number(cur.status) !== 1) {
+        throw new AppError(400, "TRANSACTION_ALREADY_FINALIZED", "Deposit has already been processed or finalized.");
+      }
+
+      if (isApprove) {
+        await runner.execute(
           "UPDATE users SET wallet = wallet + ? WHERE id = ?",
           [Number(cur.cash), Number(cur.user_id)],
         );
+        await runner.execute(
+          "UPDATE payins SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [targetId],
+        );
+      } else if (isReject) {
+        const rejectMsg = data.rejectmsg ? String(data.rejectmsg).trim() : (data.remark ? String(data.remark).trim() : "Rejected by admin");
+        await runner.execute(
+          "UPDATE payins SET status = 3, rejectmsg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [rejectMsg, targetId],
+        );
       }
-      await pool.execute(
-        "UPDATE payins SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [targetId],
-      );
-    } else if (isReject) {
-      const rejectMsg = data.rejectmsg ? String(data.rejectmsg).trim() : (data.remark ? String(data.remark).trim() : "Rejected by admin");
-      await pool.execute(
-        "UPDATE payins SET status = 3, rejectmsg = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [rejectMsg, targetId],
-      );
+
+      if (txActive) {
+        await runner.commit();
+        txActive = false;
+      }
+    } catch (err) {
+      if (txActive) {
+        try { await runner.rollback(); } catch (_) {}
+      }
+      throw err;
+    } finally {
+      if (runner.release) runner.release();
     }
 
     const [updatedRows] = await pool.execute(
@@ -4644,54 +4670,78 @@ class AdminService {
       throw new AppError(400, "VALIDATION_ERROR", "Valid withdrawal ID is required.");
     }
 
-    const [existing] = await pool.execute(
-      `SELECT
-         w.*,
-         COALESCE(u.username, CONCAT('User_', w.user_id)) AS username,
-         u.u_id,
-         u.mobile,
-         COALESCE(a.name, '') AS bank_holder_name,
-         COALESCE(a.bank_name, '') AS bank_name,
-         COALESCE(a.account_number, '') AS account_number,
-         COALESCE(a.ifsc_code, '') AS ifsc_code,
-         COALESCE(w.upi_id, a.upi_id, '') AS upi_id
-       FROM withdraw_histories w
-       LEFT JOIN users u ON u.id = w.user_id
-       LEFT JOIN account_details a ON a.id = w.account_id
-       WHERE w.id = ? LIMIT 1`,
-      [targetId],
-    );
-    if (existing.length === 0) {
-      throw new AppError(404, "WITHDRAWAL_NOT_FOUND", `Withdrawal with ID '${targetId}' not found`);
-    }
+    const runner = pool.getConnection ? await pool.getConnection() : pool;
+    let txActive = false;
+    let isApprove = false;
 
-    const cur = existing[0];
-    const rawAction = String(data.action ?? data.status ?? "").toLowerCase().trim();
-    const isApprove = rawAction === "approve" || rawAction === "approved" || rawAction === "success" || rawAction === "2";
-    const isReject = rawAction === "reject" || rawAction === "rejected" || rawAction === "3";
+    try {
+      if (runner.beginTransaction) {
+        await runner.beginTransaction();
+        txActive = true;
+      }
 
-    if (!isApprove && !isReject) {
-      throw new AppError(400, "VALIDATION_ERROR", "Status or action must be 'approve' / 'approved' or 'reject'.");
-    }
-
-    if (isApprove) {
-      await pool.execute(
-        "UPDATE withdraw_histories SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      const [existing] = await runner.execute(
+        `SELECT
+           w.*,
+           COALESCE(u.username, CONCAT('User_', w.user_id)) AS username,
+           u.u_id,
+           u.mobile,
+           COALESCE(a.name, '') AS bank_holder_name,
+           COALESCE(a.bank_name, '') AS bank_name,
+           COALESCE(a.account_number, '') AS account_number,
+           COALESCE(a.ifsc_code, '') AS ifsc_code,
+           COALESCE(w.upi_id, a.upi_id, '') AS upi_id
+         FROM withdraw_histories w
+         LEFT JOIN users u ON u.id = w.user_id
+         LEFT JOIN account_details a ON a.id = w.account_id
+         WHERE w.id = ? LIMIT 1 FOR UPDATE`,
         [targetId],
       );
-    } else if (isReject) {
-      const rejectMsg = data.rejectmsg ? String(data.rejectmsg).trim() : (data.msg ? String(data.msg).trim() : (data.remark ? String(data.remark).trim() : "Rejected by admin"));
-      // Refund user wallet if was pending
-      if (Number(cur.status) === 1) {
-        await pool.execute(
+      if (existing.length === 0) {
+        throw new AppError(404, "WITHDRAWAL_NOT_FOUND", `Withdrawal with ID '${targetId}' not found`);
+      }
+
+      const cur = existing[0];
+      const rawAction = String(data.action ?? data.status ?? "").toLowerCase().trim();
+      isApprove = rawAction === "approve" || rawAction === "approved" || rawAction === "success" || rawAction === "2";
+      const isReject = rawAction === "reject" || rawAction === "rejected" || rawAction === "3";
+
+      if (!isApprove && !isReject) {
+        throw new AppError(400, "VALIDATION_ERROR", "Status or action must be 'approve' / 'approved' or 'reject'.");
+      }
+
+      if (Number(cur.status) !== 1) {
+        throw new AppError(400, "TRANSACTION_ALREADY_FINALIZED", "Withdrawal has already been processed or finalized.");
+      }
+
+      if (isApprove) {
+        await runner.execute(
+          "UPDATE withdraw_histories SET status = 2, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [targetId],
+        );
+      } else if (isReject) {
+        const rejectMsg = data.rejectmsg ? String(data.rejectmsg).trim() : (data.msg ? String(data.msg).trim() : (data.remark ? String(data.remark).trim() : "Rejected by admin"));
+        await runner.execute(
           "UPDATE users SET winning_wallet = winning_wallet + ? WHERE id = ?",
           [Number(cur.amount), Number(cur.user_id)],
         );
+        await runner.execute(
+          "UPDATE withdraw_histories SET status = 3, rejectmsg = ?, remark = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+          [rejectMsg, rejectMsg, targetId],
+        );
       }
-      await pool.execute(
-        "UPDATE withdraw_histories SET status = 3, rejectmsg = ?, remark = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        [rejectMsg, rejectMsg, targetId],
-      );
+
+      if (txActive) {
+        await runner.commit();
+        txActive = false;
+      }
+    } catch (err) {
+      if (txActive) {
+        try { await runner.rollback(); } catch (_) {}
+      }
+      throw err;
+    } finally {
+      if (runner.release) runner.release();
     }
 
     const [updatedRows] = await pool.execute(

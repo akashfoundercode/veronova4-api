@@ -1,6 +1,8 @@
 const { pool } = require('../config/database');
 const { raceEngine } = require('./raceEngine');
 
+let lastMetricsErrorKey = null;
+
 class AnalyticsService {
     /**
      * Get real-time Platform & Admin KPIs
@@ -83,6 +85,8 @@ class AnalyticsService {
                 livePot.horsePots = horsePots;
             }
 
+            lastMetricsErrorKey = null;
+
             return {
                 timestamp: new Date().toISOString(),
                 activePlayers: Math.max(0, Number(activePlayersCount)),
@@ -108,7 +112,11 @@ class AnalyticsService {
                 livePot,
             };
         } catch (error) {
-            console.error('[AnalyticsService] Error calculating platform metrics:', error);
+            const errorKey = `${error.code || error.name || 'Error'}:${error.message}`;
+            if (lastMetricsErrorKey !== errorKey) {
+                console.error('[AnalyticsService] Error calculating platform metrics:', error.message);
+                lastMetricsErrorKey = errorKey;
+            }
             return {
                 timestamp: new Date().toISOString(),
                 activePlayers: Math.max(0, Number(activePlayersCount)),
