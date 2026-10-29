@@ -12,6 +12,7 @@ router.use(authenticate.optional);
 router.post(API_ROUTES.aviator.bet, controller.bet);
 router.get(API_ROUTES.aviator.betNew, controller.betNew);
 router.post(API_ROUTES.aviator.cashout, controller.cashout);
+router.get(API_ROUTES.aviator.cashout, controller.cashout);
 router.post(API_ROUTES.aviator.history, controller.history);
 router.get(API_ROUTES.aviator.lastFiveResult, controller.lastFiveResult);
 router.get(API_ROUTES.aviator.betCancel, controller.betCancel);

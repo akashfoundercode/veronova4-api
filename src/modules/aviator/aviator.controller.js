@@ -76,10 +76,11 @@ function decodeCashout(salt) {
   if (typeof salt !== "string" || salt.length === 0 || salt.length > 4096) {
     throw new AppError(400, "VALIDATION_ERROR", "The salt field is required.");
   }
+  const normalizedSalt = salt.replace(/ /g, "+");
   let decoded;
   try {
-    const buffer = Buffer.from(salt, "base64");
-    if (buffer.toString("base64").replace(/=+$/, "") !== salt.replace(/=+$/, "")) {
+    const buffer = Buffer.from(normalizedSalt, "base64");
+    if (buffer.toString("base64").replace(/=+$/, "") !== normalizedSalt.replace(/=+$/, "")) {
       throw new Error("Invalid base64");
     }
     decoded = JSON.parse(buffer.toString("utf8"));
@@ -106,7 +107,10 @@ function decodeCashout(salt) {
 
 async function cashout(req, res) {
   try {
-    const result = await service.cashout(decodeCashout(req.body?.salt));
+    const rawSalt = Array.isArray(req.body?.salt)
+      ? req.body.salt[0]
+      : (req.body?.salt ?? (Array.isArray(req.query?.salt) ? req.query.salt[0] : req.query?.salt));
+    const result = await service.cashout(decodeCashout(rawSalt));
     return res.status(200).json(result);
   } catch (error) {
     if (error instanceof AppError && error.statusCode === 400) {

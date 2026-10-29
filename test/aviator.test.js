@@ -215,6 +215,51 @@ test("cashout accepts the existing base64 JSON request envelope", () => {
   assert.throws(() => decodeCashout("invalid"), /salt must contain valid base64-encoded JSON/);
 });
 
+test("cashout decodes user salt and handles query params or URL spaces", async () => {
+  const userSalt = "eyJ1aWQiOiIxIiwibXVsdGlwbGllciI6IjUuMzUiLCJnYW1lX3NyX251bSI6IjEyMTYyMDIiLCJudW1iZXIiOjF9";
+  const decoded = decodeCashout(userSalt);
+  assert.deepEqual(decoded, {
+    uid: 1,
+    number: 1,
+    multiplier: 5.35,
+    game_sr_num: "1216202",
+  });
+
+  const { cashout, setService } = require("../src/modules/aviator/aviator.controller");
+  let calledWith = null;
+  setService({
+    async cashout(payload) {
+      calledWith = payload;
+      return { status: 200, message: "Cashout Success" };
+    },
+  });
+
+  // Verify req.query.salt works (e.g. GET or URL query parameter)
+  let responseData = null;
+  const mockRes = {
+    status(code) {
+      return {
+        json(data) {
+          responseData = { code, data };
+          return responseData;
+        },
+      };
+    },
+  };
+
+  await cashout({ method: "GET", query: { salt: userSalt }, body: {} }, mockRes);
+  assert.equal(responseData?.code, 200);
+  assert.deepEqual(calledWith, {
+    uid: 1,
+    number: 1,
+    multiplier: 5.35,
+    game_sr_num: "1216202",
+  });
+
+  // Reset service back to default
+  setService(new AviatorService());
+});
+
 let server;
 let baseUrl;
 
