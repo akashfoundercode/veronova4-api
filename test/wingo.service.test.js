@@ -310,9 +310,53 @@ test("settling a Wingo round honors admin results and stores the existing result
     '["2","Green"]',
     2,
   ]);
-  assert.ok(connection.calls.some(({ sql }) =>
-    sql.startsWith("UPDATE betlogs SET amount = 0, games_no = games_no + 1"),
+  assert.ok(connection.calls.some(({ sql, params }) =>
+    sql.startsWith("UPDATE betlogs SET amount = 0, games_no = ?") &&
+    params[0] === "20261010010002"
   ));
+});
+
+test("settleRound increments games_no from last bet_results row if betlogs is behind or duplicate", async () => {
+  const connection = createConnection((sql) => {
+    if (sql.startsWith("SELECT winning_percentage FROM game_settings")) {
+      return [{ winning_percentage: 20 }];
+    }
+    // betlogs has old duplicate number: 20250822905392
+    if (sql.startsWith("SELECT id, games_no, number, amount FROM betlogs")) {
+      return [{ id: 1, games_no: "20250822905392", number: 0, amount: 0 }];
+    }
+    // bet_results already has the same number 20250822905392
+    if (sql.startsWith("SELECT games_no FROM bet_results")) {
+      return [{ games_no: "20250822905392" }];
+    }
+    if (sql.startsWith("SELECT COALESCE(SUM(amount)")) {
+      return [{ amount: 0 }];
+    }
+    if (sql.startsWith("SELECT number FROM admin_winner_results")) {
+      return [];
+    }
+    if (sql.startsWith("SELECT name FROM virtual_games")) {
+      return [{ name: "5" }, { name: "Big" }, { name: "Violet" }];
+    }
+    if (sql.startsWith("SELECT number, multiplier FROM virtual_games")) {
+      return [{ number: 5, multiplier: 9 }];
+    }
+    return [];
+  });
+
+  const service = new WingoService(() => ({
+    getConnection: async () => connection,
+  }));
+
+  const result = await service.settleRound(1, { forcedResult: 5 });
+
+  // Must be 20250822905393 (+1 of the latest result in bet_results!)
+  assert.equal(result.gameNo, "20250822905393");
+  const insert = connection.calls.find(({ sql }) => sql.startsWith("INSERT INTO bet_results"));
+  assert.equal(insert.params[1], "20250822905393");
+
+  const betlogsUpdate = connection.calls.find(({ sql }) => sql.startsWith("UPDATE betlogs SET amount = 0, games_no = ?"));
+  assert.equal(betlogsUpdate.params[0], "20250822905394");
 });
 
 test("settlement accepts a configured non-Wingo result number above nine", async () => {

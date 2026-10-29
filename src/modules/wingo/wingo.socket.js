@@ -38,6 +38,7 @@ function createWingoSocket(io, {
     target.emit(API_ROUTES.wingo.socketEvent, payload);
     try {
       io.emit(API_ROUTES.wingo.socketEvent, payload);
+      io.emit("funplay_wingo", payload);
       io.emit("wingo_timer", payload);
     } catch (_) {}
   }
@@ -147,6 +148,11 @@ function createWingoSocket(io, {
   socket.on("connection", (client) => {
     emitTimerData(client);
   });
+  try {
+    io.on("connection", (client) => {
+      emitTimerData(client);
+    });
+  } catch (_) {}
 
   const timer = setIntervalImpl(fetchTimerData, TIMER_INTERVAL_MS);
 
