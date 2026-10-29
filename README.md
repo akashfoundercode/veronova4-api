@@ -360,3 +360,4 @@ Gamebridge block-hash endpoint; never place provider keys in source code.
   examples in `.env.example`.
 - Never log access tokens, API keys, or full sensitive upstream payloads.
 # veronova_backend
+# veronova4-api
