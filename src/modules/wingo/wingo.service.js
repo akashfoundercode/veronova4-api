@@ -202,9 +202,9 @@ class WingoService {
         );
         if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
           const lastNum = BigInt(lastResultRows[0].games_no);
-          const nextGameNo = String(lastNum + 1n);
-          if (period !== nextGameNo) {
-            period = nextGameNo;
+          const nextExpected = String(lastNum + 1n);
+          if (period !== nextExpected) {
+            period = nextExpected;
             await connection.execute(
               "UPDATE betlogs SET games_no = ? WHERE game_id = ?",
               [period, game_id],
@@ -413,7 +413,10 @@ class WingoService {
         );
       }
 
-      let gameNo = periodOverride ? String(periodOverride) : null;
+      let gameNo = periodOverride ? String(periodOverride) : (logs[0]?.games_no ? String(logs[0].games_no) : null);
+      if (!gameNo) {
+        gameNo = formatPeriod(new Date(), gameId);
+      }
       try {
         const [lastResultRows] = await connection.execute(
           "SELECT games_no FROM bet_results WHERE game_id = ? ORDER BY id DESC LIMIT 1",
@@ -421,17 +424,12 @@ class WingoService {
         );
         if (lastResultRows[0]?.games_no && /^\d+$/.test(String(lastResultRows[0].games_no))) {
           const lastNum = BigInt(lastResultRows[0].games_no);
-          const nextSeqGameNo = String(lastNum + 1n);
-          if (!gameNo || (/^\d+$/.test(gameNo) && BigInt(gameNo) <= lastNum)) {
-            gameNo = nextSeqGameNo;
+          const nextExpected = String(lastNum + 1n);
+          if (!periodOverride || (/^\d+$/.test(gameNo) && BigInt(gameNo) <= lastNum)) {
+            gameNo = nextExpected;
           }
         }
       } catch (_) {}
-
-      if (!gameNo) {
-        const logGameNo = logs[0]?.games_no ? String(logs[0].games_no) : null;
-        gameNo = logGameNo || formatPeriod(new Date(), gameId);
-      }
       const [totalRows] = await connection.execute(
         "SELECT COALESCE(SUM(amount), 0) AS amount FROM bets WHERE game_id = ? AND games_no = ?",
         [gameId, gameNo],
@@ -660,8 +658,7 @@ class WingoService {
           );
           const nextId = Number(maxRows[0]?.next_id || 1);
           const fallbackSql = insertResultSql
-            .replace("INSERT INTO bet_results\n        (", "INSERT INTO bet_results (id, ")
-            .replace("INSERT INTO bet_results (", "INSERT INTO bet_results (id, ");
+            .replace(/INSERT INTO bet_results\s*\(/i, "INSERT INTO bet_results (id, ");
           const fallbackValuesSql = insertResultValuesSql.replace(
             "VALUES (",
             "VALUES (?, ",
