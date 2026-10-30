@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Winnzoo</title>
+    <link rel="icon" href="" type="image/png">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: hsl(210, 11%, 96%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .card-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            max-width: 1200px;
+            margin: 20px;
+        }
+
+        .card {
+            background: #22275B;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            max-width: 300px;
+            margin: 10px;
+            position: relative;
+        }
+
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-image {
+            overflow: hidden;
+            height: 200px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #22275B;
+        }
+
+        .card-image img {
+            max-width: 100%;
+            max-height: 100%;
+            transition: transform 0.3s ease;
+        }
+
+        .card:hover .card-image img {
+            transform: scale(1.1);
+        }
+
+        .card-context {
+            padding: 20px;
+        }
+
+        .card-hidden {
+			padding: 10px 20px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            text-align: center;
+        }
+
+        .card:hover .card-hidden {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .card h3 {
+            margin-top: 0;
+            font-size: 1.5em;
+        }
+
+        .card p {
+            color: #666;
+            line-height: 1.5;
+        }
+
+        .card-button {
+            display: inline-block;
+            width: auto;
+            padding: 10px 20px;
+            background-color: #008000;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-align: center;
+            font-size: 1em;
+            margin-top: 10px;
+            transition: background-color 0.3s ease;
+            text-decoration: none;
+        }
+
+        .card-button:hover {
+            background-color: #2980b9;
+        }
+
+        .message {
+            display: none;
+            background-color: #2ecc71;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="card-container">
+        <div class="card">
+            <div class="card-image">
+                <!--<img src="https://aviatorudaan.com/assets/udaan_logo.png" alt="Winzy Logo">-->
+                <h2 style="color:white;">Winn Zoo</h2>
+            </div>
+            <div class="card-context">
+                <!--<h3>WINZY</h3> !-->
+                <p style="color : white;">Click on the button to download the latest APK for more offers and exciting features.</p>
+            </div>
+            <div class="card-hidden" >
+                <a href="https://root.winnzoo.com/winnzoo.apk" class="card-button">Download APK</a>
+				<a href="https://winnzoo.com/" class="card-button" >Go To Website</a>
+                <div class="message" id="downloadMessage">Your download will begin shortly...</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        function showMessage(event) {
+            event.preventDefault();
+            const message = event.target.nextElementSibling;
+            message.style.display = 'block';
+            setTimeout(() => {
+                message.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

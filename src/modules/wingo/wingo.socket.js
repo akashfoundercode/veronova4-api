@@ -45,11 +45,13 @@ function createWingoSocket(io, {
   }
 
   async function handleDueGame(gameId) {
+    let directSettled = false;
     // 1. Settle round directly in-process so round resets and increments in database
     try {
       if (service && typeof service.settleRound === "function") {
         logger.log(`[WingoSocket] Settling round for Game ${gameId}...`);
         const result = await service.settleRound(gameId);
+        directSettled = true;
         logger.log(`[WingoSocket] Settle success for Game ${gameId}: Period ${result.gameNo} -> Result ${result.resultNumber}`);
         const payload = {
           game_id: gameId,
@@ -66,8 +68,8 @@ function createWingoSocket(io, {
       logger.error(`[WingoSocket] Settle failed for Game ${gameId}:`, settleErr.message);
     }
 
-    // 2. Call timerApiUrl if configured
-    if (timerApiUrl) {
+    // 2. Call timerApiUrl only if not already settled directly in-process
+    if (!directSettled && timerApiUrl) {
       const url = `${timerApiUrl}${gameId}`;
       try {
         logger.log(`Calling Wingo API: ${url}`);
