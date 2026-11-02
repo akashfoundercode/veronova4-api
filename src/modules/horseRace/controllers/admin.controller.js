@@ -229,8 +229,8 @@ class AdminController {
             if (multiplier === undefined || multiplier === null) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Please provide jackpot multiplier: 2 (2X), 3 (3X), 4 (4X), "RANDOM", or "N" (Nothing/1X)',
-                    allowedValues: ['N', '2', '3', '4', 2, 3, 4, 'RANDOM'],
+                    message: 'Please provide jackpot multiplier: 2 (2X), 3 (3X), 4 (4X), 5 (5X), "RANDOM", or "N" (Nothing/1X)',
+                    allowedValues: ['N', '2', '3', '4', '5', 2, 3, 4, 5, 'RANDOM'],
                 });
             }
 

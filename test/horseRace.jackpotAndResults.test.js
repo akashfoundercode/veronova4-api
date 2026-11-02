@@ -75,7 +75,42 @@ test('Horse Racing - Sequential Round Increment & Jackpot Forcing', async () => 
         assert.equal(raceEngine.currentRace.jackpot_multiplier, 1, 'Jackpot should revert to 1X');
         assert.equal(raceEngine.currentRace.is_jackpot, 0);
 
-        // 6. Test /api/races/previous-results API contract
+        // 6. Test 5X Multiplier explicitly
+        const res5X = await raceEngine.setForcedJackpot({
+            multiplier: '5X',
+            reason: 'Admin test forced 5X',
+        });
+        assert.equal(res5X.success, true);
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 5, 'Jackpot should be 5X');
+        assert.equal(raceEngine.currentRace.is_jackpot, 1);
+
+        // 7. Test Continuous RANDOM mode (2X, 3X, 4X, 5X for every next round)
+        const resRandom = await raceEngine.configureContinuousJackpot({
+            enabled: true,
+            mode: 'RANDOM',
+            multiplier: 'RANDOM',
+        });
+        assert.equal(resRandom.success, true);
+        assert.equal(resRandom.isRandom, true);
+        assert.ok([2, 3, 4, 5].includes(raceEngine.currentRace.jackpot_multiplier), 'Current round multiplier must be in [2, 3, 4, 5]');
+
+        // Next round 1 in random continuous mode
+        await raceEngine.startInMemoryRaceCycle();
+        const randRound1Mult = raceEngine.currentRace.jackpot_multiplier;
+        assert.ok([2, 3, 4, 5].includes(randRound1Mult), 'Next round 1 must pick from [2, 3, 4, 5]');
+        assert.equal(raceEngine.currentRace.is_jackpot, 1);
+
+        // Next round 2 in random continuous mode
+        await raceEngine.startInMemoryRaceCycle();
+        const randRound2Mult = raceEngine.currentRace.jackpot_multiplier;
+        assert.ok([2, 3, 4, 5].includes(randRound2Mult), 'Next round 2 must pick from [2, 3, 4, 5]');
+        assert.equal(raceEngine.currentRace.is_jackpot, 1);
+
+        // Turn OFF after random test
+        await raceEngine.configureContinuousJackpot({ multiplier: 'OFF' });
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 1);
+
+        // 8. Test /api/races/previous-results API contract
         const prevRes = await testRoute('GET', '/api/races/previous-results');
         assert.equal(prevRes.statusCode, 200);
         assert.equal(prevRes.body.success, true);

@@ -1979,7 +1979,7 @@ class BetService {
                 isJackpot,
                 multiplier: jackpotMultiplier,
                 label: isJackpot ? `${jackpotMultiplier}X` : 'N',
-                slots: ['N', '2X', '3X', '4X'],
+                slots: ['N', '2X', '3X', '4X', '5X'],
                 message: isJackpot ? `🎉 ${jackpotMultiplier}X JACKPOT MULTIPLIER APPLIED!` : 'N (Nothing - Standard Payout)',
             },
             userOutcome: {

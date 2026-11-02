@@ -19,11 +19,11 @@ module.exports = Object.freeze({
     // Standard Coin Denominations (Multi-coin selection)
     ALLOWED_COINS: [2, 5, 10, 100, 500, 1000],
 
-    // Jackpot Settings (Strictly 2X, 3X, 4X and N for Nothing)
+    // Jackpot Settings (Strictly 2X, 3X, 4X, 5X and N for Nothing)
     JACKPOT_ENABLED: process.env.JACKPOT_ENABLED !== 'false',
     JACKPOT_PROBABILITY: Number(process.env.JACKPOT_PROBABILITY || 0.02), // 2% rare chance default
-    DEFAULT_JACKPOT_MULTIPLIERS: [2, 3, 4], // Multipliers (2X, 3X, 4X)
-    JACKPOT_SLOTS: ['N', 2, 3, 4], // Wheel / Reel slots: N = Nothing (1X), 2 = 2X, 3 = 3X, 4 = 4X
+    DEFAULT_JACKPOT_MULTIPLIERS: [2, 3, 4, 5], // Multipliers (2X, 3X, 4X, 5X)
+    JACKPOT_SLOTS: ['N', 2, 3, 4, 5], // Wheel / Reel slots: N = Nothing (1X), 2 = 2X, 3 = 3X, 4 = 4X, 5 = 5X
 });
 
 
