@@ -226,7 +226,11 @@ class AdminController {
                 reason,
             } = req.body || {};
 
-            if (multiplier === undefined || multiplier === null) {
+            const rawMultiplier = (multiplier !== undefined && multiplier !== null)
+                ? multiplier
+                : (req.body?.jackpotMultiplier ?? req.body?.jackpot_multiplier ?? req.body?.jackpot ?? req.body?.targetMultiplier ?? req.body?.val ?? req.query?.multiplier ?? req.query?.jackpot);
+
+            if (rawMultiplier === undefined || rawMultiplier === null) {
                 return res.status(400).json({
                     success: false,
                     message: 'Please provide jackpot multiplier: 2 (2X), 3 (3X), 4 (4X), 5 (5X), "RANDOM", or "N" (Nothing/1X)',
@@ -241,7 +245,7 @@ class AdminController {
                 const result = await raceEngine.configureContinuousJackpot({
                     enabled: true,
                     mode: 'CONTINUOUS',
-                    multiplier,
+                    multiplier: rawMultiplier,
                 });
                 return res.status(200).json(result);
             }
@@ -253,7 +257,7 @@ class AdminController {
                 afterSeconds,
                 scheduledAt,
                 scheduledTime,
-                multiplier,
+                multiplier: rawMultiplier,
                 reason,
             });
 

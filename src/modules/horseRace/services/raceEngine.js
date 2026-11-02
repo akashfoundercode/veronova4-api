@@ -1839,66 +1839,47 @@ class RaceEngine extends EventEmitter {
     }
 
     /**
+     * Helper to safely parse and normalize jackpot input into a clean descriptor
+     */
+    parseJackpotMultiplier(input) {
+        if (input === undefined || input === null) {
+            return { isOff: false, isRandom: true, multiplier: 0, label: 'RANDOM' };
+        }
+        const str = String(input).trim().toUpperCase();
+        if (['RANDOM', 'AUTO'].includes(str) || input === 0 || str === '0') {
+            return { isOff: false, isRandom: true, multiplier: 0, label: 'RANDOM' };
+        }
+        if (['N', 'NONE', 'OFF', '1', '1X', 'NOTHING', 'NORMAL'].includes(str) || Number(str) === 1) {
+            return { isOff: true, isRandom: false, multiplier: 1, label: 'N' };
+        }
+        let num = Number(str.replace(/X$/i, ''));
+        if (isNaN(num)) {
+            num = parseInt(str, 10);
+        }
+        num = Math.round(num);
+        if (![2, 3, 4, 5].includes(num)) {
+            num = [2, 3, 4, 5].includes(Math.round(Number(input))) ? Math.round(Number(input)) : 2;
+        }
+        return { isOff: false, isRandom: false, multiplier: num, label: `${num}X` };
+    }
+
+    /**
      * Resolves jackpot multiplier for a new race based on Admin schedules & flexible config modes
-     * Supports: EVERY_ROUND, ROUND_INTERVAL (e.g. every 5 rounds), TIME_INTERVAL (e.g. every 180s), PROBABILITY, MANUAL
+     * Precedence:
+     * 1. In-memory pre-scheduled jackpot for this specific serial (Explicit override)
+     * 2. Database scheduled jackpot for this specific serial
+     * 3. Time-scheduled jackpot queue (if due)
+     * 4. Continuous jackpot (Admin forced 2X, 3X, 4X, 5X or continuous RANDOM)
+     * 5. Engine auto-config modes (EVERY_ROUND, ROUND_INTERVAL, TIME_INTERVAL, PROBABILITY)
+     * 6. Default standard 1X (N)
      */
     async evaluateRaceJackpot(gameSerial) {
         const now = Date.now();
 
-        // The GLOBAL_CONTINUOUS row survives app restarts and applies to every new race.
-        if (!this.continuousJackpot) {
-            try {
-                const [rows] = await pool.query("SELECT multiplier, reason FROM scheduled_jackpots WHERE game_serial = 'GLOBAL_CONTINUOUS' AND status = 'PENDING' ORDER BY id DESC LIMIT 1");
-                if (rows.length) {
-                    const rowMult = Number(rows[0].multiplier);
-                    const reason = rows[0].reason || 'Admin continuous jackpot';
-                    const isRandom = rowMult === 0 || String(reason).toUpperCase().includes('RANDOM');
-                    this.continuousJackpot = {
-                        isRandom,
-                        multiplier: isRandom ? 0 : rowMult,
-                        currentMultiplier: isRandom ? 2 : rowMult,
-                        allowedMultipliers: this.jackpotConfig.allowedMultipliers || [2, 3, 4, 5],
-                        reason,
-                        endsAt: null,
-                        roundsRemaining: null,
-                    };
-                }
-            } catch (err) { /* Keep engine usable if persistence is temporarily unavailable. */ }
-        }
-
-        // Continuous modes take precedence over one-off schedules and auto rules.
-        if (this.continuousJackpot) {
-            const control = this.continuousJackpot;
-            const expiredByTime = control.endsAt && now >= control.endsAt;
-            const expiredByRounds = Number.isFinite(control.roundsRemaining) && control.roundsRemaining <= 0;
-            if (expiredByTime || expiredByRounds) {
-                this.continuousJackpot = null;
-                this.emitJackpotControlUpdate({ active: false, multiplier: 1, reason: 'Continuous jackpot expired' });
-            } else {
-                if (Number.isFinite(control.roundsRemaining)) control.roundsRemaining--;
-                const isRandom = control.isRandom || control.multiplier === 0 || String(control.reason || '').toUpperCase().includes('RANDOM');
-                const allowed = (Array.isArray(control.allowedMultipliers) && control.allowedMultipliers.length > 0)
-                    ? control.allowedMultipliers
-                    : (this.jackpotConfig.allowedMultipliers || [2, 3, 4, 5]);
-                const effectiveMultiplier = isRandom
-                    ? (allowed[Math.floor(Math.random() * allowed.length)] || 2)
-                    : (control.multiplier || 2);
-                control.currentMultiplier = effectiveMultiplier;
-                this.forcedCurrentJackpot = {
-                    multiplier: effectiveMultiplier,
-                    reason: control.reason || (isRandom ? `Admin continuous RANDOM jackpot (${effectiveMultiplier}X)` : `Admin continuous jackpot ${effectiveMultiplier}X`),
-                    isRandom,
-                };
-                this.lastJackpotTime = now;
-                this.lastJackpotRound = this.roundCounter;
-                console.log(`[RaceEngine] 🎰 Continuous ${isRandom ? `RANDOM (${effectiveMultiplier}X)` : `${effectiveMultiplier}X`} Jackpot applied for Race #${gameSerial}`);
-                return { multiplier: effectiveMultiplier, isJackpot: effectiveMultiplier > 1, source: 'CONTINUOUS', isRandom };
-            }
-        }
-
-        // 1. Check in-memory pre-scheduled jackpot for this specific serial
+        // 1. Check in-memory pre-scheduled jackpot for this specific serial (HIGHEST PRIORITY)
         const preScheduled = this.scheduledJackpots.get(gameSerial);
         if (preScheduled) {
+            this.scheduledJackpots.delete(gameSerial);
             const mult = Number(preScheduled.multiplier) || 1;
             this.forcedCurrentJackpot = preScheduled;
             if (mult > 1) {
@@ -1909,10 +1890,10 @@ class RaceEngine extends EventEmitter {
             return { multiplier: mult, isJackpot: mult > 1, source: 'PRE_SCHEDULED' };
         }
 
-        // 2. Check Database scheduled jackpot for this serial
+        // 2. Check Database scheduled jackpot for this specific serial (excluding GLOBAL_CONTINUOUS)
         try {
             const [jackRows] = await pool.query(
-                "SELECT multiplier, reason FROM scheduled_jackpots WHERE game_serial = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
+                "SELECT multiplier, reason FROM scheduled_jackpots WHERE game_serial = ? AND game_serial != 'GLOBAL_CONTINUOUS' AND status = 'PENDING' ORDER BY id DESC LIMIT 1",
                 [gameSerial]
             );
             if (jackRows.length > 0) {
@@ -1952,7 +1933,58 @@ class RaceEngine extends EventEmitter {
             }
         }
 
-        // 4. Evaluate Engine Global Config Modes
+        // 4. Continuous Jackpot: load from DB if not already in memory
+        if (!this.continuousJackpot) {
+            try {
+                const [rows] = await pool.query("SELECT multiplier, reason FROM scheduled_jackpots WHERE game_serial = 'GLOBAL_CONTINUOUS' AND status = 'PENDING' ORDER BY id DESC LIMIT 1");
+                if (rows.length) {
+                    const rowMult = Number(rows[0].multiplier);
+                    const reason = rows[0].reason || 'Admin continuous jackpot';
+                    const isRandom = rowMult === 0 || String(reason).toUpperCase().includes('RANDOM');
+                    this.continuousJackpot = {
+                        isRandom,
+                        multiplier: isRandom ? 0 : rowMult,
+                        currentMultiplier: isRandom ? 2 : rowMult,
+                        allowedMultipliers: this.jackpotConfig.allowedMultipliers || [2, 3, 4, 5],
+                        reason,
+                        endsAt: null,
+                        roundsRemaining: null,
+                    };
+                }
+            } catch (err) { /* Keep engine usable if persistence is temporarily unavailable. */ }
+        }
+
+        // Evaluate active Continuous Jackpot
+        if (this.continuousJackpot) {
+            const control = this.continuousJackpot;
+            const expiredByTime = control.endsAt && now >= control.endsAt;
+            const expiredByRounds = Number.isFinite(control.roundsRemaining) && control.roundsRemaining <= 0;
+            if (expiredByTime || expiredByRounds) {
+                this.continuousJackpot = null;
+                this.emitJackpotControlUpdate({ active: false, multiplier: 1, reason: 'Continuous jackpot expired' });
+            } else {
+                if (Number.isFinite(control.roundsRemaining)) control.roundsRemaining--;
+                const isRandom = control.isRandom || control.multiplier === 0 || String(control.reason || '').toUpperCase().includes('RANDOM');
+                const allowed = (Array.isArray(control.allowedMultipliers) && control.allowedMultipliers.length > 0)
+                    ? control.allowedMultipliers
+                    : (this.jackpotConfig.allowedMultipliers || [2, 3, 4, 5]);
+                const effectiveMultiplier = isRandom
+                    ? (allowed[Math.floor(Math.random() * allowed.length)] || 2)
+                    : (control.multiplier || 2);
+                control.currentMultiplier = effectiveMultiplier;
+                this.forcedCurrentJackpot = {
+                    multiplier: effectiveMultiplier,
+                    reason: control.reason || (isRandom ? `Admin continuous RANDOM jackpot (${effectiveMultiplier}X)` : `Admin continuous jackpot ${effectiveMultiplier}X`),
+                    isRandom,
+                };
+                this.lastJackpotTime = now;
+                this.lastJackpotRound = this.roundCounter;
+                console.log(`[RaceEngine] 🎰 Continuous ${isRandom ? `RANDOM (${effectiveMultiplier}X)` : `${effectiveMultiplier}X`} Jackpot applied for Race #${gameSerial}`);
+                return { multiplier: effectiveMultiplier, isJackpot: effectiveMultiplier > 1, source: 'CONTINUOUS', isRandom };
+            }
+        }
+
+        // 5. Evaluate Engine Global Config Modes
         if (!this.jackpotConfig.enabled || this.jackpotConfig.mode === 'DISABLED' || this.jackpotConfig.mode === 'MANUAL') {
             return { multiplier: 1, isJackpot: false, source: 'STANDARD' };
         }
@@ -2038,28 +2070,16 @@ class RaceEngine extends EventEmitter {
 
         let targetSerial = gameSerial || game_serial;
 
-        // Resolve Multiplier value
-        let mult = 1;
-        if (typeof multiplier === 'string') {
-            const clean = multiplier.trim().toUpperCase();
-            if (clean === 'N' || clean === 'NONE' || clean === 'NOTHING' || clean === '1X' || clean === '1') {
-                mult = 1;
-            } else if (clean === 'RANDOM' || clean === 'AUTO') {
-                const allowed = this.jackpotConfig.allowedMultipliers || [2, 3, 4, 5];
-                mult = allowed[Math.floor(Math.random() * allowed.length)] || 2;
-            } else if (clean.startsWith('2')) {
-                mult = 2;
-            } else if (clean.startsWith('3')) {
-                mult = 3;
-            } else if (clean.startsWith('4')) {
-                mult = 4;
-            } else if (clean.startsWith('5')) {
-                mult = 5;
-            } else {
-                mult = Math.max(1, parseInt(clean, 10) || 1);
-            }
-        } else {
-            mult = Math.max(1, Number(multiplier) || 1);
+        // Resolve Multiplier value using centralized parser
+        const parsed = this.parseJackpotMultiplier(multiplier);
+        const isOff = parsed.isOff;
+        const isRandom = parsed.isRandom;
+        let mult = parsed.multiplier;
+        if (isRandom) {
+            const allowed = (Array.isArray(this.jackpotConfig.allowedMultipliers) && this.jackpotConfig.allowedMultipliers.length > 0)
+                ? this.jackpotConfig.allowedMultipliers
+                : [2, 3, 4, 5];
+            mult = allowed[Math.floor(Math.random() * allowed.length)] || 2;
         }
 
         const label = mult > 1 ? `${mult}X` : 'N';
@@ -2079,9 +2099,9 @@ class RaceEngine extends EventEmitter {
         if (delaySec && delaySec > 0) {
             targetTimestamp = Date.now() + (delaySec * 1000);
         } else if (scheduledAt || scheduledTime) {
-            const parsed = new Date(scheduledAt || scheduledTime).getTime();
-            if (!isNaN(parsed) && parsed > Date.now()) {
-                targetTimestamp = parsed;
+            const parsedDate = new Date(scheduledAt || scheduledTime).getTime();
+            if (!isNaN(parsedDate) && parsedDate > Date.now()) {
+                targetTimestamp = parsedDate;
             }
         }
 
@@ -2116,10 +2136,10 @@ class RaceEngine extends EventEmitter {
         }
 
         targetSerial = targetSerial || this.currentRace?.game_serial;
-        const isCurrentActive = this.currentRace && String(this.currentRace.game_serial) === String(targetSerial);
+        const isCurrentActive = Boolean(this.currentRace && (!targetSerial || String(this.currentRace.game_serial) === String(targetSerial)));
 
         const jackpotRecord = {
-            gameSerial: String(targetSerial),
+            gameSerial: String(targetSerial || (this.currentRace ? this.currentRace.game_serial : 'LIVE')),
             multiplier: mult,
             label,
             slots: ['N', '2X', '3X', '4X', '5X'],
@@ -2138,11 +2158,11 @@ class RaceEngine extends EventEmitter {
             };
         }
 
-        if (mult <= 1) {
+        if (isOff || mult <= 1) {
             this.continuousJackpot = null;
             this.forcedCurrentJackpot = null;
             RaceModel.clearScheduledJackpot('GLOBAL_CONTINUOUS').catch(() => {});
-            if (isCurrentActive) {
+            if (this.currentRace) {
                 this.currentRace.jackpot_multiplier = 1;
                 this.currentRace.jackpotMultiplier = 1;
                 this.currentRace.is_jackpot = 0;
@@ -2153,23 +2173,25 @@ class RaceEngine extends EventEmitter {
                 this.scheduledJackpots.delete(String(targetSerial));
                 RaceModel.clearScheduledJackpot(String(targetSerial)).catch(() => {});
             }
-            console.log(`[RaceEngine] 🎰 Admin reset Jackpot to 1X/Normal for Race #${targetSerial}`);
-        } else if (isCurrentActive) {
-            this.currentRace.jackpot_multiplier = mult;
-            this.currentRace.jackpotMultiplier = mult;
-            this.currentRace.is_jackpot = 1;
-            this.currentRace.isJackpot = true;
-            this.forcedCurrentJackpot = jackpotRecord;
-            this.lastJackpotTime = Date.now();
-            this.lastJackpotRound = this.roundCounter;
+            console.log(`[RaceEngine] 🎰 Admin reset Jackpot to 1X/Normal for Race #${targetSerial || 'LIVE'}`);
+        } else {
+            // Apply immediately to the live race if currently active and in betting/running phases
+            if (this.currentRace && !['RESULT', 'FINISHED'].includes(this.currentRace.status)) {
+                this.currentRace.jackpot_multiplier = mult;
+                this.currentRace.jackpotMultiplier = mult;
+                this.currentRace.is_jackpot = 1;
+                this.currentRace.isJackpot = true;
+                this.forcedCurrentJackpot = jackpotRecord;
+                this.lastJackpotTime = Date.now();
+                this.lastJackpotRound = this.roundCounter;
 
-            try {
-                await RaceModel.updateJackpotMultiplier(this.currentRace.id, mult, true);
-            } catch (dbErr) { }
+                try {
+                    RaceModel.updateJackpotMultiplier(this.currentRace.id, mult, true).catch(() => {});
+                } catch (dbErr) { }
+            }
 
-            // Also keep continuous jackpot active if admin set live race without round offset
-            if (!roundDiff) {
-                const isRandom = typeof multiplier === 'string' && ['RANDOM', 'AUTO'].includes(multiplier.trim().toUpperCase());
+            // If not scheduled for a future round offset or future time, keep continuous jackpot active for all subsequent rounds
+            if (!roundDiff && !targetTimestamp) {
                 this.continuousJackpot = {
                     isRandom,
                     multiplier: isRandom ? 0 : mult,
@@ -2186,17 +2208,17 @@ class RaceEngine extends EventEmitter {
                 }).catch(() => {});
             }
 
-            console.log(`[RaceEngine] 🎰 Admin set LIVE forced Jackpot for active Race #${targetSerial}: ${label}`);
-        } else {
-            this.scheduledJackpots.set(String(targetSerial), jackpotRecord);
-            try {
-                await RaceModel.saveScheduledJackpot({
+            // If a specific serial was provided, also record it in scheduledJackpots
+            if (targetSerial) {
+                this.scheduledJackpots.set(String(targetSerial), jackpotRecord);
+                RaceModel.saveScheduledJackpot({
                     gameSerial: String(targetSerial),
                     multiplier: mult,
                     reason,
-                });
-            } catch (dbErr) { }
-            console.log(`[RaceEngine] 🎰 Admin pre-scheduled forced Jackpot for future Game Serial #${targetSerial}: ${label}`);
+                }).catch(() => {});
+            }
+
+            console.log(`[RaceEngine] 🎰 Admin set forced Jackpot: ${label} (Target: #${targetSerial || 'LIVE'}, Continuous: ${!roundDiff && !targetTimestamp})`);
         }
 
         // Broadcast real-time Socket updates
@@ -2279,16 +2301,16 @@ class RaceEngine extends EventEmitter {
 
     async configureContinuousJackpot(options = {}) {
         const { enabled = true, mode = 'CONTINUOUS', multiplier = 'RANDOM', durationSeconds, rounds } = options;
-        const normalized = String(multiplier ?? '').trim().toUpperCase();
+        const cleanMode = String(mode || '').toUpperCase();
+        const parsed = this.parseJackpotMultiplier(multiplier);
         const isOff = enabled === false ||
-            String(mode).toUpperCase() === 'OFF' ||
-            ['N', 'NONE', 'OFF', '1', '1X', 'NOTHING'].includes(normalized) ||
-            multiplier === 1;
+            cleanMode === 'OFF' ||
+            parsed.isOff;
 
         if (isOff) {
             this.continuousJackpot = null;
             this.forcedCurrentJackpot = null;
-            await RaceModel.clearScheduledJackpot('GLOBAL_CONTINUOUS');
+            await RaceModel.clearScheduledJackpot('GLOBAL_CONTINUOUS').catch(() => {});
             if (this.currentRace && !['RESULT', 'FINISHED'].includes(this.currentRace.status)) {
                 this.currentRace.jackpot_multiplier = 1;
                 this.currentRace.jackpotMultiplier = 1;
@@ -2301,19 +2323,19 @@ class RaceEngine extends EventEmitter {
             return { success: true, message: 'Jackpot turned off (1X)', ...state };
         }
 
-        const allowed = this.jackpotConfig.allowedMultipliers?.length ? this.jackpotConfig.allowedMultipliers : [2, 3, 4, 5];
-        const isRandom = normalized === 'RANDOM' || normalized === 'AUTO' || options.isRandom === true || String(mode).toUpperCase() === 'RANDOM';
-        let mult = 2;
+        const allowed = (Array.isArray(this.jackpotConfig.allowedMultipliers) && this.jackpotConfig.allowedMultipliers.length > 0)
+            ? this.jackpotConfig.allowedMultipliers
+            : [2, 3, 4, 5];
+        const isRandom = parsed.isRandom || cleanMode === 'RANDOM' || options.isRandom === true;
+        let mult = parsed.multiplier;
         if (isRandom) {
             mult = allowed[Math.floor(Math.random() * allowed.length)] || 2;
         } else {
-            mult = Number(normalized.replace(/X$/, ''));
             if (![2, 3, 4, 5].includes(mult)) {
-                mult = [2, 3, 4, 5].includes(Math.round(mult)) ? Math.round(mult) : 2;
+                mult = 2;
             }
         }
 
-        const cleanMode = String(mode).toUpperCase();
         const seconds = Number(durationSeconds);
         const roundCount = Number(rounds);
         const endsAt = cleanMode === 'DURATION' || (Number.isFinite(seconds) && seconds > 0)

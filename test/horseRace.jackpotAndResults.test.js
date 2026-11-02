@@ -106,11 +106,53 @@ test('Horse Racing - Sequential Round Increment & Jackpot Forcing', async () => 
         assert.ok([2, 3, 4, 5].includes(randRound2Mult), 'Next round 2 must pick from [2, 3, 4, 5]');
         assert.equal(raceEngine.currentRace.is_jackpot, 1);
 
-        // Turn OFF after random test
+        // 8. Test explicit Sequential Multipliers: 2X, 3X, 4X, 5X while previously in RANDOM mode
+        // 8a. Test 2X forcing (overriding random)
+        const res2X = await raceEngine.setForcedJackpot({
+            multiplier: '2X',
+            reason: 'Admin test forced 2X',
+        });
+        assert.equal(res2X.success, true);
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 2, 'Jackpot must be strictly 2X');
+        assert.equal(raceEngine.currentRace.is_jackpot, 1);
+        await raceEngine.startInMemoryRaceCycle();
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 2, 'Next round must stay strictly 2X');
+
+        // 8b. Test 3X forcing
+        const res3X = await raceEngine.setForcedJackpot({
+            multiplier: 3,
+            reason: 'Admin test forced 3X numeric',
+        });
+        assert.equal(res3X.success, true);
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 3, 'Jackpot must be strictly 3X');
+        await raceEngine.startInMemoryRaceCycle();
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 3, 'Next round must stay strictly 3X');
+
+        // 8c. Test 4X forcing
+        const res4X = await raceEngine.setForcedJackpot({
+            multiplier: '4X',
+            reason: 'Admin test forced 4X',
+        });
+        assert.equal(res4X.success, true);
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 4, 'Jackpot must be strictly 4X');
+        await raceEngine.startInMemoryRaceCycle();
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 4, 'Next round must stay strictly 4X');
+
+        // 8d. Test 5X forcing
+        const res5XExplicit = await raceEngine.setForcedJackpot({
+            multiplier: '5X',
+            reason: 'Admin test forced 5X string',
+        });
+        assert.equal(res5XExplicit.success, true);
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 5, 'Jackpot must be strictly 5X');
+        await raceEngine.startInMemoryRaceCycle();
+        assert.equal(raceEngine.currentRace.jackpot_multiplier, 5, 'Next round must stay strictly 5X');
+
+        // Turn OFF after tests
         await raceEngine.configureContinuousJackpot({ multiplier: 'OFF' });
         assert.equal(raceEngine.currentRace.jackpot_multiplier, 1);
 
-        // 8. Test /api/races/previous-results API contract
+        // 9. Test /api/races/previous-results API contract
         const prevRes = await testRoute('GET', '/api/races/previous-results');
         assert.equal(prevRes.statusCode, 200);
         assert.equal(prevRes.body.success, true);
