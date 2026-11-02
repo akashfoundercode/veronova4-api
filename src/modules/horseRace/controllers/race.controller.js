@@ -191,13 +191,18 @@
              */
             static async getPreviousGameResults(req, res, next) {
                 try {
-                    let data = { results: [], total: 0, totalPages: 1 };
+                    let data = { results: [], data: [], total: 0, totalPages: 1 };
                     try {
                         data = await RaceModel.getPreviousGameResults(req.query);
                     } catch (_) { }
+                    const list = data.results || data.data || [];
                     return res.status(200).json({
+                        status: 200,
                         success: true,
+                        message: 'Data found',
                         ...data,
+                        results: list,
+                        data: list,
                     });
                 } catch (error) {
                     next(error);

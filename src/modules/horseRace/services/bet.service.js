@@ -1829,6 +1829,10 @@ class BetService {
                         id: dbRace.id,
                         gameSerial: dbRace.game_serial,
                         status: dbRace.status,
+                        jackpot_multiplier: Number(dbRace.jackpot_multiplier || 1),
+                        jackpotMultiplier: Number(dbRace.jackpot_multiplier || 1),
+                        is_jackpot: Boolean(dbRace.is_jackpot || (dbRace.jackpot_multiplier > 1)),
+                        isJackpot: Boolean(dbRace.is_jackpot || (dbRace.jackpot_multiplier > 1)),
                         winnerHorseId: dbRace.winner_horse_id,
                         winner: resultData?.winner ? {
                             id: resultData.winner.horse_id,
@@ -1852,6 +1856,10 @@ class BetService {
                         id: recent[0].id,
                         gameSerial: recent[0].game_serial,
                         status: recent[0].status,
+                        jackpot_multiplier: Number(recent[0].jackpot_multiplier || 1),
+                        jackpotMultiplier: Number(recent[0].jackpot_multiplier || 1),
+                        is_jackpot: Boolean(recent[0].is_jackpot || (recent[0].jackpot_multiplier > 1)),
+                        isJackpot: Boolean(recent[0].is_jackpot || (recent[0].jackpot_multiplier > 1)),
                         winnerHorseId: recent[0].winner_horse_id,
                         winner: {
                             id: recent[0].winner_horse_id,

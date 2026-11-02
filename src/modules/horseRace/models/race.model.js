@@ -475,35 +475,48 @@ class RaceModel {
      * Save / Update scheduled jackpot override for a game serial
      */
     static async saveScheduledJackpot({ gameSerial, multiplier, reason = 'Admin forced jackpot' }, connection = pool) {
-        await connection.execute(
-            `INSERT INTO scheduled_jackpots (game_serial, multiplier, reason, status)
-             VALUES (?, ?, ?, 'PENDING')
-             ON DUPLICATE KEY UPDATE multiplier = VALUES(multiplier), reason = VALUES(reason), status = 'PENDING'`,
-            [gameSerial, multiplier, reason]
-        );
+        try {
+            await connection.execute(
+                `UPDATE scheduled_jackpots SET status = 'CANCELLED' WHERE game_serial = ? AND status = 'PENDING'`,
+                [gameSerial]
+            );
+        } catch (_) { }
+        try {
+            await connection.execute(
+                `INSERT INTO scheduled_jackpots (game_serial, multiplier, reason, status)
+                 VALUES (?, ?, ?, 'PENDING')`,
+                [gameSerial, multiplier, reason]
+            );
+        } catch (_) { }
     }
 
     /**
      * Get all pending scheduled jackpots
      */
     static async getScheduledJackpots(connection = pool) {
-        const [rows] = await connection.execute(
-            `SELECT id, game_serial, multiplier, reason, status, created_at, updated_at
-             FROM scheduled_jackpots
-             WHERE status = 'PENDING'
-             ORDER BY id ASC`
-        );
-        return rows;
+        try {
+            const [rows] = await connection.execute(
+                `SELECT id, game_serial, multiplier, reason, status, created_at, updated_at
+                 FROM scheduled_jackpots
+                 WHERE status = 'PENDING'
+                 ORDER BY id DESC`
+            );
+            return rows;
+        } catch (_) {
+            return [];
+        }
     }
 
     /**
      * Clear / Cancel scheduled jackpot
      */
     static async clearScheduledJackpot(gameSerial, connection = pool) {
-        await connection.execute(
-            `UPDATE scheduled_jackpots SET status = 'CANCELLED' WHERE game_serial = ?`,
-            [gameSerial]
-        );
+        try {
+            await connection.execute(
+                `UPDATE scheduled_jackpots SET status = 'CANCELLED' WHERE game_serial = ?`,
+                [gameSerial]
+            );
+        } catch (_) { }
     }
 
     /**
@@ -519,7 +532,7 @@ class RaceModel {
             const [countRows] = await connection.execute(
                 `SELECT COUNT(*) AS total 
                  FROM races 
-                 WHERE status = 'FINISHED' OR winner_horse_id IS NOT NULL`
+                 WHERE status IN ('FINISHED', 'RESULT') OR winner_horse_id IS NOT NULL`
             );
             total = Number(countRows[0]?.total || 0);
         } catch (_) {}
@@ -531,30 +544,50 @@ class RaceModel {
                     r.id AS race_id,
                     r.game_serial,
                     r.status,
-                    r.jackpot_multiplier,
-                    r.is_jackpot,
+                    COALESCE(r.jackpot_multiplier, 1.00) AS jackpot_multiplier,
+                    COALESCE(r.is_jackpot, 0) AS is_jackpot,
                     r.winner_horse_id,
                     r.finished_at,
                     r.created_at,
-                    COALESCE(rh.serial_number, h.serial_number) AS winner_horse_serial,
-                    COALESCE(rh.horse_name_snapshot, h.name) AS winner_horse_name
+                    COALESCE(
+                        rh.serial_number,
+                        h.serial_number,
+                        (SELECT rh2.serial_number FROM race_horses rh2 WHERE rh2.race_id = r.id AND (rh2.finish_position = 1 OR rh2.result = 'WINNER') LIMIT 1)
+                    ) AS winner_horse_serial,
+                    COALESCE(
+                        rh.horse_name_snapshot,
+                        h.name,
+                        (SELECT rh2.horse_name_snapshot FROM race_horses rh2 WHERE rh2.race_id = r.id AND (rh2.finish_position = 1 OR rh2.result = 'WINNER') LIMIT 1)
+                    ) AS winner_horse_name
                  FROM races r
-                 LEFT JOIN race_horses rh ON r.id = rh.race_id AND rh.horse_id = r.winner_horse_id
                  LEFT JOIN horses h ON r.winner_horse_id = h.id
-                 WHERE r.status = 'FINISHED' OR r.winner_horse_id IS NOT NULL
+                 LEFT JOIN race_horses rh ON r.id = rh.race_id AND (rh.horse_id = r.winner_horse_id OR (r.winner_horse_id IS NULL AND rh.finish_position = 1))
+                 WHERE r.status IN ('FINISHED', 'RESULT') OR r.winner_horse_id IS NOT NULL
                  ORDER BY r.id DESC
                  LIMIT ${limit} OFFSET ${offset}`
             );
             rows = rRows || [];
         } catch (_) {}
 
-        // Fallback: Query race_horses if races table is empty
+        // Fallback 1: Check in-memory completed races from raceEngine
+        if (rows.length === 0) {
+            try {
+                const raceEngine = require('../services/raceEngine');
+                const memFinished = typeof raceEngine.getRecentFinishedRaces === 'function' ? raceEngine.getRecentFinishedRaces() : [];
+                if (memFinished && memFinished.length > 0) {
+                    total = Math.max(total, memFinished.length);
+                    rows = memFinished.slice(offset, offset + limit);
+                }
+            } catch (_) {}
+        }
+
+        // Fallback 2: Query race_horses if races table is empty
         if (rows.length === 0) {
             try {
                 const [countRh] = await connection.execute(
                     `SELECT COUNT(DISTINCT race_id) AS total FROM race_horses`
                 );
-                total = Number(countRh[0]?.total || 0);
+                total = Math.max(total, Number(countRh[0]?.total || 0));
 
                 const [rhRows] = await connection.execute(
                     `SELECT race_id, serial_number AS winner_horse_serial, horse_name_snapshot AS winner_horse_name, created_at
@@ -579,34 +612,52 @@ class RaceModel {
         }
 
         const results = rows.map((r) => {
-            const mult = Number(r.jackpot_multiplier) || 1;
-            const isJackpot = Boolean(r.is_jackpot || mult > 1);
+            const mult = Number(r.jackpot_multiplier || r.jackpotMultiplier) || 1;
+            const isJackpot = Boolean(r.is_jackpot || r.isJackpot || mult > 1);
             const jackpotLabel = isJackpot ? `${mult}X` : 'N';
-            const serialNumber = r.winner_horse_serial ? Number(r.winner_horse_serial) : null;
-            const name = r.winner_horse_name || 'Pending';
+            const rawSerial = r.winner_horse_serial || r.winnerHorseSerial || r.winner_serial;
+            const serialNumber = rawSerial ? Number(rawSerial) : null;
+            const name = r.winner_horse_name || r.winnerHorseName || r.winner_name || (serialNumber ? `Horse #${serialNumber}` : 'Pending');
 
             return {
-                raceId: Number(r.race_id),
-                gameSerial: String(r.game_serial),
+                raceId: Number(r.race_id || r.raceId || 1),
+                race_id: Number(r.race_id || r.raceId || 1),
+                gameSerial: String(r.game_serial || r.gameSerial || r.race_id || '1'),
+                game_serial: String(r.game_serial || r.gameSerial || r.race_id || '1'),
+                games_no: String(r.game_serial || r.gameSerial || r.race_id || '1'),
+                winnerHorseId: r.winner_horse_id || null,
+                winner_horse_id: r.winner_horse_id || null,
                 winnerHorseSerial: serialNumber,
+                winner_horse_serial: serialNumber,
+                winnerSerial: serialNumber,
+                winner_serial: serialNumber,
                 winnerHorseName: name,
+                winner_horse_name: name,
+                winnerName: name,
+                winner_name: name,
                 displayWinner: serialNumber ? `${serialNumber} ${name}` : name,
                 jackpot: jackpotLabel,
                 jackpotMultiplier: mult,
+                jackpot_multiplier: mult,
                 isJackpot,
-                finishedAt: r.finished_at || r.created_at,
+                is_jackpot: isJackpot ? 1 : 0,
+                status: r.status || 'FINISHED',
+                finishedAt: r.finished_at || r.finishedAt || r.created_at,
+                finished_at: r.finished_at || r.finishedAt || r.created_at,
+                created_at: r.created_at || r.finished_at || r.finishedAt,
             };
         });
 
-        const totalPages = Math.ceil(total / limit) || 1;
+        const totalPages = Math.max(1, Math.ceil(total / limit) || 1);
 
         return {
             page,
             limit,
-            total,
+            total: Math.max(total, results.length),
             totalPages,
             hasMore: page < totalPages,
             results,
+            data: results,
         };
     }
 }
