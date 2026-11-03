@@ -1797,17 +1797,25 @@ class RaceEngine extends EventEmitter {
                 finishTime: winnerHorse.finish_time,
                 result: winnerHorse.result,
             } : null,
-            jackpot: {
-                isJackpot: (this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1) > 1,
-                multiplier: Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1),
-                label: (this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1) > 1
-                    ? `${Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1)}X`
-                    : 'N',
-                slots: ['N', '2X', '3X', '4X', '5X'],
-                message: (this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1) > 1
-                    ? `🔥 JACKPOT ACTIVE: ${Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1)}X PAYOUT! 🔥`
-                    : 'N (Nothing - Standard Payout)',
-            },
+            jackpot: (() => {
+                const ctrl = this.getJackpotControlState();
+                const continuousActive = Boolean(ctrl && ctrl.enabled && ctrl.multiplier > 1);
+                const raceMult = Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1);
+                const activeMult = raceMult > 1 ? raceMult : (continuousActive ? ctrl.multiplier : 1);
+                const isJackpot = activeMult > 1;
+                return {
+                    isJackpot,
+                    enabled: isJackpot,
+                    multiplier: activeMult,
+                    multiplierLabel: isJackpot ? `${activeMult}X` : '1X',
+                    label: isJackpot ? `${activeMult}X` : 'N',
+                    mode: ctrl?.mode || (isJackpot ? 'CONTINUOUS' : 'OFF'),
+                    slots: ['N', '2X', '3X', '4X', '5X'],
+                    message: isJackpot
+                        ? `🔥 JACKPOT ACTIVE: ${activeMult}X PAYOUT! 🔥`
+                        : 'N (Nothing - Standard Payout)',
+                };
+            })(),
             horses: this.currentHorses.map((h, index) => {
                 const serial = Number(h.serial_number || h.serialNumber || index + 1);
                 const betInfo = betsBySerial.get(serial) || { totalBetsAmount: 0, totalBetsCount: 0 };

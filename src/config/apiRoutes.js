@@ -141,6 +141,13 @@ const API_ROUTES = Object.freeze({
   miniRoulette: Object.freeze({ bet: "/miniroullete-bet", history: "/miniroulletebet-history", results: "/miniroullete_results", cron: "/miniroullete_cron/:game_id", winAmount: "/miniroulletewin-amount" }),
   jackpot: Object.freeze({ bet: "/jackpot-bet", cron: "/jackpot_cron/:game_id", results: "/jackpot_results", fiveResult: "/jack_five_result", history: "/jackpot_history", winAmount: "/jackpot_win_amount" }),
   balloon: Object.freeze({ bet: "/balloon_bet", history: "/balloon_history", lastResult: "/hot_last_five_result", cancel: "/balloon_bet_cancle", image: "/get-image", cashout: "/balloon-cashout", updateImage: "/update-image" }),
+  stackTower: Object.freeze({
+    bet: "/stack-tower/bet",
+    cashout: "/stack-tower/cashout",
+    gameOver: "/stack-tower/game-over",
+    history: "/stack-tower/history",
+    config: "/stack-tower/config",
+  }),
   jili: Object.freeze({ launch: "/jilligame", games: "/getjilligame" }),
   horseRace: Object.freeze({
     prefix: "/horse-race",

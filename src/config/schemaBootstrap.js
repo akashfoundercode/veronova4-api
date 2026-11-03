@@ -319,6 +319,26 @@ async function ensureAllTables() {
     `);
 
     await safeExec(`
+      CREATE TABLE IF NOT EXISTS stack_tower_bets (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NOT NULL,
+        round_id VARCHAR(50) NOT NULL UNIQUE,
+        game_id INT NOT NULL DEFAULT 45,
+        difficulty ENUM('EASY', 'MEDIUM', 'HARD') NOT NULL DEFAULT 'MEDIUM',
+        amount DECIMAL(20, 2) NOT NULL,
+        current_level INT NOT NULL DEFAULT 0,
+        multiplier DECIMAL(10, 2) NOT NULL DEFAULT 1.00,
+        win_amount DECIMAL(20, 2) NOT NULL DEFAULT 0.00,
+        status INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_stack_tower_user (user_id),
+        INDEX idx_stack_tower_round (round_id),
+        INDEX idx_stack_tower_status (status)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
       CREATE TABLE IF NOT EXISTS lottery_bets (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         user_id BIGINT UNSIGNED NOT NULL,

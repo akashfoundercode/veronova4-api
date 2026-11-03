@@ -198,6 +198,9 @@
             socket.emit('current_state', currentState);
             socket.emit('game_state', currentState);
             const livePool = raceEngine.getHorseBetsPool();
+            const jackpotControl = raceEngine.getJackpotControlState();
+            socket.emit('jackpot:update', jackpotControl);
+            socket.emit('race:jackpot', jackpotControl);
             socket.emit('race:bet_pool_update', livePool);
             socket.emit('bet:pool_update', livePool);
             socket.emit('pool:update', livePool);
@@ -679,9 +682,10 @@
             // Admin & Race Jackpot Controls (All aliases supported)
             const handleSetJackpot = async (data, callback) => {
                 try {
+                    const isEnabled = data?.enabled !== undefined ? Boolean(data.enabled) : true;
                     const result = await raceEngine.configureContinuousJackpot({
-                        enabled: true,
-                        mode: data?.mode || 'CONTINUOUS',
+                        enabled: isEnabled,
+                        mode: isEnabled ? (data?.mode || 'CONTINUOUS') : 'OFF',
                         multiplier: data?.multiplier ?? data?.jackpotMultiplier ?? 'RANDOM',
                         durationSeconds: data?.durationSeconds,
                         rounds: data?.rounds,
