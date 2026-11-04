@@ -93,6 +93,8 @@ class StackTowerService {
         multiplier: 1.0,
         win_amount: 0,
         status: 0, // 0: PLAYING
+        obstacle_dropped: 0,
+        obstacle_type: null,
         created_at: new Date(),
         updated_at: new Date(),
       };
@@ -151,8 +153,8 @@ class StackTowerService {
       // Create bet record
       await conn.execute(
         `INSERT INTO stack_tower_bets 
-         (user_id, round_id, game_id, difficulty, amount, current_level, multiplier, win_amount, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 0, 1.0000, 0.0000, 0, NOW(), NOW())`,
+         (user_id, round_id, game_id, difficulty, amount, current_level, multiplier, win_amount, status, obstacle_dropped, obstacle_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 0, 1.0000, 0.0000, 0, 0, NULL, NOW(), NOW())`,
         [userId, roundId, gameId, diff, betAmount]
       );
 
@@ -218,6 +220,9 @@ class StackTowerService {
       if (!bet || Number(bet.user_id) !== Number(userId)) {
         throw new AppError(404, "BET_NOT_FOUND", "Active bet not found for this round.");
       }
+      if (bet.obstacle_dropped || bet.status === 2) {
+        throw new AppError(400, "OBSTACLE_COLLAPSE", "An obstacle struck and toppled your tower! You cannot cash out.");
+      }
       if (bet.status !== 0) {
         throw new AppError(400, "ROUND_ALREADY_FINISHED", "This round is already settled.");
       }
@@ -264,7 +269,7 @@ class StackTowerService {
       txStarted = true;
 
       const [bets] = await conn.execute(
-        `SELECT id, user_id, round_id, amount, status 
+        `SELECT id, user_id, round_id, amount, status, obstacle_dropped 
          FROM stack_tower_bets 
          WHERE round_id = ? AND user_id = ? FOR UPDATE`,
         [activeRoundId, userId]
@@ -275,6 +280,9 @@ class StackTowerService {
       }
 
       const bet = bets[0];
+      if (bet.obstacle_dropped || bet.status === 2) {
+        throw new AppError(400, "OBSTACLE_COLLAPSE", "An obstacle struck and toppled your tower! You cannot cash out.");
+      }
       if (bet.status !== 0) {
         throw new AppError(400, "ROUND_ALREADY_FINISHED", "This round is already finished or settled.");
       }
@@ -527,6 +535,695 @@ class StackTowerService {
         },
       },
     };
+  }
+
+  /**
+   * Admin Force Obstacle Drop: Drop an obstacle on an active round to topple the tower and cause loss
+   */
+  async dropObstacle({ round_id, roundId, userid, uid, user_id, obstacle_type, obstacleType, level, reason } = {}) {
+    const rawUid = userid ?? uid ?? user_id;
+    const userId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
+    const activeRoundId = String(round_id || roundId || "").trim();
+    const type = String(obstacle_type || obstacleType || "WRECKING_BALL").toUpperCase();
+    const strikeLevel = level !== undefined && level !== null ? Number(level) : null;
+
+    const conn = await this.getDbConnection();
+
+    if (!conn) {
+      let targetBet = null;
+      if (activeRoundId) {
+        targetBet = memoryBets.get(activeRoundId);
+      } else if (userId) {
+        for (const b of Array.from(memoryBets.values()).reverse()) {
+          if (Number(b.user_id) === Number(userId) && b.status === 0) {
+            targetBet = b;
+            break;
+          }
+        }
+      } else {
+        for (const b of Array.from(memoryBets.values()).reverse()) {
+          if (b.status === 0) {
+            targetBet = b;
+            break;
+          }
+        }
+      }
+
+      if (!targetBet) {
+        throw new AppError(404, "ACTIVE_BET_NOT_FOUND", "No active stack tower round found to drop obstacle on.");
+      }
+
+      if (targetBet.status !== 0) {
+        throw new AppError(400, "ROUND_ALREADY_FINISHED", "Round is already finished or settled.");
+      }
+
+      targetBet.status = 2; // LOST
+      targetBet.obstacle_dropped = 1;
+      targetBet.obstacle_type = type;
+      targetBet.win_amount = 0;
+      if (strikeLevel !== null) {
+        targetBet.current_level = strikeLevel;
+      }
+      targetBet.updated_at = new Date();
+
+      const dropResponse = {
+        status: 200,
+        success: true,
+        message: `Obstacle (${type}) dropped successfully! Tower toppled.`,
+        data: {
+          round_id: targetBet.round_id,
+          roundId: targetBet.round_id,
+          user_id: targetBet.user_id,
+          obstacle_dropped: true,
+          obstacle_type: type,
+          level_dropped: targetBet.current_level,
+          status: "OBSTACLE_DROPPED",
+          payout: 0,
+        },
+      };
+
+      try {
+        const { getStackTowerSocket } = require("./stackTower.socket");
+        const socketService = getStackTowerSocket();
+        if (socketService) {
+          socketService.broadcastObstacleDrop(dropResponse.data);
+        }
+      } catch (_) {}
+
+      return dropResponse;
+    }
+
+    try {
+      let query = "";
+      let params = [];
+
+      if (activeRoundId) {
+        query = "SELECT id, user_id, round_id, current_level, status, obstacle_dropped FROM stack_tower_bets WHERE round_id = ? LIMIT 1";
+        params = [activeRoundId];
+      } else if (userId) {
+        query = "SELECT id, user_id, round_id, current_level, status, obstacle_dropped FROM stack_tower_bets WHERE user_id = ? AND status = 0 ORDER BY id DESC LIMIT 1";
+        params = [userId];
+      } else {
+        query = "SELECT id, user_id, round_id, current_level, status, obstacle_dropped FROM stack_tower_bets WHERE status = 0 ORDER BY id DESC LIMIT 1";
+        params = [];
+      }
+
+      const [rows] = await conn.execute(query, params);
+      if (!rows || !rows[0]) {
+        throw new AppError(404, "ACTIVE_BET_NOT_FOUND", "No active stack tower round found to drop obstacle on.");
+      }
+
+      const bet = rows[0];
+      if (bet.status !== 0) {
+        throw new AppError(400, "ROUND_ALREADY_FINISHED", "Round is already finished or settled.");
+      }
+
+      const finalLevel = strikeLevel !== null ? strikeLevel : Number(bet.current_level || 0);
+
+      await conn.execute(
+        `UPDATE stack_tower_bets 
+         SET status = 2, obstacle_dropped = 1, obstacle_type = ?, current_level = ?, win_amount = 0, updated_at = NOW() 
+         WHERE id = ?`,
+        [type, finalLevel, bet.id]
+      );
+
+      const dropResponse = {
+        status: 200,
+        success: true,
+        message: `Obstacle (${type}) dropped successfully! Tower toppled.`,
+        data: {
+          round_id: bet.round_id,
+          roundId: bet.round_id,
+          user_id: bet.user_id,
+          obstacle_dropped: true,
+          obstacle_type: type,
+          level_dropped: finalLevel,
+          status: "OBSTACLE_DROPPED",
+          payout: 0,
+        },
+      };
+
+      try {
+        const { getStackTowerSocket } = require("./stackTower.socket");
+        const socketService = getStackTowerSocket();
+        if (socketService) {
+          socketService.broadcastObstacleDrop(dropResponse.data);
+        }
+      } catch (_) {}
+
+      return dropResponse;
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Check real-time status of a round (useful for frontend to check if obstacle was dropped)
+   */
+  async getRoundStatus({ round_id, roundId, userid, uid } = {}) {
+    const activeRoundId = String(round_id || roundId || "").trim();
+    const rawUid = userid ?? uid;
+    const userId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
+
+    if (!activeRoundId && !userId) {
+      throw new AppError(400, "VALIDATION_ERROR", "Either round_id or userid is required.");
+    }
+
+    const conn = await this.getDbConnection();
+
+    if (!conn) {
+      let b = null;
+      if (activeRoundId) {
+        b = memoryBets.get(activeRoundId);
+      } else {
+        for (const bet of Array.from(memoryBets.values()).reverse()) {
+          if (Number(bet.user_id) === Number(userId)) {
+            b = bet;
+            break;
+          }
+        }
+      }
+
+      if (!b) {
+        throw new AppError(404, "BET_NOT_FOUND", "Round not found.");
+      }
+
+      return {
+        status: 200,
+        success: true,
+        data: {
+          round_id: b.round_id,
+          user_id: b.user_id,
+          difficulty: b.difficulty,
+          current_level: b.current_level,
+          multiplier: Number(b.multiplier),
+          amount: Number(b.amount),
+          win_amount: Number(b.win_amount),
+          status: b.obstacle_dropped ? "OBSTACLE_DROPPED" : b.status === 1 ? "CASHED_OUT" : b.status === 2 ? "LOST" : "PLAYING",
+          obstacle_dropped: Boolean(b.obstacle_dropped),
+          obstacle_type: b.obstacle_type || null,
+        },
+      };
+    }
+
+    try {
+      let query = "";
+      let params = [];
+      if (activeRoundId) {
+        query = "SELECT * FROM stack_tower_bets WHERE round_id = ? LIMIT 1";
+        params = [activeRoundId];
+      } else {
+        query = "SELECT * FROM stack_tower_bets WHERE user_id = ? ORDER BY id DESC LIMIT 1";
+        params = [userId];
+      }
+
+      const [rows] = await conn.execute(query, params);
+      if (!rows || !rows[0]) {
+        throw new AppError(404, "BET_NOT_FOUND", "Round not found.");
+      }
+
+      const b = rows[0];
+      return {
+        status: 200,
+        success: true,
+        data: {
+          round_id: b.round_id,
+          user_id: b.user_id,
+          difficulty: b.difficulty,
+          current_level: Number(b.current_level || 0),
+          multiplier: Number(b.multiplier || 1.0),
+          amount: Number(b.amount || 0),
+          win_amount: Number(b.win_amount || 0),
+          status: b.obstacle_dropped ? "OBSTACLE_DROPPED" : b.status === 1 ? "CASHED_OUT" : b.status === 2 ? "LOST" : "PLAYING",
+          obstacle_dropped: Boolean(b.obstacle_dropped),
+          obstacle_type: b.obstacle_type || null,
+        },
+      };
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Frontend User Stats: Modes breakdown & Tower build height
+   */
+  async getUserStats({ userid, uid, user_id } = {}) {
+    const rawUid = userid ?? uid ?? user_id;
+    const userId = requiredInteger(rawUid, "userid");
+
+    const MODES = ["EASY", "MEDIUM", "HARD"];
+    const initModes = () => {
+      const m = {};
+      for (const mode of MODES) {
+        m[mode] = {
+          mode,
+          total_bets: 0,
+          total_wagered: 0,
+          total_won: 0,
+          net_profit: 0,
+          highest_tower_built: 0,
+          avg_tower_height: 0,
+          cashed_out: 0,
+          lost: 0,
+          win_rate: "0.00%",
+        };
+      }
+      return m;
+    };
+
+    const conn = await this.getDbConnection();
+
+    if (!conn) {
+      const userBets = Array.from(memoryBets.values()).filter(
+        (b) => Number(b.user_id) === Number(userId)
+      );
+
+      const modes = initModes();
+      let totalBets = 0;
+      let totalWagered = 0;
+      let totalWon = 0;
+      let highestTowerGlobal = 0;
+      let sumLevels = 0;
+      let totalCashedOut = 0;
+
+      for (const b of userBets) {
+        const diff = (b.difficulty || "MEDIUM").toUpperCase();
+        if (!modes[diff]) {
+          modes[diff] = {
+            mode: diff,
+            total_bets: 0,
+            total_wagered: 0,
+            total_won: 0,
+            net_profit: 0,
+            highest_tower_built: 0,
+            avg_tower_height: 0,
+            cashed_out: 0,
+            lost: 0,
+            win_rate: "0.00%",
+          };
+        }
+
+        const amt = Number(b.amount || 0);
+        const win = Number(b.win_amount || 0);
+        const lvl = Number(b.current_level || 0);
+
+        totalBets += 1;
+        totalWagered += amt;
+        totalWon += win;
+        sumLevels += lvl;
+        if (lvl > highestTowerGlobal) highestTowerGlobal = lvl;
+
+        modes[diff].total_bets += 1;
+        modes[diff].total_wagered += amt;
+        modes[diff].total_won += win;
+        if (lvl > modes[diff].highest_tower_built) {
+          modes[diff].highest_tower_built = lvl;
+        }
+
+        if (b.status === 1) {
+          totalCashedOut += 1;
+          modes[diff].cashed_out += 1;
+        } else if (b.status === 2) {
+          modes[diff].lost += 1;
+        }
+      }
+
+      for (const mode of Object.keys(modes)) {
+        const m = modes[mode];
+        m.total_wagered = Number(m.total_wagered.toFixed(2));
+        m.total_won = Number(m.total_won.toFixed(2));
+        m.net_profit = Number((m.total_won - m.total_wagered).toFixed(2));
+        m.avg_tower_height = m.total_bets > 0 ? Number((m.highest_tower_built / m.total_bets).toFixed(2)) : 0;
+        m.win_rate = m.total_bets > 0 ? `${((m.cashed_out / m.total_bets) * 100).toFixed(2)}%` : "0.00%";
+      }
+
+      return {
+        status: 200,
+        success: true,
+        message: "User Stack Tower statistics fetched successfully",
+        data: {
+          user_id: userId,
+          total_bets: totalBets,
+          total_wagered: Number(totalWagered.toFixed(2)),
+          total_won: Number(totalWon.toFixed(2)),
+          net_profit: Number((totalWon - totalWagered).toFixed(2)),
+          highest_tower_built: highestTowerGlobal,
+          total_towers_built: totalCashedOut,
+          average_tower_height: totalBets > 0 ? Number((sumLevels / totalBets).toFixed(2)) : 0,
+          win_rate: totalBets > 0 ? `${((totalCashedOut / totalBets) * 100).toFixed(2)}%` : "0.00%",
+          modes,
+        },
+      };
+    }
+
+    try {
+      const [rows] = await conn.execute(
+        `SELECT 
+          difficulty,
+          COUNT(*) AS total_bets,
+          COALESCE(SUM(amount), 0) AS total_wagered,
+          COALESCE(SUM(win_amount), 0) AS total_won,
+          COALESCE(MAX(current_level), 0) AS highest_tower_built,
+          COALESCE(AVG(current_level), 0) AS avg_tower_height,
+          SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS cashed_out,
+          SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS lost
+         FROM stack_tower_bets 
+         WHERE user_id = ?
+         GROUP BY difficulty`,
+        [userId]
+      );
+
+      const modes = initModes();
+      let totalBets = 0;
+      let totalWagered = 0;
+      let totalWon = 0;
+      let highestTowerGlobal = 0;
+      let totalCashedOut = 0;
+      let sumLevelsTimesBets = 0;
+
+      for (const r of rows || []) {
+        const diff = String(r.difficulty || "MEDIUM").toUpperCase();
+        const bets = Number(r.total_bets || 0);
+        const wagered = Number(r.total_wagered || 0);
+        const won = Number(r.total_won || 0);
+        const maxLevel = Number(r.highest_tower_built || 0);
+        const avgLevel = Number(r.avg_tower_height || 0);
+        const cashedOut = Number(r.cashed_out || 0);
+        const lost = Number(r.lost || 0);
+
+        totalBets += bets;
+        totalWagered += wagered;
+        totalWon += won;
+        if (maxLevel > highestTowerGlobal) highestTowerGlobal = maxLevel;
+        totalCashedOut += cashedOut;
+        sumLevelsTimesBets += avgLevel * bets;
+
+        modes[diff] = {
+          mode: diff,
+          total_bets: bets,
+          total_wagered: Number(wagered.toFixed(2)),
+          total_won: Number(won.toFixed(2)),
+          net_profit: Number((won - wagered).toFixed(2)),
+          highest_tower_built: maxLevel,
+          avg_tower_height: Number(avgLevel.toFixed(2)),
+          cashed_out: cashedOut,
+          lost: lost,
+          win_rate: bets > 0 ? `${((cashedOut / bets) * 100).toFixed(2)}%` : "0.00%",
+        };
+      }
+
+      return {
+        status: 200,
+        success: true,
+        message: "User Stack Tower statistics fetched successfully",
+        data: {
+          user_id: userId,
+          total_bets: totalBets,
+          total_wagered: Number(totalWagered.toFixed(2)),
+          total_won: Number(totalWon.toFixed(2)),
+          net_profit: Number((totalWon - totalWagered).toFixed(2)),
+          highest_tower_built: highestTowerGlobal,
+          total_towers_built: totalCashedOut,
+          average_tower_height: totalBets > 0 ? Number((sumLevelsTimesBets / totalBets).toFixed(2)) : 0,
+          win_rate: totalBets > 0 ? `${((totalCashedOut / totalBets) * 100).toFixed(2)}%` : "0.00%",
+          modes,
+        },
+      };
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Admin Panel Stats: Global totals, modes breakdown, and top builders
+   */
+  async getAdminStats({ userid, uid, user_id, difficulty, mode, limit = 20, offset = 0 } = {}) {
+    const rawUid = userid ?? uid ?? user_id;
+    const filterUserId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
+    const filterDiff = difficulty || mode ? String(difficulty || mode).toUpperCase() : null;
+    const lim = Math.max(1, Math.min(100, Number(limit) || 20));
+    const off = Math.max(0, Number(offset) || 0);
+
+    const MODES = ["EASY", "MEDIUM", "HARD"];
+    const initModes = () => {
+      const m = {};
+      for (const mName of MODES) {
+        m[mName] = {
+          mode: mName,
+          total_bets: 0,
+          total_wagered: 0,
+          total_payout: 0,
+          house_profit: 0,
+          highest_tower_built: 0,
+          avg_tower_height: 0,
+          win_count: 0,
+          loss_count: 0,
+        };
+      }
+      return m;
+    };
+
+    const conn = await this.getDbConnection();
+
+    if (!conn) {
+      let allBets = Array.from(memoryBets.values());
+      if (filterUserId) {
+        allBets = allBets.filter((b) => Number(b.user_id) === filterUserId);
+      }
+      if (filterDiff) {
+        allBets = allBets.filter((b) => String(b.difficulty).toUpperCase() === filterDiff);
+      }
+
+      const distinctUsers = new Set();
+      let totalBets = 0;
+      let totalWagered = 0;
+      let totalPayout = 0;
+      let globalMaxLevel = 0;
+      let sumLevels = 0;
+      let obstacleDrops = 0;
+
+      const modes = initModes();
+      const userAggregate = new Map();
+
+      for (const b of allBets) {
+        const uId = Number(b.user_id);
+        distinctUsers.add(uId);
+
+        const amt = Number(b.amount || 0);
+        const win = Number(b.win_amount || 0);
+        const lvl = Number(b.current_level || 0);
+        const diff = (b.difficulty || "MEDIUM").toUpperCase();
+
+        totalBets += 1;
+        totalWagered += amt;
+        totalPayout += win;
+        sumLevels += lvl;
+        if (lvl > globalMaxLevel) globalMaxLevel = lvl;
+        if (b.obstacle_dropped) obstacleDrops += 1;
+
+        if (!modes[diff]) {
+          modes[diff] = {
+            mode: diff,
+            total_bets: 0,
+            total_wagered: 0,
+            total_payout: 0,
+            house_profit: 0,
+            highest_tower_built: 0,
+            avg_tower_height: 0,
+            win_count: 0,
+            loss_count: 0,
+          };
+        }
+
+        modes[diff].total_bets += 1;
+        modes[diff].total_wagered += amt;
+        modes[diff].total_payout += win;
+        if (lvl > modes[diff].highest_tower_built) {
+          modes[diff].highest_tower_built = lvl;
+        }
+        if (b.status === 1) modes[diff].win_count += 1;
+        if (b.status === 2) modes[diff].loss_count += 1;
+
+        const uStat = userAggregate.get(uId) || {
+          user_id: uId,
+          total_bets: 0,
+          total_wagered: 0,
+          total_payout: 0,
+          highest_tower_built: 0,
+          modes: {},
+        };
+        uStat.total_bets += 1;
+        uStat.total_wagered += amt;
+        uStat.total_payout += win;
+        if (lvl > uStat.highest_tower_built) uStat.highest_tower_built = lvl;
+        uStat.modes[diff] = (uStat.modes[diff] || 0) + 1;
+        userAggregate.set(uId, uStat);
+      }
+
+      const modesBreakdown = Object.values(modes).map((m) => {
+        const wagered = Number(m.total_wagered.toFixed(2));
+        const payout = Number(m.total_payout.toFixed(2));
+        return {
+          ...m,
+          total_wagered: wagered,
+          total_payout: payout,
+          house_profit: Number((wagered - payout).toFixed(2)),
+          avg_tower_height: m.total_bets > 0 ? Number((m.highest_tower_built / m.total_bets).toFixed(2)) : 0,
+        };
+      });
+
+      const topTowerBuilders = Array.from(userAggregate.values())
+        .map((u) => {
+          let favoriteMode = "MEDIUM";
+          let maxCount = -1;
+          for (const [mName, cnt] of Object.entries(u.modes)) {
+            if (cnt > maxCount) {
+              maxCount = cnt;
+              favoriteMode = mName;
+            }
+          }
+          return {
+            user_id: u.user_id,
+            total_bets: u.total_bets,
+            total_wagered: Number(u.total_wagered.toFixed(2)),
+            total_payout: Number(u.total_payout.toFixed(2)),
+            highest_tower_built: u.highest_tower_built,
+            favorite_mode: favoriteMode,
+          };
+        })
+        .sort((a, b) => b.highest_tower_built - a.highest_tower_built || b.total_bets - a.total_bets)
+        .slice(off, off + lim);
+
+      return {
+        status: 200,
+        success: true,
+        message: "Admin Stack Tower statistics fetched successfully",
+        data: {
+          overall: {
+            total_players: distinctUsers.size,
+            total_bets: totalBets,
+            total_wagered: Number(totalWagered.toFixed(2)),
+            total_payout: Number(totalPayout.toFixed(2)),
+            house_profit: Number((totalWagered - totalPayout).toFixed(2)),
+            highest_tower_built_global: globalMaxLevel,
+            average_tower_height_global: totalBets > 0 ? Number((sumLevels / totalBets).toFixed(2)) : 0,
+            total_obstacle_drops: obstacleDrops,
+          },
+          modes_breakdown: modesBreakdown,
+          top_tower_builders: topTowerBuilders,
+        },
+      };
+    }
+
+    try {
+      let whereClauses = [];
+      let whereParams = [];
+
+      if (filterUserId) {
+        whereClauses.push("user_id = ?");
+        whereParams.push(filterUserId);
+      }
+      if (filterDiff) {
+        whereClauses.push("difficulty = ?");
+        whereParams.push(filterDiff);
+      }
+
+      const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+      const [overallRows] = await conn.execute(
+        `SELECT 
+          COUNT(DISTINCT user_id) AS total_players,
+          COUNT(*) AS total_bets,
+          COALESCE(SUM(amount), 0) AS total_wagered,
+          COALESCE(SUM(win_amount), 0) AS total_payout,
+          COALESCE(MAX(current_level), 0) AS highest_tower_built_global,
+          COALESCE(AVG(current_level), 0) AS average_tower_height_global,
+          COALESCE(SUM(CASE WHEN obstacle_dropped = 1 THEN 1 ELSE 0 END), 0) AS total_obstacle_drops
+         FROM stack_tower_bets ${whereSql}`,
+        whereParams
+      );
+
+      const o = overallRows[0] || {};
+      const totWagered = Number(o.total_wagered || 0);
+      const totPayout = Number(o.total_payout || 0);
+
+      const [modeRows] = await conn.execute(
+        `SELECT 
+          difficulty AS mode,
+          COUNT(*) AS total_bets,
+          COALESCE(SUM(amount), 0) AS total_wagered,
+          COALESCE(SUM(win_amount), 0) AS total_payout,
+          COALESCE(MAX(current_level), 0) AS highest_tower_built,
+          COALESCE(AVG(current_level), 0) AS avg_tower_height,
+          SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS win_count,
+          SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS loss_count
+         FROM stack_tower_bets ${whereSql}
+         GROUP BY difficulty`,
+        whereParams
+      );
+
+      const modesMap = initModes();
+      for (const m of modeRows || []) {
+        const diff = String(m.mode || "MEDIUM").toUpperCase();
+        const wagered = Number(m.total_wagered || 0);
+        const payout = Number(m.total_payout || 0);
+        modesMap[diff] = {
+          mode: diff,
+          total_bets: Number(m.total_bets || 0),
+          total_wagered: Number(wagered.toFixed(2)),
+          total_payout: Number(payout.toFixed(2)),
+          house_profit: Number((wagered - payout).toFixed(2)),
+          highest_tower_built: Number(m.highest_tower_built || 0),
+          avg_tower_height: Number(Number(m.avg_tower_height || 0).toFixed(2)),
+          win_count: Number(m.win_count || 0),
+          loss_count: Number(m.loss_count || 0),
+        };
+      }
+
+      const [topRows] = await conn.execute(
+        `SELECT 
+          user_id,
+          COUNT(*) AS total_bets,
+          COALESCE(SUM(amount), 0) AS total_wagered,
+          COALESCE(SUM(win_amount), 0) AS total_payout,
+          COALESCE(MAX(current_level), 0) AS highest_tower_built
+         FROM stack_tower_bets ${whereSql}
+         GROUP BY user_id
+         ORDER BY highest_tower_built DESC, total_bets DESC
+         LIMIT ? OFFSET ?`,
+        [...whereParams, lim, off]
+      );
+
+      const topTowerBuilders = (topRows || []).map((t) => ({
+        user_id: t.user_id,
+        total_bets: Number(t.total_bets || 0),
+        total_wagered: Number(Number(t.total_wagered || 0).toFixed(2)),
+        total_payout: Number(Number(t.total_payout || 0).toFixed(2)),
+        highest_tower_built: Number(t.highest_tower_built || 0),
+      }));
+
+      return {
+        status: 200,
+        success: true,
+        message: "Admin Stack Tower statistics fetched successfully",
+        data: {
+          overall: {
+            total_players: Number(o.total_players || 0),
+            total_bets: Number(o.total_bets || 0),
+            total_wagered: Number(totWagered.toFixed(2)),
+            total_payout: Number(totPayout.toFixed(2)),
+            house_profit: Number((totWagered - totPayout).toFixed(2)),
+            highest_tower_built_global: Number(o.highest_tower_built_global || 0),
+            average_tower_height_global: Number(Number(o.average_tower_height_global || 0).toFixed(2)),
+            total_obstacle_drops: Number(o.total_obstacle_drops || 0),
+          },
+          modes_breakdown: Object.values(modesMap),
+          top_tower_builders: topTowerBuilders,
+        },
+      };
+    } finally {
+      conn.release();
+    }
   }
 }
 

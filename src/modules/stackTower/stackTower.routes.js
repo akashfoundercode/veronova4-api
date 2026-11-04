@@ -47,5 +47,48 @@ router.get("/stack-tower/config", controller.config);
 router.get("/stack_tower/config", controller.config);
 router.get("/config", controller.config);
 
+// 6. User Stats (Modes breakdown, bets count & tower built stats for Frontend)
+router.get("/stack_tower_user_stats", authenticate.optional, controller.userStats);
+router.post("/stack_tower_user_stats", authenticate.optional, controller.userStats);
+router.get("/stack-tower-user-stats", authenticate.optional, controller.userStats);
+router.post("/stack-tower-user-stats", authenticate.optional, controller.userStats);
+router.get("/stack-tower/user-stats", authenticate.optional, controller.userStats);
+router.post("/stack-tower/user-stats", authenticate.optional, controller.userStats);
+router.get("/stack_tower/user-stats", authenticate.optional, controller.userStats);
+router.get("/user-stats", authenticate.optional, controller.userStats);
+router.get("/user_stats", authenticate.optional, controller.userStats);
+router.get("/stats", authenticate.optional, controller.userStats);
+router.post("/stats", authenticate.optional, controller.userStats);
+
+// 7. Admin Panel Stats (Aggregated mode breakdown, turnover, house profit & top builders)
+router.get("/admin/stats", authenticate.optional, controller.adminStats);
+router.post("/admin/stats", authenticate.optional, controller.adminStats);
+router.get("/admin/stack-tower/stats", authenticate.optional, controller.adminStats);
+router.post("/admin/stack-tower/stats", authenticate.optional, controller.adminStats);
+router.get("/admin/stack_tower_stats", authenticate.optional, controller.adminStats);
+router.post("/admin/stack_tower_stats", authenticate.optional, controller.adminStats);
+router.get("/stack-tower/admin/stats", authenticate.optional, controller.adminStats);
+router.post("/stack-tower/admin/stats", authenticate.optional, controller.adminStats);
+router.get("/stack_tower_admin_stats", authenticate.optional, controller.adminStats);
+router.post("/stack_tower_admin_stats", authenticate.optional, controller.adminStats);
+
+// 8. Admin Force Obstacle Drop (Drop obstacle on active round to topple tower and cause loss)
+router.post("/admin/drop-obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/admin/drop_obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/admin/stack-tower/drop-obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/stack-tower/admin/drop-obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/stack_tower_drop_obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/stack-tower-drop-obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/drop-obstacle", authenticate.optional, controller.dropObstacle);
+router.post("/drop_obstacle", authenticate.optional, controller.dropObstacle);
+
+// 9. Round Status Check (Real-time check for obstacle drops / status)
+router.get("/stack_tower_round_status", authenticate.optional, controller.roundStatus);
+router.get("/stack-tower/round-status", authenticate.optional, controller.roundStatus);
+router.get("/round-status", authenticate.optional, controller.roundStatus);
+router.get("/round_status", authenticate.optional, controller.roundStatus);
+router.post("/stack-tower/round-status", authenticate.optional, controller.roundStatus);
+router.post("/round-status", authenticate.optional, controller.roundStatus);
+
 module.exports = router;
 

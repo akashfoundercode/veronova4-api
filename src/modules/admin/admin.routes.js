@@ -7,6 +7,7 @@ const { API_ROUTES } = require("../../config/apiRoutes");
 const controller = require("./admin.controller");
 const HorseRaceAdminController = require("../horseRace/controllers/admin.controller");
 const chickenController = require("../chicken/chicken.controller");
+const stackTowerController = require("../stackTower/stackTower.controller");
 
 const router = express.Router();
 
@@ -193,5 +194,13 @@ router.get("/admin/chicken/history", authenticate.optional, chickenController.ad
 router.get("/admin/chicken/bets", authenticate.optional, chickenController.adminHistory);
 router.get("/admin/chicken-bets", authenticate.optional, chickenController.adminHistory);
 router.get("/admin/chicken", authenticate.optional, chickenController.adminHistory);
+
+// Stack Tower Admin Stats & Control (Drop Obstacle)
+router.get("/admin/stack-tower/stats", authenticate.optional, stackTowerController.adminStats);
+router.post("/admin/stack-tower/stats", authenticate.optional, stackTowerController.adminStats);
+router.get("/admin/stack_tower_stats", authenticate.optional, stackTowerController.adminStats);
+router.post("/admin/stack_tower_stats", authenticate.optional, stackTowerController.adminStats);
+router.post("/admin/stack-tower/drop-obstacle", authenticate.optional, stackTowerController.dropObstacle);
+router.post("/admin/stack_tower_drop_obstacle", authenticate.optional, stackTowerController.dropObstacle);
 
 module.exports = router;

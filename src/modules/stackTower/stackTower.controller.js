@@ -82,6 +82,56 @@ class StackTowerController {
   static async config(req, res) {
     return handleRequest(res, () => service.getConfig());
   }
+
+  static async userStats(req, res) {
+    return handleRequest(res, () => {
+      const payload = {
+        ...(req.query || {}),
+        ...(req.body || {}),
+        userid: resolveUserId(req),
+      };
+      return service.getUserStats(payload);
+    });
+  }
+
+  static async adminStats(req, res) {
+    return handleRequest(res, () => {
+      const q = req.query || {};
+      const b = req.body || {};
+      const filterUid = q.userid || q.uid || q.user_id || b.userid || b.uid || b.user_id;
+      const payload = {
+        ...q,
+        ...b,
+        userid: filterUid ? Number(filterUid) : null,
+      };
+      return service.getAdminStats(payload);
+    });
+  }
+
+  static async dropObstacle(req, res) {
+    return handleRequest(res, () => {
+      const q = req.query || {};
+      const b = req.body || {};
+      const filterUid = b.userid || b.uid || b.user_id || q.userid || q.uid || q.user_id;
+      const payload = {
+        ...q,
+        ...b,
+        userid: filterUid ? Number(filterUid) : null,
+      };
+      return service.dropObstacle(payload);
+    });
+  }
+
+  static async roundStatus(req, res) {
+    return handleRequest(res, () => {
+      const payload = {
+        ...(req.query || {}),
+        ...(req.body || {}),
+        userid: resolveUserId(req),
+      };
+      return service.getRoundStatus(payload);
+    });
+  }
 }
 
 module.exports = StackTowerController;

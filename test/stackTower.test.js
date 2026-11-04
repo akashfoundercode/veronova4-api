@@ -136,6 +136,68 @@ test("Stack Tower - Complete Game Loop APIs", async () => {
   assert.equal(aliasBet.statusCode, 200);
   assert.equal(aliasBet.body.success, true);
 
-  console.log("✅ ALL STACK TOWER API TESTS PASSED SUCCESSFULLY!");
+  // 9. Frontend User Stats API (User ke mode-wise bets aur tower build stats)
+  const userStatsRes = await testRoute("GET", "/api/stack-tower/user-stats?userid=1");
+  assert.equal(userStatsRes.statusCode, 200);
+  assert.equal(userStatsRes.body.success, true);
+  assert.ok(userStatsRes.body.data.total_bets >= 2);
+  assert.ok(userStatsRes.body.data.modes.MEDIUM);
+  assert.ok(userStatsRes.body.data.modes.HARD);
+  assert.ok(userStatsRes.body.data.modes.EASY);
+  assert.ok("highest_tower_built" in userStatsRes.body.data);
+  assert.ok("total_wagered" in userStatsRes.body.data);
+  assert.ok("win_rate" in userStatsRes.body.data.modes.MEDIUM);
+  console.log("✅ User stats API tested successfully:", userStatsRes.body.data.modes.MEDIUM);
+
+  // 10. Admin Panel Stats API (Global summary, modes breakdown & top builders)
+  const adminStatsRes = await testRoute("GET", "/api/stack-tower/admin/stats");
+  assert.equal(adminStatsRes.statusCode, 200);
+  assert.equal(adminStatsRes.body.success, true);
+  assert.ok(adminStatsRes.body.data.overall.total_bets >= 2);
+  assert.ok(Array.isArray(adminStatsRes.body.data.modes_breakdown));
+  assert.ok(Array.isArray(adminStatsRes.body.data.top_tower_builders));
+  console.log("✅ Admin stats API tested successfully:", adminStatsRes.body.data.overall);
+
+  // 11. Admin Obstacle Drop API: Start Round 3 and Admin forces obstacle to topple tower
+  const betRes3 = await testRoute("POST", "/api/stack-tower/bet", {}, {
+    userid: 1,
+    amount: 200,
+    difficulty: "EASY",
+  });
+  assert.equal(betRes3.statusCode, 200);
+  const round3Id = betRes3.body.data.round_id;
+
+  // Admin drops obstacle on round 3
+  const dropRes = await testRoute("POST", "/api/stack-tower/admin/drop-obstacle", {}, {
+    round_id: round3Id,
+    obstacle_type: "WRECKING_BALL",
+    level: 7,
+    reason: "Admin dropped obstacle to topple tower",
+  });
+  assert.equal(dropRes.statusCode, 200);
+  assert.equal(dropRes.body.success, true);
+  assert.equal(dropRes.body.data.obstacle_dropped, true);
+  assert.equal(dropRes.body.data.obstacle_type, "WRECKING_BALL");
+  console.log("✅ Admin obstacle drop API tested successfully:", dropRes.body.data);
+
+  // User attempts cashout after obstacle drop - should be rejected!
+  const cashoutFailRes = await testRoute("POST", "/api/stack-tower/cashout", {}, {
+    userid: 1,
+    round_id: round3Id,
+    level: 7,
+    multiplier: 1.84,
+  });
+  assert.equal(cashoutFailRes.statusCode, 400);
+  assert.equal(cashoutFailRes.body.success, false);
+  assert.match(cashoutFailRes.body.message, /obstacle/i);
+  console.log("✅ Cashout correctly blocked by obstacle:", cashoutFailRes.body.message);
+
+  // Check round status
+  const statusRes = await testRoute("GET", `/api/stack-tower/round-status?round_id=${round3Id}`);
+  assert.equal(statusRes.statusCode, 200);
+  assert.equal(statusRes.body.data.obstacle_dropped, true);
+  assert.equal(statusRes.body.data.status, "OBSTACLE_DROPPED");
+
+  console.log("✅ ALL STACK TOWER API TESTS (INCLUDING NEW STATS & OBSTACLE APIS) PASSED SUCCESSFULLY!");
 });
 

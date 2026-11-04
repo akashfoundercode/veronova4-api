@@ -330,6 +330,8 @@ async function ensureAllTables() {
         multiplier DECIMAL(10, 2) NOT NULL DEFAULT 1.00,
         win_amount DECIMAL(20, 2) NOT NULL DEFAULT 0.00,
         status INT NOT NULL DEFAULT 0,
+        obstacle_dropped TINYINT(1) NOT NULL DEFAULT 0,
+        obstacle_type VARCHAR(50) NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_stack_tower_user (user_id),
@@ -337,6 +339,9 @@ async function ensureAllTables() {
         INDEX idx_stack_tower_status (status)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await safeExec("ALTER TABLE stack_tower_bets ADD COLUMN obstacle_dropped TINYINT(1) NOT NULL DEFAULT 0");
+    await safeExec("ALTER TABLE stack_tower_bets ADD COLUMN obstacle_type VARCHAR(50) NULL");
 
     await safeExec(`
       CREATE TABLE IF NOT EXISTS lottery_bets (
