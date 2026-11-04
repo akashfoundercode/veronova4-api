@@ -198,6 +198,24 @@ test("Stack Tower - Complete Game Loop APIs", async () => {
   assert.equal(statusRes.body.data.obstacle_dropped, true);
   assert.equal(statusRes.body.data.status, "OBSTACLE_DROPPED");
 
-  console.log("✅ ALL STACK TOWER API TESTS (INCLUDING NEW STATS & OBSTACLE APIS) PASSED SUCCESSFULLY!");
+  // 12. Test all Active Players, Active Bets & Live Rounds endpoints (matching frontend apiClient.js)
+  const activeUrls = [
+    "/api/stack-tower/admin/active-players",
+    "/api/stack-tower/active-bets",
+    "/admin/stack-tower/live",
+    "/api/stack-tower/live",
+    "/api/stack-tower/admin/rounds?status=0",
+    "/admin/stack-tower/active",
+  ];
+
+  for (const url of activeUrls) {
+    const res = await testRoute("GET", url);
+    assert.equal(res.statusCode, 200, `Expected 200 OK for ${url}`);
+    assert.equal(res.body.success, true);
+    assert.ok(Array.isArray(res.body.data), `Expected array data for ${url}`);
+    console.log(`✅ ${url} returned 200 OK with ${res.body.data.length} records`);
+  }
+
+  console.log("✅ ALL STACK TOWER API TESTS (INCLUDING LIVE/ACTIVE PLAYER ENDPOINTS) PASSED SUCCESSFULLY!");
 });
 

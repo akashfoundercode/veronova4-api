@@ -38,6 +38,7 @@ function makeOrderId(date = new Date()) {
 // In-memory fallback map for testing or standalone execution when MySQL pool is unavailable
 const memoryBets = new Map();
 const memoryUsers = new Map();
+const armedObstacles = new Map();
 
 class StackTowerService {
   constructor(poolProvider = getPool) {
@@ -538,6 +539,158 @@ class StackTowerService {
   }
 
   /**
+   * Get Live / Active Stack Tower Bets & Players currently playing
+   */
+  async getActiveBets({ limit = 50, offset = 0, status, userid } = {}) {
+    const lim = Math.max(1, Math.min(200, Number(limit) || 50));
+    const off = Math.max(0, Number(offset) || 0);
+    const targetStatus = status !== undefined && status !== null && status !== "" ? Number(status) : 0; // Default: 0 (PLAYING)
+    const filterUid = userid ? Number(userid) : null;
+
+    const conn = await this.getDbConnection();
+
+    if (!conn) {
+      let bets = Array.from(memoryBets.values());
+      if (targetStatus !== -1 && !isNaN(targetStatus)) {
+        bets = bets.filter((b) => Number(b.status) === targetStatus);
+      }
+      if (filterUid) {
+        bets = bets.filter((b) => Number(b.user_id) === filterUid);
+      }
+
+      const total = bets.length;
+      const data = bets
+        .sort((a, b) => b.id - a.id)
+        .slice(off, off + lim)
+        .map((b) => {
+          const amt = Number(b.amount || 0);
+          const mult = Number(b.multiplier || 1.0);
+          const currentWin = Number((amt * mult).toFixed(2));
+          return {
+            id: b.round_id,
+            round_id: b.round_id,
+            roundId: b.round_id,
+            user_id: b.user_id,
+            userid: b.user_id,
+            uid: b.user_id,
+            username: `User ${b.user_id}`,
+            name: `Player ${b.user_id}`,
+            mobile: "",
+            amount: amt,
+            bet_amount: amt,
+            betAmount: amt,
+            difficulty: b.difficulty || "MEDIUM",
+            mode: b.difficulty || "MEDIUM",
+            current_level: Number(b.current_level || 0),
+            level: Number(b.current_level || 0),
+            multiplier: mult,
+            potential_payout: currentWin,
+            win_amount: Number(b.win_amount || currentWin),
+            current_win: currentWin,
+            status: b.status === 0 ? "PLAYING" : b.status === 1 ? "CASHED_OUT" : "LOST",
+            raw_status: b.status,
+            obstacle_dropped: Boolean(b.obstacle_dropped),
+            obstacle_type: b.obstacle_type || null,
+            created_at: b.created_at,
+            timestamp: new Date(b.created_at).getTime(),
+          };
+        });
+
+      return {
+        status: 200,
+        success: true,
+        message: data.length ? "Active bets found" : "No active players currently playing",
+        data,
+        results: data,
+        total,
+        count: data.length,
+      };
+    }
+
+    try {
+      let whereClauses = [];
+      let whereParams = [];
+
+      if (targetStatus !== -1 && !isNaN(targetStatus)) {
+        whereClauses.push("b.status = ?");
+        whereParams.push(targetStatus);
+      }
+      if (filterUid) {
+        whereClauses.push("b.user_id = ?");
+        whereParams.push(filterUid);
+      }
+
+      const whereSql = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
+
+      const [countRows] = await conn.execute(
+        `SELECT COUNT(*) AS total FROM stack_tower_bets b ${whereSql}`,
+        whereParams
+      );
+      const total = countRows && countRows[0] ? Number(countRows[0].total) : 0;
+
+      const [rows] = await conn.execute(
+        `SELECT 
+          b.id, b.user_id, b.round_id, b.difficulty, b.amount, b.current_level, 
+          b.multiplier, b.win_amount, b.status, b.obstacle_dropped, b.obstacle_type, b.created_at,
+          u.username, u.name, u.mobile, u.email
+         FROM stack_tower_bets b
+         LEFT JOIN users u ON b.user_id = u.id
+         ${whereSql}
+         ORDER BY b.id DESC
+         LIMIT ? OFFSET ?`,
+        [...whereParams, lim, off]
+      );
+
+      const data = (rows || []).map((r) => {
+        const amt = Number(r.amount || 0);
+        const mult = Number(r.multiplier || 1.0);
+        const currentWin = Number((amt * mult).toFixed(2));
+        const username = r.username || r.name || (r.mobile ? r.mobile.slice(-4) : `User ${r.user_id}`);
+        return {
+          id: r.round_id,
+          round_id: r.round_id,
+          roundId: r.round_id,
+          user_id: r.user_id,
+          userid: r.user_id,
+          uid: r.user_id,
+          username,
+          name: r.name || username,
+          mobile: r.mobile || "",
+          amount: amt,
+          bet_amount: amt,
+          betAmount: amt,
+          difficulty: r.difficulty || "MEDIUM",
+          mode: r.difficulty || "MEDIUM",
+          current_level: Number(r.current_level || 0),
+          level: Number(r.current_level || 0),
+          multiplier: mult,
+          potential_payout: currentWin,
+          win_amount: Number(r.win_amount || currentWin),
+          current_win: currentWin,
+          status: r.status === 0 ? "PLAYING" : r.status === 1 ? "CASHED_OUT" : "LOST",
+          raw_status: r.status,
+          obstacle_dropped: Boolean(r.obstacle_dropped),
+          obstacle_type: r.obstacle_type || null,
+          created_at: r.created_at,
+          timestamp: new Date(r.created_at).getTime(),
+        };
+      });
+
+      return {
+        status: 200,
+        success: true,
+        message: data.length ? "Active bets found" : "No active players currently playing",
+        data,
+        results: data,
+        total,
+        count: data.length,
+      };
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
    * Admin Force Obstacle Drop: Drop an obstacle on an active round to topple the tower and cause loss
    */
   async dropObstacle({ round_id, roundId, userid, uid, user_id, obstacle_type, obstacleType, level, reason } = {}) {
@@ -570,11 +723,40 @@ class StackTowerService {
       }
 
       if (!targetBet) {
-        throw new AppError(404, "ACTIVE_BET_NOT_FOUND", "No active stack tower round found to drop obstacle on.");
-      }
+        // Arm obstacle for upcoming bets and broadcast live event to all connected sockets
+        const dropId = activeRoundId || makeOrderId();
+        armedObstacles.set(userId ? String(userId) : "ALL", {
+          type,
+          level: strikeLevel || 1,
+          timestamp: Date.now(),
+        });
 
-      if (targetBet.status !== 0) {
-        throw new AppError(400, "ROUND_ALREADY_FINISHED", "Round is already finished or settled.");
+        const dropResponse = {
+          status: 200,
+          success: true,
+          message: `Obstacle (${type}) dropped successfully! Broadcasted to players.`,
+          data: {
+            round_id: dropId,
+            roundId: dropId,
+            user_id: userId || null,
+            obstacle_dropped: true,
+            obstacle_type: type,
+            level_dropped: strikeLevel || 1,
+            status: "OBSTACLE_DROPPED",
+            payout: 0,
+            armed: true,
+          },
+        };
+
+        try {
+          const { getStackTowerSocket } = require("./stackTower.socket");
+          const socketService = getStackTowerSocket();
+          if (socketService) {
+            socketService.broadcastObstacleDrop(dropResponse.data);
+          }
+        } catch (_) {}
+
+        return dropResponse;
       }
 
       targetBet.status = 2; // LOST
@@ -630,14 +812,43 @@ class StackTowerService {
 
       const [rows] = await conn.execute(query, params);
       if (!rows || !rows[0]) {
-        throw new AppError(404, "ACTIVE_BET_NOT_FOUND", "No active stack tower round found to drop obstacle on.");
+        // Arm obstacle for upcoming bets and broadcast live event to all connected sockets
+        const dropId = activeRoundId || makeOrderId();
+        armedObstacles.set(userId ? String(userId) : "ALL", {
+          type,
+          level: strikeLevel || 1,
+          timestamp: Date.now(),
+        });
+
+        const dropResponse = {
+          status: 200,
+          success: true,
+          message: `Obstacle (${type}) dropped successfully! Broadcasted to players.`,
+          data: {
+            round_id: dropId,
+            roundId: dropId,
+            user_id: userId || null,
+            obstacle_dropped: true,
+            obstacle_type: type,
+            level_dropped: strikeLevel || 1,
+            status: "OBSTACLE_DROPPED",
+            payout: 0,
+            armed: true,
+          },
+        };
+
+        try {
+          const { getStackTowerSocket } = require("./stackTower.socket");
+          const socketService = getStackTowerSocket();
+          if (socketService) {
+            socketService.broadcastObstacleDrop(dropResponse.data);
+          }
+        } catch (_) {}
+
+        return dropResponse;
       }
 
       const bet = rows[0];
-      if (bet.status !== 0) {
-        throw new AppError(400, "ROUND_ALREADY_FINISHED", "Round is already finished or settled.");
-      }
-
       const finalLevel = strikeLevel !== null ? strikeLevel : Number(bet.current_level || 0);
 
       await conn.execute(

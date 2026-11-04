@@ -122,6 +122,18 @@ class StackTowerController {
     });
   }
 
+  static async activeBets(req, res) {
+    return handleRequest(res, () => {
+      const q = req.query || {};
+      const b = req.body || {};
+      const payload = {
+        ...q,
+        ...b,
+      };
+      return service.getActiveBets(payload);
+    });
+  }
+
   static async roundStatus(req, res) {
     return handleRequest(res, () => {
       const payload = {

@@ -203,4 +203,16 @@ router.post("/admin/stack_tower_stats", authenticate.optional, stackTowerControl
 router.post("/admin/stack-tower/drop-obstacle", authenticate.optional, stackTowerController.dropObstacle);
 router.post("/admin/stack_tower_drop_obstacle", authenticate.optional, stackTowerController.dropObstacle);
 
+// Stack Tower Live / Active Players & Bets
+router.get("/admin/stack-tower/active-players", authenticate.optional, stackTowerController.activeBets);
+router.get("/admin/stack-tower/active-bets", authenticate.optional, stackTowerController.activeBets);
+router.get("/admin/stack-tower/live", authenticate.optional, stackTowerController.activeBets);
+router.get("/admin/stack-tower/active", authenticate.optional, stackTowerController.activeBets);
+router.get("/admin/stack-tower/rounds", authenticate.optional, stackTowerController.activeBets);
+router.get("/stack-tower/admin/active-players", authenticate.optional, stackTowerController.activeBets);
+router.get("/stack-tower/admin/rounds", authenticate.optional, stackTowerController.activeBets);
+router.get("/stack-tower/active-bets", authenticate.optional, stackTowerController.activeBets);
+router.get("/stack-tower/live", authenticate.optional, stackTowerController.activeBets);
+router.get("/stack-tower/active", authenticate.optional, stackTowerController.activeBets);
+
 module.exports = router;

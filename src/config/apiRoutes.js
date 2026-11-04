@@ -154,6 +154,10 @@ const API_ROUTES = Object.freeze({
     adminStats: "/stack-tower/admin/stats",
     dropObstacle: "/stack-tower/admin/drop-obstacle",
     roundStatus: "/stack-tower/round-status",
+    activeBets: "/stack-tower/active-bets",
+    activePlayers: "/stack-tower/admin/active-players",
+    live: "/stack-tower/live",
+    rounds: "/stack-tower/admin/rounds",
   }),
   jili: Object.freeze({ launch: "/jilligame", games: "/getjilligame" }),
   horseRace: Object.freeze({

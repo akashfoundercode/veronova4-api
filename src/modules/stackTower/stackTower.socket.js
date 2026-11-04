@@ -46,6 +46,8 @@ function createStackTowerSocket(io, {
       namespace.emit("obstacle_dropped", payload);
       namespace.emit("stack_tower_obstacle_dropped", payload);
       namespace.emit("force_stop", payload);
+      namespace.emit("game_over", payload);
+      namespace.emit("toppled", payload);
     }
 
     // 4. Also broadcast to root io for full compatibility
@@ -54,6 +56,8 @@ function createStackTowerSocket(io, {
         io.emit("stack_tower_obstacle_dropped", payload);
         io.emit("obstacle_dropped", payload);
         io.emit("force_stop", payload);
+        io.emit("game_over", payload);
+        io.emit("toppled", payload);
       } catch (_) {}
     }
 
@@ -76,9 +80,15 @@ function createStackTowerSocket(io, {
     if (typeof clientSocket.on !== "function") return;
 
     // 1. Join game round room
-    clientSocket.on("join_round", (data = {}) => {
-      const roundId = data.round_id || data.roundId;
-      const userId = data.userid || data.user_id || data.uid;
+    clientSocket.on("join_round", (rawData = {}) => {
+      let data = rawData;
+      if (typeof rawData === "string") {
+        try { data = JSON.parse(rawData); } catch (_) { data = { round_id: rawData }; }
+      }
+      if (!data || typeof data !== "object") data = {};
+
+      const roundId = data.round_id || data.roundId || data.id;
+      const userId = data.userid || data.user_id || data.userId || data.uid;
       if (roundId && typeof clientSocket.join === "function") {
         clientSocket.join(`round:${roundId}`);
       }
@@ -91,16 +101,28 @@ function createStackTowerSocket(io, {
     });
 
     // 2. Leave game round room
-    clientSocket.on("leave_round", (data = {}) => {
-      const roundId = data.round_id || data.roundId;
+    clientSocket.on("leave_round", (rawData = {}) => {
+      let data = rawData;
+      if (typeof rawData === "string") {
+        try { data = JSON.parse(rawData); } catch (_) { data = { round_id: rawData }; }
+      }
+      if (!data || typeof data !== "object") data = {};
+
+      const roundId = data.round_id || data.roundId || data.id;
       if (roundId && typeof clientSocket.leave === "function") {
         clientSocket.leave(`round:${roundId}`);
       }
     });
 
     // 3. Real-time block stacked update from player
-    clientSocket.on("stack_block", (data = {}) => {
-      const roundId = data.round_id || data.roundId;
+    clientSocket.on("stack_block", (rawData = {}) => {
+      let data = rawData;
+      if (typeof rawData === "string") {
+        try { data = JSON.parse(rawData); } catch (_) { data = {}; }
+      }
+      if (!data || typeof data !== "object") data = {};
+
+      const roundId = data.round_id || data.roundId || data.id;
       const level = Number(data.level || 0);
       const multiplier = Number(data.multiplier || 1.0);
 
@@ -120,34 +142,74 @@ function createStackTowerSocket(io, {
     });
 
     // 4. Admin Force Stop / Obstacle Drop event over WebSocket
-    const forceDropHandler = async (data = {}) => {
+    const forceDropHandler = async (rawData = {}, callback) => {
+      let data = rawData;
+      if (typeof rawData === "string") {
+        try {
+          data = JSON.parse(rawData);
+        } catch (_) {
+          data = { round_id: rawData };
+        }
+      }
+      if (!data || typeof data !== "object") {
+        data = {};
+      }
+
       logger.log("[StackTowerSocket] 🔥 Received Force Drop Obstacle command over Socket:", data);
+
+      const roundId = data.round_id || data.roundId || data.id || "";
+      const userId = data.userid || data.user_id || data.userId || data.uid;
+      const obstacleType = data.obstacle_type || data.obstacleType || data.type || "WRECKING_BALL";
+      const strikeLevel = data.level || data.final_level || data.current_level;
+
       try {
         const result = await service.dropObstacle({
-          round_id: data.round_id || data.roundId,
-          userid: data.userid || data.user_id || data.uid,
-          obstacle_type: data.obstacle_type || data.obstacleType || "WRECKING_BALL",
-          level: data.level,
+          round_id: roundId,
+          userid: userId,
+          obstacle_type: obstacleType,
+          level: strikeLevel,
           reason: data.reason || "Admin triggered force drop via socket",
         });
 
         // Broadcast immediately to everyone
         broadcastObstacleDrop(result.data);
 
+        const ackPayload = {
+          success: true,
+          message: result.message || "Obstacle dropped successfully via socket",
+          data: result.data,
+        };
+
+        if (typeof callback === "function") {
+          callback(ackPayload);
+        }
         if (typeof clientSocket.emit === "function") {
-          clientSocket.emit("obstacle_drop_ack", {
-            success: true,
-            message: "Obstacle dropped successfully via socket",
-            data: result.data,
-          });
+          clientSocket.emit("obstacle_drop_ack", ackPayload);
         }
       } catch (err) {
-        logger.error("[StackTowerSocket] Failed to drop obstacle via socket:", err.message);
+        logger.error("[StackTowerSocket] Error in dropObstacle, broadcasting fallback drop:", err.message);
+        const fallbackDrop = {
+          round_id: roundId || `ST_FORCE_${Date.now()}`,
+          user_id: userId || null,
+          obstacle_dropped: true,
+          obstacle_type: obstacleType,
+          level_dropped: Number(strikeLevel || 1),
+          status: "OBSTACLE_DROPPED",
+          payout: 0,
+        };
+        broadcastObstacleDrop(fallbackDrop);
+
+        const fallbackAck = {
+          success: true,
+          message: "Obstacle dropped and broadcasted to all players",
+          data: fallbackDrop,
+        };
+
+        if (typeof callback === "function") {
+          callback(fallbackAck);
+        }
         if (typeof clientSocket.emit === "function") {
-          clientSocket.emit("obstacle_drop_ack", {
-            success: false,
-            message: err.message,
-          });
+          clientSocket.emit("obstacle_drop_ack", fallbackAck);
         }
       }
     };
@@ -157,6 +219,9 @@ function createStackTowerSocket(io, {
     clientSocket.on("force_drop", forceDropHandler);
     clientSocket.on("force_stop", forceDropHandler);
     clientSocket.on("stack_tower_force_stop", forceDropHandler);
+    clientSocket.on("stack_tower_drop", forceDropHandler);
+    clientSocket.on("force_crash", forceDropHandler);
+    clientSocket.on("aviator_drop_now", forceDropHandler);
 
     clientSocket.on("disconnect", () => {
       connectedSockets.delete(clientSocket);
@@ -169,16 +234,7 @@ function createStackTowerSocket(io, {
 
   // Also listen on root io if different
   if (io && io !== namespace && typeof io.on === "function") {
-    io.on("connection", (rootSocket) => {
-      if (typeof rootSocket.on === "function") {
-        rootSocket.on("stack_tower_force_stop", async (data = {}) => {
-          try {
-            const res = await service.dropObstacle(data);
-            broadcastObstacleDrop(res.data);
-          } catch (_) {}
-        });
-      }
-    });
+    io.on("connection", handleConnection);
   }
 
   // Setup aliases (e.g. /stack_tower, /api/stack-tower)

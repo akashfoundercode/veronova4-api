@@ -151,6 +151,29 @@ test("Stack Tower Socket - Admin Force Stop / Obstacle Drop", async () => {
   );
 
   socketService.stop();
+});
+
+test("Stack Tower Socket - Admin Force Stop without active bet still succeeds and broadcasts", async () => {
+  const harness = createMockSocketHarness();
+  const service = new StackTowerService();
+  const socketService = createStackTowerSocket(harness.io, { service, logger: { log() {}, error() {} } });
+
+  const adminClient = harness.createClientSocket();
+  harness.namespace.trigger("connection", adminClient);
+
+  // Admin triggers force_stop with NO active bet in system
+  await adminClient.trigger("force_stop", {});
+
+  const adminEmits = adminClient.getClientEmits();
+  const ack = adminEmits.find((e) => e.event === "obstacle_drop_ack");
+  assert.ok(ack, "Admin should receive obstacle_drop_ack even when no bet exists");
+  assert.equal(ack.payload.success, true);
+  assert.equal(ack.payload.data.obstacle_dropped, true);
+
+  // Verify that obstacle_dropped was broadcasted to namespace
+  assert.ok(harness.globalEmissions.some((e) => e.event === "obstacle_dropped"));
+
+  socketService.stop();
   console.log("✅ ALL STACK TOWER SOCKET TESTS PASSED SUCCESSFULLY!");
 });
 

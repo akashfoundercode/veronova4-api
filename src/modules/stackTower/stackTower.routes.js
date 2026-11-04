@@ -90,5 +90,50 @@ router.get("/round_status", authenticate.optional, controller.roundStatus);
 router.post("/stack-tower/round-status", authenticate.optional, controller.roundStatus);
 router.post("/round-status", authenticate.optional, controller.roundStatus);
 
+// 10. Active Players, Live Bets & Rounds (Admin Panel & Frontend Live Tracking)
+const activeBetPaths = [
+  "/admin/active-players",
+  "/admin/active_players",
+  "/admin/active-bets",
+  "/admin/active_bets",
+  "/admin/active",
+  "/admin/live",
+  "/admin/rounds",
+  "/active-players",
+  "/active_players",
+  "/active-bets",
+  "/active_bets",
+  "/active",
+  "/live",
+  "/rounds",
+  "/stack-tower/admin/active-players",
+  "/stack-tower/admin/active_players",
+  "/stack-tower/admin/rounds",
+  "/stack-tower/active-bets",
+  "/stack-tower/active_bets",
+  "/stack-tower/active-players",
+  "/stack-tower/active",
+  "/stack-tower/live",
+  "/stack_tower/admin/active-players",
+  "/stack_tower/active-bets",
+  "/stack_tower/live",
+  "/stack_tower/active",
+  "/admin/stack-tower/active-players",
+  "/admin/stack-tower/active-bets",
+  "/admin/stack-tower/live",
+  "/admin/stack-tower/active",
+  "/admin/stack-tower/rounds",
+  "/admin/stack_tower/active-players",
+  "/admin/stack_tower/active-bets",
+  "/admin/stack_tower/live",
+  "/admin/stack_tower/active",
+  "/admin/stack_tower/rounds",
+];
+
+for (const path of activeBetPaths) {
+  router.get(path, authenticate.optional, controller.activeBets);
+  router.post(path, authenticate.optional, controller.activeBets);
+}
+
 module.exports = router;
 
