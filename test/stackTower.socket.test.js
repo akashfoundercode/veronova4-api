@@ -107,7 +107,7 @@ test("Stack Tower Socket - Connection, Room Management & Live Updates", async ()
   socketService.stop();
 });
 
-test("Stack Tower Socket - Admin Force Stop / Obstacle Drop", async () => {
+test("Stack Tower Socket - Admin Force Stop arms and topples on user's NEXT block drop", async () => {
   const harness = createMockSocketHarness();
   const service = new StackTowerService();
 
@@ -117,9 +117,13 @@ test("Stack Tower Socket - Admin Force Stop / Obstacle Drop", async () => {
 
   const socketService = createStackTowerSocket(harness.io, { service, logger: { log() {}, error() {} } });
   const adminClient = harness.createClientSocket();
+  const playerClient = harness.createClientSocket();
   harness.namespace.trigger("connection", adminClient);
+  harness.namespace.trigger("connection", playerClient);
 
-  // Admin triggers force_stop / admin_drop_obstacle over socket
+  playerClient.trigger("join_round", { round_id: roundId, userid: 8 });
+
+  // 1. Admin triggers force_stop over socket (defaults to NEXT_BLOCK trigger)
   await adminClient.trigger("force_stop", {
     round_id: roundId,
     userid: 8,
@@ -127,28 +131,66 @@ test("Stack Tower Socket - Admin Force Stop / Obstacle Drop", async () => {
     level: 6,
   });
 
-  // Verify ack sent back to admin socket
+  // Verify ack sent back to admin socket showing it is ARMED
   const adminEmits = adminClient.getClientEmits();
   const ack = adminEmits.find((e) => e.event === "obstacle_drop_ack");
   assert.ok(ack, "Admin should receive obstacle_drop_ack");
   assert.equal(ack.payload.success, true);
-  assert.equal(ack.payload.data.status, "OBSTACLE_DROPPED");
-  assert.equal(ack.payload.data.obstacle_type, "METEOR");
+  assert.equal(ack.payload.data.armed, true);
+  assert.equal(ack.payload.data.trigger, "NEXT_BLOCK");
 
-  // Verify room broadcasted
+  // Verify obstacle_armed event broadcasted to room
   const roundRoomEvents = harness.roomEmissions.get(`round:${roundId}`) || [];
-  assert.ok(roundRoomEvents.some((e) => e.event === "obstacle_dropped" && e.payload.obstacle_type === "METEOR"));
+  assert.ok(roundRoomEvents.some((e) => e.event === "obstacle_armed"));
 
-  // Verify global namespace broadcasted
-  assert.ok(harness.globalEmissions.some((e) => e.event === "obstacle_dropped"));
+  // 2. WHILE USER HAS NOT DROPPED A BLOCK, THE TOWER DOES NOT FALL!
+  assert.ok(!roundRoomEvents.some((e) => e.event === "obstacle_dropped"), "Tower must NOT collapse before user drops block");
 
-  // Verify that subsequent cashout on this round fails because it was toppled
+  // 3. User now taps/drops the NEXT block!
+  await playerClient.trigger("stack_block", {
+    round_id: roundId,
+    userid: 8,
+    level: 6,
+    multiplier: 2.1,
+  });
+
+  // 4. NOW THAT USER DROPPED THE BLOCK, THE TOWER TOPPLES!
+  const roundRoomEventsAfter = harness.roomEmissions.get(`round:${roundId}`) || [];
+  assert.ok(roundRoomEventsAfter.some((e) => e.event === "obstacle_dropped" && e.payload.toppled === true));
+  console.log("✅ Tower successfully waited and only toppled when user dropped the next block!");
+
+  // Verify that cashout fails
   await assert.rejects(
     async () => {
       await service.cashout({ userid: 8, round_id: roundId, level: 6, multiplier: 2.1 });
     },
     /obstacle/i
   );
+
+  socketService.stop();
+});
+
+test("Stack Tower Socket - Immediate force drop when immediate: true", async () => {
+  const harness = createMockSocketHarness();
+  const service = new StackTowerService();
+  const betRes = await service.placeBet({ userid: 9, amount: 100, difficulty: "EASY" });
+  const roundId = betRes.data.round_id;
+
+  const socketService = createStackTowerSocket(harness.io, { service, logger: { log() {}, error() {} } });
+  const adminClient = harness.createClientSocket();
+  harness.namespace.trigger("connection", adminClient);
+
+  await adminClient.trigger("force_stop", {
+    round_id: roundId,
+    userid: 9,
+    immediate: true,
+  });
+
+  const adminEmits = adminClient.getClientEmits();
+  const ack = adminEmits.find((e) => e.event === "obstacle_drop_ack");
+  assert.ok(ack);
+  assert.equal(ack.payload.success, true);
+  assert.equal(ack.payload.data.status, "OBSTACLE_DROPPED");
 
   socketService.stop();
 });
@@ -168,10 +210,10 @@ test("Stack Tower Socket - Admin Force Stop without active bet still succeeds an
   const ack = adminEmits.find((e) => e.event === "obstacle_drop_ack");
   assert.ok(ack, "Admin should receive obstacle_drop_ack even when no bet exists");
   assert.equal(ack.payload.success, true);
-  assert.equal(ack.payload.data.obstacle_dropped, true);
+  assert.equal(ack.payload.data.armed, true);
 
-  // Verify that obstacle_dropped was broadcasted to namespace
-  assert.ok(harness.globalEmissions.some((e) => e.event === "obstacle_dropped"));
+  // Verify that obstacle_armed was broadcasted to namespace
+  assert.ok(harness.globalEmissions.some((e) => e.event === "obstacle_armed"));
 
   socketService.stop();
   console.log("✅ ALL STACK TOWER SOCKET TESTS PASSED SUCCESSFULLY!");

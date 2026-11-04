@@ -221,7 +221,10 @@ class StackTowerService {
       if (!bet || Number(bet.user_id) !== Number(userId)) {
         throw new AppError(404, "BET_NOT_FOUND", "Active bet not found for this round.");
       }
-      if (bet.obstacle_dropped || bet.status === 2) {
+      if (this.isObstacleArmed(activeRoundId, userId) || bet.obstacle_dropped || bet.status === 2) {
+        this.clearArmedObstacle(activeRoundId, userId);
+        bet.status = 2; // LOST
+        bet.obstacle_dropped = 1;
         throw new AppError(400, "OBSTACLE_COLLAPSE", "An obstacle struck and toppled your tower! You cannot cash out.");
       }
       if (bet.status !== 0) {
@@ -281,7 +284,11 @@ class StackTowerService {
       }
 
       const bet = bets[0];
-      if (bet.obstacle_dropped || bet.status === 2) {
+      if (this.isObstacleArmed(activeRoundId, userId) || bet.obstacle_dropped || bet.status === 2) {
+        this.clearArmedObstacle(activeRoundId, userId);
+        try {
+          await conn.execute("UPDATE stack_tower_bets SET status = 2, obstacle_dropped = 1, win_amount = 0 WHERE id = ?", [bet.id]);
+        } catch (_) {}
         throw new AppError(400, "OBSTACLE_COLLAPSE", "An obstacle struck and toppled your tower! You cannot cash out.");
       }
       if (bet.status !== 0) {
@@ -691,14 +698,200 @@ class StackTowerService {
   }
 
   /**
-   * Admin Force Obstacle Drop: Drop an obstacle on an active round to topple the tower and cause loss
+   * Helper methods for Armed Force Drop (topples on user's next block drop)
    */
-  async dropObstacle({ round_id, roundId, userid, uid, user_id, obstacle_type, obstacleType, level, reason } = {}) {
+  isObstacleArmed(roundId, userId) {
+    if (roundId && armedObstacles.has(String(roundId))) return true;
+    if (userId && armedObstacles.has(String(userId))) return true;
+    if (armedObstacles.has("ALL")) return true;
+    return false;
+  }
+
+  getArmedObstacle(roundId, userId) {
+    if (roundId && armedObstacles.has(String(roundId))) {
+      return armedObstacles.get(String(roundId));
+    }
+    if (userId && armedObstacles.has(String(userId))) {
+      return armedObstacles.get(String(userId));
+    }
+    if (armedObstacles.has("ALL")) {
+      return armedObstacles.get("ALL");
+    }
+    return null;
+  }
+
+  clearArmedObstacle(roundId, userId) {
+    if (roundId) armedObstacles.delete(String(roundId));
+    if (userId) armedObstacles.delete(String(userId));
+    armedObstacles.delete("ALL");
+  }
+
+  /**
+   * Trigger the armed drop when the user actually drops / stacks the next block!
+   */
+  async triggerArmedDrop({ round_id, roundId, userid, uid, user_id, level, multiplier } = {}) {
+    const rawUid = userid ?? uid ?? user_id;
+    const userId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
+    const activeRoundId = String(round_id || roundId || "").trim();
+    const finalLevel = level !== undefined && level !== null ? Number(level) : 1;
+    const mult = multiplier !== undefined && multiplier !== null ? Number(multiplier) : 1.0;
+
+    const armed = this.getArmedObstacle(activeRoundId, userId) || { type: "WRECKING_BALL" };
+    this.clearArmedObstacle(activeRoundId, userId);
+    const type = String(armed.type || armed.obstacle_type || "WRECKING_BALL").toUpperCase();
+
+    const conn = await this.getDbConnection();
+
+    if (!conn) {
+      let b = activeRoundId ? memoryBets.get(activeRoundId) : null;
+      if (!b && userId) {
+        for (const bet of Array.from(memoryBets.values()).reverse()) {
+          if (Number(bet.user_id) === Number(userId) && bet.status === 0) {
+            b = bet;
+            break;
+          }
+        }
+      }
+      if (b) {
+        b.status = 2; // LOST
+        b.obstacle_dropped = 1;
+        b.obstacle_type = type;
+        b.current_level = finalLevel;
+        b.win_amount = 0;
+        b.updated_at = new Date();
+      }
+
+      return {
+        status: 200,
+        success: true,
+        message: `Block dropped and obstacle (${type}) toppled the tower!`,
+        data: {
+          round_id: b ? b.round_id : activeRoundId,
+          roundId: b ? b.round_id : activeRoundId,
+          user_id: b ? b.user_id : userId,
+          obstacle_dropped: true,
+          obstacle_type: type,
+          level_dropped: finalLevel,
+          level: finalLevel,
+          multiplier: mult,
+          toppled: true,
+          block_missed: true,
+          status: "OBSTACLE_DROPPED",
+          payout: 0,
+        },
+      };
+    }
+
+    try {
+      let query = "";
+      let params = [];
+      if (activeRoundId) {
+        query = "SELECT id, user_id, round_id FROM stack_tower_bets WHERE round_id = ? LIMIT 1";
+        params = [activeRoundId];
+      } else if (userId) {
+        query = "SELECT id, user_id, round_id FROM stack_tower_bets WHERE user_id = ? AND status = 0 ORDER BY id DESC LIMIT 1";
+        params = [userId];
+      } else {
+        query = "SELECT id, user_id, round_id FROM stack_tower_bets WHERE status = 0 ORDER BY id DESC LIMIT 1";
+        params = [];
+      }
+
+      const [rows] = await conn.execute(query, params);
+      const targetId = rows && rows[0] ? rows[0].id : null;
+      const targetRound = rows && rows[0] ? rows[0].round_id : activeRoundId;
+      const targetUser = rows && rows[0] ? rows[0].user_id : userId;
+
+      if (targetId) {
+        await conn.execute(
+          `UPDATE stack_tower_bets 
+           SET status = 2, obstacle_dropped = 1, obstacle_type = ?, current_level = ?, win_amount = 0, updated_at = NOW() 
+           WHERE id = ?`,
+          [type, finalLevel, targetId]
+        );
+      }
+
+      return {
+        status: 200,
+        success: true,
+        message: `Block dropped and obstacle (${type}) toppled the tower!`,
+        data: {
+          round_id: targetRound,
+          roundId: targetRound,
+          user_id: targetUser,
+          obstacle_dropped: true,
+          obstacle_type: type,
+          level_dropped: finalLevel,
+          level: finalLevel,
+          multiplier: mult,
+          toppled: true,
+          block_missed: true,
+          status: "OBSTACLE_DROPPED",
+          payout: 0,
+        },
+      };
+    } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Admin Force Obstacle Drop: By default, ARMS the obstacle to topple when user drops the next block!
+   * (Pass immediate=true if you want it to drop instantly without waiting for user action)
+   */
+  async dropObstacle({ round_id, roundId, userid, uid, user_id, obstacle_type, obstacleType, level, reason, immediate } = {}) {
     const rawUid = userid ?? uid ?? user_id;
     const userId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
     const activeRoundId = String(round_id || roundId || "").trim();
     const type = String(obstacle_type || obstacleType || "WRECKING_BALL").toUpperCase();
     const strikeLevel = level !== undefined && level !== null ? Number(level) : null;
+    const isImmediate = immediate === true || immediate === "true" || immediate === 1;
+
+    // By default: ARM for next block drop (as requested: "force next floor build karega tab girega, user giraega tabhi girjaega")
+    if (!isImmediate) {
+      const dropId = activeRoundId || makeOrderId();
+      const armKey = activeRoundId || (userId ? String(userId) : "ALL");
+      armedObstacles.set(armKey, {
+        round_id: dropId,
+        user_id: userId,
+        type,
+        level: strikeLevel,
+        timestamp: Date.now(),
+      });
+      if (userId) {
+        armedObstacles.set(String(userId), {
+          round_id: dropId,
+          user_id: userId,
+          type,
+          level: strikeLevel,
+          timestamp: Date.now(),
+        });
+      }
+
+      const armResponse = {
+        status: 200,
+        success: true,
+        message: `Force stop armed! Obstacle (${type}) will topple the tower when user drops next block.`,
+        data: {
+          round_id: dropId,
+          roundId: dropId,
+          user_id: userId,
+          armed: true,
+          trigger: "NEXT_BLOCK",
+          obstacle_type: type,
+          status: "ARMED_FOR_NEXT_BLOCK",
+        },
+      };
+
+      try {
+        const { getStackTowerSocket } = require("./stackTower.socket");
+        const socketService = getStackTowerSocket();
+        if (socketService) {
+          socketService.broadcastObstacleArmed(armResponse.data);
+        }
+      } catch (_) {}
+
+      return armResponse;
+    }
 
     const conn = await this.getDbConnection();
 
@@ -723,7 +916,6 @@ class StackTowerService {
       }
 
       if (!targetBet) {
-        // Arm obstacle for upcoming bets and broadcast live event to all connected sockets
         const dropId = activeRoundId || makeOrderId();
         armedObstacles.set(userId ? String(userId) : "ALL", {
           type,
@@ -812,7 +1004,6 @@ class StackTowerService {
 
       const [rows] = await conn.execute(query, params);
       if (!rows || !rows[0]) {
-        // Arm obstacle for upcoming bets and broadcast live event to all connected sockets
         const dropId = activeRoundId || makeOrderId();
         armedObstacles.set(userId ? String(userId) : "ALL", {
           type,

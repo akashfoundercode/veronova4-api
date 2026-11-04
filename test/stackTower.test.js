@@ -172,6 +172,7 @@ test("Stack Tower - Complete Game Loop APIs", async () => {
     round_id: round3Id,
     obstacle_type: "WRECKING_BALL",
     level: 7,
+    immediate: true,
     reason: "Admin dropped obstacle to topple tower",
   });
   assert.equal(dropRes.statusCode, 200);

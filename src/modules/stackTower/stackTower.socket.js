@@ -34,11 +34,13 @@ function createStackTowerSocket(io, {
     if (payload.round_id && namespace.to) {
       namespace.to(`round:${payload.round_id}`).emit("obstacle_dropped", payload);
       namespace.to(`round:${payload.round_id}`).emit("stack_tower_obstacle_dropped", payload);
+      namespace.to(`round:${payload.round_id}`).emit("block_toppled", payload);
     }
 
     // 2. Emit to user room if user_id exists
     if (payload.user_id && namespace.to) {
       namespace.to(`user:${payload.user_id}`).emit("obstacle_dropped", payload);
+      namespace.to(`user:${payload.user_id}`).emit("block_toppled", payload);
     }
 
     // 3. Broadcast to all clients in /stack-tower namespace
@@ -48,6 +50,7 @@ function createStackTowerSocket(io, {
       namespace.emit("force_stop", payload);
       namespace.emit("game_over", payload);
       namespace.emit("toppled", payload);
+      namespace.emit("block_toppled", payload);
     }
 
     // 4. Also broadcast to root io for full compatibility
@@ -58,10 +61,37 @@ function createStackTowerSocket(io, {
         io.emit("force_stop", payload);
         io.emit("game_over", payload);
         io.emit("toppled", payload);
+        io.emit("block_toppled", payload);
       } catch (_) {}
     }
 
     logger.log(`[StackTowerSocket] ⚡ INSTANT OBSTACLE DROP BROADCASTED for round: ${payload.round_id || "ALL"}`);
+  }
+
+  function broadcastObstacleArmed(armData) {
+    if (!armData || stopped) return;
+    const payload = typeof armData === "object" ? armData : { data: armData };
+
+    if (payload.round_id && namespace.to) {
+      namespace.to(`round:${payload.round_id}`).emit("obstacle_armed", payload);
+      namespace.to(`round:${payload.round_id}`).emit("force_stop_armed", payload);
+    }
+    if (payload.user_id && namespace.to) {
+      namespace.to(`user:${payload.user_id}`).emit("obstacle_armed", payload);
+      namespace.to(`user:${payload.user_id}`).emit("force_stop_armed", payload);
+    }
+    if (typeof namespace.emit === "function") {
+      namespace.emit("obstacle_armed", payload);
+      namespace.emit("force_stop_armed", payload);
+    }
+    if (io && io !== namespace && typeof io.emit === "function") {
+      try {
+        io.emit("obstacle_armed", payload);
+        io.emit("force_stop_armed", payload);
+      } catch (_) {}
+    }
+
+    logger.log(`[StackTowerSocket] 🎯 OBSTACLE ARMED (Will topple when user drops next block) for round: ${payload.round_id || "ALL"}`);
   }
 
   function handleConnection(clientSocket) {
@@ -115,7 +145,7 @@ function createStackTowerSocket(io, {
     });
 
     // 3. Real-time block stacked update from player
-    clientSocket.on("stack_block", (rawData = {}) => {
+    clientSocket.on("stack_block", async (rawData = {}) => {
       let data = rawData;
       if (typeof rawData === "string") {
         try { data = JSON.parse(rawData); } catch (_) { data = {}; }
@@ -123,8 +153,29 @@ function createStackTowerSocket(io, {
       if (!data || typeof data !== "object") data = {};
 
       const roundId = data.round_id || data.roundId || data.id;
+      const userId = data.userid || data.user_id || data.userId || data.uid;
       const level = Number(data.level || 0);
       const multiplier = Number(data.multiplier || 1.0);
+
+      // Check if obstacle is armed to topple when user drops the next block!
+      if (service && typeof service.isObstacleArmed === "function" && service.isObstacleArmed(roundId, userId)) {
+        logger.log(`[StackTowerSocket] 💥 User dropped block on armed round ${roundId}! Toppling tower now!`);
+        const toppleResult = await service.triggerArmedDrop({
+          round_id: roundId,
+          userid: userId,
+          level,
+          multiplier,
+        });
+
+        // Broadcast topple/obstacle drop now that user dropped the block!
+        broadcastObstacleDrop(toppleResult.data);
+
+        if (typeof clientSocket.emit === "function") {
+          clientSocket.emit("block_toppled", toppleResult.data);
+          clientSocket.emit("obstacle_dropped", toppleResult.data);
+        }
+        return;
+      }
 
       const updatePayload = {
         round_id: roundId,
@@ -161,6 +212,7 @@ function createStackTowerSocket(io, {
       const userId = data.userid || data.user_id || data.userId || data.uid;
       const obstacleType = data.obstacle_type || data.obstacleType || data.type || "WRECKING_BALL";
       const strikeLevel = data.level || data.final_level || data.current_level;
+      const isImmediate = data.immediate === true || data.immediate === "true" || data.now === true;
 
       try {
         const result = await service.dropObstacle({
@@ -169,14 +221,19 @@ function createStackTowerSocket(io, {
           obstacle_type: obstacleType,
           level: strikeLevel,
           reason: data.reason || "Admin triggered force drop via socket",
+          immediate: isImmediate,
         });
 
-        // Broadcast immediately to everyone
-        broadcastObstacleDrop(result.data);
+        // If immediate, broadcast drop immediately; otherwise broadcast armed state
+        if (isImmediate) {
+          broadcastObstacleDrop(result.data);
+        } else {
+          broadcastObstacleArmed(result.data);
+        }
 
         const ackPayload = {
           success: true,
-          message: result.message || "Obstacle dropped successfully via socket",
+          message: result.message || "Force stop armed successfully via socket",
           data: result.data,
         };
 
@@ -187,7 +244,7 @@ function createStackTowerSocket(io, {
           clientSocket.emit("obstacle_drop_ack", ackPayload);
         }
       } catch (err) {
-        logger.error("[StackTowerSocket] Error in dropObstacle, broadcasting fallback drop:", err.message);
+        logger.error("[StackTowerSocket] Error in dropObstacle, handling fallback:", err.message);
         const fallbackDrop = {
           round_id: roundId || `ST_FORCE_${Date.now()}`,
           user_id: userId || null,
