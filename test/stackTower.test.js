@@ -253,6 +253,34 @@ test("Stack Tower - Floor-wise Multipliers & Payouts Table Verification", async 
     assert.equal(service.calculatePayout(100, "HARD", row.floor), Number((100 * row.hard).toFixed(2)));
   }
 
+  // Test PERFECT Drop Table Values: Floor 1 to 10 (+0.10x EASY, +0.20x MEDIUM, +0.35x HARD)
+  const expectedPerfectTable = [
+    { floor: 1, easy: 1.28, medium: 1.50, hard: 2.00, payout: { easy: 128, medium: 150, hard: 200 } },
+    { floor: 2, easy: 1.52, medium: 1.90, hard: 2.85, payout: { easy: 152, medium: 190, hard: 285 } },
+    { floor: 3, easy: 1.85, medium: 2.45, hard: 4.20, payout: { easy: 185, medium: 245, hard: 420 } },
+    { floor: 4, easy: 2.28, medium: 3.20, hard: 6.25, payout: { easy: 228, medium: 320, hard: 625 } },
+    { floor: 5, easy: 2.85, medium: 4.30, hard: 9.55, payout: { easy: 285, medium: 430, hard: 955 } },
+    { floor: 6, easy: 3.60, medium: 5.80, hard: 14.85, payout: { easy: 360, medium: 580, hard: 1485 } },
+    { floor: 7, easy: 4.60, medium: 7.90, hard: 23.35, payout: { easy: 460, medium: 790, hard: 2335 } },
+    { floor: 8, easy: 5.90, medium: 10.80, hard: 37.35, payout: { easy: 590, medium: 1080, hard: 3735 } },
+    { floor: 9, easy: 7.60, medium: 15.00, hard: 60.35, payout: { easy: 760, medium: 1500, hard: 6035 } },
+    { floor: 10, easy: 10.10, medium: 20.20, hard: 95.35, payout: { easy: 1010, medium: 2020, hard: 9535 } },
+  ];
+
+  for (const row of expectedPerfectTable) {
+    const easyMult = service.calculateFloorMultiplier("EASY", row.floor, true);
+    const medMult = service.calculateFloorMultiplier("MEDIUM", row.floor, true);
+    const hardMult = service.calculateFloorMultiplier("HARD", row.floor, true);
+
+    assert.equal(easyMult, row.easy, `Floor ${row.floor} PERFECT EASY mismatch`);
+    assert.equal(medMult, row.medium, `Floor ${row.floor} PERFECT MEDIUM mismatch`);
+    assert.equal(hardMult, row.hard, `Floor ${row.floor} PERFECT HARD mismatch`);
+
+    assert.equal(service.calculatePayout(100, "EASY", row.floor, true), row.payout.easy);
+    assert.equal(service.calculatePayout(100, "MEDIUM", row.floor, true), row.payout.medium);
+    assert.equal(service.calculatePayout(100, "HARD", row.floor, true), row.payout.hard);
+  }
+
   // Test Floor 10+ Increment:
   // EASY: +2.5x per floor
   // MEDIUM: +5.0x per floor

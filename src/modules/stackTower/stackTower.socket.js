@@ -357,8 +357,8 @@ function createStackTowerSocket(io, {
       }
     });
 
-    // 5. Real-time block stacked update from player (Floor 1, 2, 3, 4, 5...)
-    clientSocket.on("stack_block", async (rawData = {}, callback) => {
+    // 5. Real-time block stacked update from player (Floor 1, 2, 3, 4, 5... Normal vs PERFECT Drop)
+    const stackBlockHandler = async (rawData = {}, callback) => {
       let data = rawData;
       if (typeof rawData === "string") {
         try { data = JSON.parse(rawData); } catch (_) { data = {}; }
@@ -368,6 +368,14 @@ function createStackTowerSocket(io, {
       const roundId = data.round_id || data.roundId || data.id;
       const userId = data.userid || data.user_id || data.userId || data.uid;
       const level = Number(data.level || 0);
+
+      // Detect whether this drop was a PERFECT Drop
+      const isPerfect = Boolean(
+        data.is_perfect === true ||
+        data.isPerfect === true ||
+        data.perfect === true ||
+        String(data.drop_type || data.type || "").toUpperCase() === "PERFECT"
+      );
 
       // Fetch round status if available for accurate mode & bet amount
       let roundInfo = null;
@@ -379,10 +387,13 @@ function createStackTowerSocket(io, {
       } catch (_) {}
 
       const mode = String(data.difficulty || data.mode || roundInfo?.difficulty || "MEDIUM").toUpperCase();
-      const multFromTable = service?.calculateFloorMultiplier ? service.calculateFloorMultiplier(mode, level) : 1.0;
+      const multFromTable = service?.calculateFloorMultiplier
+        ? service.calculateFloorMultiplier(mode, level, isPerfect)
+        : 1.0;
       const multiplier = Number(data.multiplier && Number(data.multiplier) > multFromTable ? data.multiplier : multFromTable);
       const betAmt = Number(roundInfo?.amount || data.bet_amount || data.amount || 0);
       const potentialPayout = Number((betAmt * multiplier).toFixed(2));
+      const bonusVal = isPerfect ? (mode === "HARD" ? 0.35 : mode === "EASY" ? 0.10 : 0.20) : 0;
 
       // Check if obstacle is armed to topple when user drops the next block!
       if (service && typeof service.isObstacleArmed === "function" && service.isObstacleArmed(roundId, userId)) {
@@ -418,6 +429,7 @@ function createStackTowerSocket(io, {
             userid: userId,
             level,
             multiplier,
+            is_perfect: isPerfect,
           });
         }
       } catch (_) {}
@@ -428,13 +440,22 @@ function createStackTowerSocket(io, {
         level,
         current_level: level,
         multiplier,
+        is_perfect: isPerfect,
+        isPerfect: isPerfect,
+        drop_type: isPerfect ? "PERFECT" : "NORMAL",
+        perfect_bonus: bonusVal,
         bet_amount: betAmt,
         potential_payout: potentialPayout,
         win_amount: potentialPayout,
+        payout: potentialPayout,
         mode,
         timestamp: Date.now(),
       };
 
+      if (typeof clientSocket.emit === "function") {
+        clientSocket.emit("block_stacked", updatePayload);
+        clientSocket.emit("floor_updated", updatePayload);
+      }
       if (roundId && namespace.to) {
         namespace.to(`round:${roundId}`).emit("block_stacked", updatePayload);
       }
@@ -447,14 +468,18 @@ function createStackTowerSocket(io, {
         namespace.to("admin_room").emit("player_floor_updated", updatePayload);
         namespace.to("admin_room").emit("player_progress", updatePayload);
       }
-
       if (typeof callback === "function") {
-        callback({ success: true, ...updatePayload });
+        callback(updatePayload);
       }
 
       // Update active players list for admin
       broadcastActivePlayers();
-    });
+    };
+
+    clientSocket.on("stack_block", stackBlockHandler);
+    clientSocket.on("drop_block", stackBlockHandler);
+    clientSocket.on("drop", stackBlockHandler);
+    clientSocket.on("block_drop", stackBlockHandler);
 
     // 6. Admin Force Stop / Obstacle Drop event over WebSocket
     const forceDropHandler = async (rawData = {}, callback) => {

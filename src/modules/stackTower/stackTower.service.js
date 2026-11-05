@@ -230,12 +230,18 @@ class StackTowerService {
   /**
    * Update Floor: Updates current floor level & multiplier during live building
    */
-  async updateFloor({ round_id, roundId, userid, uid, user_id, level = 0, multiplier = 1.0 } = {}) {
+  async updateFloor({ round_id, roundId, userid, uid, user_id, level = 0, multiplier = 1.0, is_perfect, isPerfect, perfect, drop_type } = {}) {
     const activeRoundId = String(round_id || roundId || "").trim();
     const rawUid = userid ?? uid ?? user_id;
     const userId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
     const currentLevel = Number(level) || 0;
-    const currentMult = Number(multiplier) || 1.0;
+    const isPerfectDrop = Boolean(
+      is_perfect === true ||
+      isPerfect === true ||
+      perfect === true ||
+      String(drop_type || "").toUpperCase() === "PERFECT"
+    );
+    let currentMult = Number(multiplier) || 1.0;
 
     const conn = await this.getDbConnection();
     if (!conn) {
@@ -251,6 +257,9 @@ class StackTowerService {
         }
       }
       if (bet) {
+        if (currentMult <= 1.0 && currentLevel > 0) {
+          currentMult = this.calculateFloorMultiplier(bet.difficulty, currentLevel, isPerfectDrop);
+        }
         bet.current_level = Math.max(Number(bet.current_level || 0), currentLevel);
         if (currentMult > 1.0) bet.multiplier = currentMult;
         bet.win_amount = Number((Number(bet.amount || 0) * bet.multiplier).toFixed(2));
@@ -291,12 +300,18 @@ class StackTowerService {
   /**
    * Cash Out: Player locks in current multiplier & claims payout
    */
-  async cashout({ userid, uid, user_id, round_id, roundId, level = 0, multiplier = 1.0 }) {
+  async cashout({ userid, uid, user_id, round_id, roundId, level = 0, multiplier = 1.0, is_perfect, isPerfect, perfect, drop_type } = {}) {
     const rawUid = userid ?? uid ?? user_id;
     const userId = requiredInteger(rawUid, "userid");
     const activeRoundId = String(round_id || roundId || "").trim();
     const finalMult = requiredNumber(multiplier, "multiplier");
     const finalLevel = Number(level) || 0;
+    const isPerfectDrop = Boolean(
+      is_perfect === true ||
+      isPerfect === true ||
+      perfect === true ||
+      String(drop_type || "").toUpperCase() === "PERFECT"
+    );
 
     if (!activeRoundId) {
       throw new AppError(400, "VALIDATION_ERROR", "The round_id field is required.");
@@ -322,10 +337,11 @@ class StackTowerService {
         throw new AppError(400, "ROUND_ALREADY_FINISHED", "This round is already settled.");
       }
 
-      const expectedMult = this.calculateFloorMultiplier(bet.difficulty, finalLevel);
+      const expectedMult = this.calculateFloorMultiplier(bet.difficulty, finalLevel, isPerfectDrop);
       const effectiveMult = Number(finalMult > 1.0 ? finalMult : (expectedMult > 1.0 ? expectedMult : 1.0));
       const winAmount = Number((bet.amount * effectiveMult).toFixed(2));
       const profit = Number((winAmount - bet.amount).toFixed(2));
+      const bonusVal = isPerfectDrop ? (bet.difficulty === "HARD" ? 0.35 : bet.difficulty === "EASY" ? 0.10 : 0.20) : 0;
 
       bet.status = 1; // 1: WON / CASHED_OUT
       bet.current_level = finalLevel;
@@ -349,6 +365,10 @@ class StackTowerService {
           betAmount: bet.amount,
           level: finalLevel,
           multiplier: effectiveMult,
+          is_perfect: isPerfectDrop,
+          isPerfect: isPerfectDrop,
+          drop_type: isPerfectDrop ? "PERFECT" : "NORMAL",
+          perfect_bonus: bonusVal,
           win_amount: winAmount,
           winAmount,
           payout: winAmount,
@@ -389,10 +409,11 @@ class StackTowerService {
       }
 
       const betAmount = Number(bet.amount || 0);
-      const expectedMult = this.calculateFloorMultiplier(bet.difficulty, finalLevel);
+      const expectedMult = this.calculateFloorMultiplier(bet.difficulty, finalLevel, isPerfectDrop);
       const effectiveMult = Number(finalMult > 1.0 ? finalMult : (expectedMult > 1.0 ? expectedMult : 1.0));
       const winAmount = Number((betAmount * effectiveMult).toFixed(2));
       const profit = Number((winAmount - betAmount).toFixed(2));
+      const bonusVal = isPerfectDrop ? (bet.difficulty === "HARD" ? 0.35 : bet.difficulty === "EASY" ? 0.10 : 0.20) : 0;
 
       // Credit winnings to user wallet & winning_wallet
       await conn.execute(
@@ -435,7 +456,11 @@ class StackTowerService {
           bet_amount: betAmount,
           betAmount,
           level: finalLevel,
-          multiplier: finalMult,
+          multiplier: effectiveMult,
+          is_perfect: isPerfectDrop,
+          isPerfect: isPerfectDrop,
+          drop_type: isPerfectDrop ? "PERFECT" : "NORMAL",
+          perfect_bonus: bonusVal,
           win_amount: Number(winAmount.toFixed(2)),
           winAmount: Number(winAmount.toFixed(2)),
           payout: Number(winAmount.toFixed(2)),
@@ -605,7 +630,7 @@ class StackTowerService {
   }
 
   /**
-   * Game Configuration
+   * Game Configuration: Comprehensive Floor-wise Payouts (Normal vs PERFECT Drop)
    */
   async getConfig() {
     return {
@@ -616,22 +641,138 @@ class StackTowerService {
         min_bet: 10,
         max_bet: 50000,
         quick_bets: [10, 50, 100, 500, 1000, 2000],
+        perfect_bonuses: {
+          EASY: { bonus: 0.10, text: "+0.10x Extra on Perfect" },
+          MEDIUM: { bonus: 0.20, text: "+0.20x Extra on Perfect" },
+          HARD: { bonus: 0.35, text: "+0.35x Extra on Perfect" },
+        },
         floor_multipliers_table: {
-          1: { floor: 1, EASY: 1.18, MEDIUM: 1.30, HARD: 1.65, payout_100: { EASY: 118, MEDIUM: 130, HARD: 165 } },
-          2: { floor: 2, EASY: 1.42, MEDIUM: 1.70, HARD: 2.50, payout_100: { EASY: 142, MEDIUM: 170, HARD: 250 } },
-          3: { floor: 3, EASY: 1.75, MEDIUM: 2.25, HARD: 3.85, payout_100: { EASY: 175, MEDIUM: 225, HARD: 385 } },
-          4: { floor: 4, EASY: 2.18, MEDIUM: 3.00, HARD: 5.90, payout_100: { EASY: 218, MEDIUM: 300, HARD: 590 } },
-          5: { floor: 5, EASY: 2.75, MEDIUM: 4.10, HARD: 9.20, payout_100: { EASY: 275, MEDIUM: 410, HARD: 920 } },
-          6: { floor: 6, EASY: 3.50, MEDIUM: 5.60, HARD: 14.50, payout_100: { EASY: 350, MEDIUM: 560, HARD: 1450 } },
-          7: { floor: 7, EASY: 4.50, MEDIUM: 7.70, HARD: 23.00, payout_100: { EASY: 450, MEDIUM: 770, HARD: 2300 } },
-          8: { floor: 8, EASY: 5.80, MEDIUM: 10.60, HARD: 37.00, payout_100: { EASY: 580, MEDIUM: 1060, HARD: 3700 } },
-          9: { floor: 9, EASY: 7.50, MEDIUM: 14.80, HARD: 60.00, payout_100: { EASY: 750, MEDIUM: 1480, HARD: 6000 } },
-          10: { floor: 10, EASY: 10.00, MEDIUM: 20.00, HARD: 95.00, payout_100: { EASY: 1000, MEDIUM: 2000, HARD: 9500 } },
+          1: {
+            floor: 1,
+            EASY: 1.18, MEDIUM: 1.30, HARD: 1.65,
+            payout_100: { EASY: 118, MEDIUM: 130, HARD: 165 },
+            perfect: { EASY: 1.28, MEDIUM: 1.50, HARD: 2.00 },
+            perfect_payout_100: { EASY: 128, MEDIUM: 150, HARD: 200 },
+            details: {
+              EASY: { normal: 1.18, perfect: 1.28, payout_normal: 118, payout_perfect: 128 },
+              MEDIUM: { normal: 1.30, perfect: 1.50, payout_normal: 130, payout_perfect: 150 },
+              HARD: { normal: 1.65, perfect: 2.00, payout_normal: 165, payout_perfect: 200 },
+            }
+          },
+          2: {
+            floor: 2,
+            EASY: 1.42, MEDIUM: 1.70, HARD: 2.50,
+            payout_100: { EASY: 142, MEDIUM: 170, HARD: 250 },
+            perfect: { EASY: 1.52, MEDIUM: 1.90, HARD: 2.85 },
+            perfect_payout_100: { EASY: 152, MEDIUM: 190, HARD: 285 },
+            details: {
+              EASY: { normal: 1.42, perfect: 1.52, payout_normal: 142, payout_perfect: 152 },
+              MEDIUM: { normal: 1.70, perfect: 1.90, payout_normal: 170, payout_perfect: 190 },
+              HARD: { normal: 2.50, perfect: 2.85, payout_normal: 250, payout_perfect: 285 },
+            }
+          },
+          3: {
+            floor: 3,
+            EASY: 1.75, MEDIUM: 2.25, HARD: 3.85,
+            payout_100: { EASY: 175, MEDIUM: 225, HARD: 385 },
+            perfect: { EASY: 1.85, MEDIUM: 2.45, HARD: 4.20 },
+            perfect_payout_100: { EASY: 185, MEDIUM: 245, HARD: 420 },
+            details: {
+              EASY: { normal: 1.75, perfect: 1.85, payout_normal: 175, payout_perfect: 185 },
+              MEDIUM: { normal: 2.25, perfect: 2.45, payout_normal: 225, payout_perfect: 245 },
+              HARD: { normal: 3.85, perfect: 4.20, payout_normal: 385, payout_perfect: 420 },
+            }
+          },
+          4: {
+            floor: 4,
+            EASY: 2.18, MEDIUM: 3.00, HARD: 5.90,
+            payout_100: { EASY: 218, MEDIUM: 300, HARD: 590 },
+            perfect: { EASY: 2.28, MEDIUM: 3.20, HARD: 6.25 },
+            perfect_payout_100: { EASY: 228, MEDIUM: 320, HARD: 625 },
+            details: {
+              EASY: { normal: 2.18, perfect: 2.28, payout_normal: 218, payout_perfect: 228 },
+              MEDIUM: { normal: 3.00, perfect: 3.20, payout_normal: 300, payout_perfect: 320 },
+              HARD: { normal: 5.90, perfect: 6.25, payout_normal: 590, payout_perfect: 625 },
+            }
+          },
+          5: {
+            floor: 5,
+            EASY: 2.75, MEDIUM: 4.10, HARD: 9.20,
+            payout_100: { EASY: 275, MEDIUM: 410, HARD: 920 },
+            perfect: { EASY: 2.85, MEDIUM: 4.30, HARD: 9.55 },
+            perfect_payout_100: { EASY: 285, MEDIUM: 430, HARD: 955 },
+            details: {
+              EASY: { normal: 2.75, perfect: 2.85, payout_normal: 275, payout_perfect: 285 },
+              MEDIUM: { normal: 4.10, perfect: 4.30, payout_normal: 410, payout_perfect: 430 },
+              HARD: { normal: 9.20, perfect: 9.55, payout_normal: 920, payout_perfect: 955 },
+            }
+          },
+          6: {
+            floor: 6,
+            EASY: 3.50, MEDIUM: 5.60, HARD: 14.50,
+            payout_100: { EASY: 350, MEDIUM: 560, HARD: 1450 },
+            perfect: { EASY: 3.60, MEDIUM: 5.80, HARD: 14.85 },
+            perfect_payout_100: { EASY: 360, MEDIUM: 580, HARD: 1485 },
+            details: {
+              EASY: { normal: 3.50, perfect: 3.60, payout_normal: 350, payout_perfect: 360 },
+              MEDIUM: { normal: 5.60, perfect: 5.80, payout_normal: 560, payout_perfect: 580 },
+              HARD: { normal: 14.50, perfect: 14.85, payout_normal: 1450, payout_perfect: 1485 },
+            }
+          },
+          7: {
+            floor: 7,
+            EASY: 4.50, MEDIUM: 7.70, HARD: 23.00,
+            payout_100: { EASY: 450, MEDIUM: 770, HARD: 2300 },
+            perfect: { EASY: 4.60, MEDIUM: 7.90, HARD: 23.35 },
+            perfect_payout_100: { EASY: 460, MEDIUM: 790, HARD: 2335 },
+            details: {
+              EASY: { normal: 4.50, perfect: 4.60, payout_normal: 450, payout_perfect: 460 },
+              MEDIUM: { normal: 7.70, perfect: 7.90, payout_normal: 770, payout_perfect: 790 },
+              HARD: { normal: 23.00, perfect: 23.35, payout_normal: 2300, payout_perfect: 2335 },
+            }
+          },
+          8: {
+            floor: 8,
+            EASY: 5.80, MEDIUM: 10.60, HARD: 37.00,
+            payout_100: { EASY: 580, MEDIUM: 1060, HARD: 3700 },
+            perfect: { EASY: 5.90, MEDIUM: 10.80, HARD: 37.35 },
+            perfect_payout_100: { EASY: 590, MEDIUM: 1080, HARD: 3735 },
+            details: {
+              EASY: { normal: 5.80, perfect: 5.90, payout_normal: 580, payout_perfect: 590 },
+              MEDIUM: { normal: 10.60, perfect: 10.80, payout_normal: 1060, payout_perfect: 1080 },
+              HARD: { normal: 37.00, perfect: 37.35, payout_normal: 3700, payout_perfect: 3735 },
+            }
+          },
+          9: {
+            floor: 9,
+            EASY: 7.50, MEDIUM: 14.80, HARD: 60.00,
+            payout_100: { EASY: 750, MEDIUM: 1480, HARD: 6000 },
+            perfect: { EASY: 7.60, MEDIUM: 15.00, HARD: 60.35 },
+            perfect_payout_100: { EASY: 760, MEDIUM: 1500, HARD: 6035 },
+            details: {
+              EASY: { normal: 7.50, perfect: 7.60, payout_normal: 750, payout_perfect: 760 },
+              MEDIUM: { normal: 14.80, perfect: 15.00, payout_normal: 1480, payout_perfect: 1500 },
+              HARD: { normal: 60.00, perfect: 60.35, payout_normal: 6000, payout_perfect: 6035 },
+            }
+          },
+          10: {
+            floor: 10,
+            EASY: 10.00, MEDIUM: 20.00, HARD: 95.00,
+            payout_100: { EASY: 1000, MEDIUM: 2000, HARD: 9500 },
+            perfect: { EASY: 10.10, MEDIUM: 20.20, HARD: 95.35 },
+            perfect_payout_100: { EASY: 1010, MEDIUM: 2020, HARD: 9535 },
+            details: {
+              EASY: { normal: 10.00, perfect: 10.10, payout_normal: 1000, payout_perfect: 1010 },
+              MEDIUM: { normal: 20.00, perfect: 20.20, payout_normal: 2000, payout_perfect: 2020 },
+              HARD: { normal: 95.00, perfect: 95.35, payout_normal: 9500, payout_perfect: 9535 },
+            }
+          },
           beyond_10: {
-            EASY: "+2.5x per floor",
-            MEDIUM: "+5.0x per floor",
-            HARD: "+25.0x per floor",
-            step: { EASY: 2.50, MEDIUM: 5.00, HARD: 25.00 }
+            EASY: "+2.50x per floor (+0.10x on perfect)",
+            MEDIUM: "+5.00x per floor (+0.20x on perfect)",
+            HARD: "+25.00x per floor (+0.35x on perfect)",
+            step: { EASY: 2.50, MEDIUM: 5.00, HARD: 25.00 },
+            perfect_bonus: { EASY: 0.10, MEDIUM: 0.20, HARD: 0.35 }
           }
         },
         difficulties: {
@@ -641,8 +782,16 @@ class StackTowerService {
             max_safe_offset: 24,
             extra_bonus: 0.10,
             bonus_multiplier: 0.10,
-            bonus_text: "+0.10x Extra Bonus",
+            bonus_text: "+0.10x Extra on Perfect",
             beyond_step: 2.50,
+            floors_normal: {
+              1: 1.18, 2: 1.42, 3: 1.75, 4: 2.18, 5: 2.75,
+              6: 3.50, 7: 4.50, 8: 5.80, 9: 7.50, 10: 10.00
+            },
+            floors_perfect: {
+              1: 1.28, 2: 1.52, 3: 1.85, 4: 2.28, 5: 2.85,
+              6: 3.60, 7: 4.60, 8: 5.90, 9: 7.60, 10: 10.10
+            },
             floors: {
               1: 1.18, 2: 1.42, 3: 1.75, 4: 2.18, 5: 2.75,
               6: 3.50, 7: 4.50, 8: 5.80, 9: 7.50, 10: 10.00
@@ -654,8 +803,16 @@ class StackTowerService {
             max_safe_offset: 20,
             extra_bonus: 0.20,
             bonus_multiplier: 0.20,
-            bonus_text: "+0.20x Extra Bonus",
+            bonus_text: "+0.20x Extra on Perfect",
             beyond_step: 5.00,
+            floors_normal: {
+              1: 1.30, 2: 1.70, 3: 2.25, 4: 3.00, 5: 4.10,
+              6: 5.60, 7: 7.70, 8: 10.60, 9: 14.80, 10: 20.00
+            },
+            floors_perfect: {
+              1: 1.50, 2: 1.90, 3: 2.45, 4: 3.20, 5: 4.30,
+              6: 5.80, 7: 7.90, 8: 10.80, 9: 15.00, 10: 20.20
+            },
             floors: {
               1: 1.30, 2: 1.70, 3: 2.25, 4: 3.00, 5: 4.10,
               6: 5.60, 7: 7.70, 8: 10.60, 9: 14.80, 10: 20.00
@@ -667,8 +824,16 @@ class StackTowerService {
             max_safe_offset: 16,
             extra_bonus: 0.35,
             bonus_multiplier: 0.35,
-            bonus_text: "+0.35x Extra Bonus",
+            bonus_text: "+0.35x Extra on Perfect",
             beyond_step: 25.00,
+            floors_normal: {
+              1: 1.65, 2: 2.50, 3: 3.85, 4: 5.90, 5: 9.20,
+              6: 14.50, 7: 23.00, 8: 37.00, 9: 60.00, 10: 95.00
+            },
+            floors_perfect: {
+              1: 2.00, 2: 2.85, 3: 4.20, 4: 6.25, 5: 9.55,
+              6: 14.85, 7: 23.35, 8: 37.35, 9: 60.35, 10: 95.35
+            },
             floors: {
               1: 1.65, 2: 2.50, 3: 3.85, 4: 5.90, 5: 9.20,
               6: 14.50, 7: 23.00, 8: 37.00, 9: 60.00, 10: 95.00
@@ -680,11 +845,12 @@ class StackTowerService {
   }
 
   /**
-   * Calculate Multiplier for given difficulty & floor according to Floor-wise Table:
+   * Calculate Multiplier for given difficulty & floor according to Floor-wise Table (Normal vs PERFECT Drop):
    * Floor 1-10: Defined exact values
-   * Floor 10+: +2.5x (EASY), +5.0x (MEDIUM), +25.0x (HARD) per floor
+   * Floor 10+: +2.50x (EASY), +5.00x (MEDIUM), +25.00x (HARD) per floor
+   * ⭐ PERFECT Drop Bonus: +0.10x (EASY), +0.20x (MEDIUM), +0.35x (HARD)
    */
-  calculateFloorMultiplier(difficulty = "MEDIUM", floor = 0) {
+  calculateFloorMultiplier(difficulty = "MEDIUM", floor = 0, isPerfect = false) {
     const diff = String(difficulty || "MEDIUM").toUpperCase();
     const level = Math.max(0, Number(floor) || 0);
     if (level === 0) return 1.0;
@@ -694,34 +860,43 @@ class StackTowerService {
         1: 1.18, 2: 1.42, 3: 1.75, 4: 2.18, 5: 2.75,
         6: 3.50, 7: 4.50, 8: 5.80, 9: 7.50, 10: 10.00,
         beyond: 2.50,
+        bonus: 0.10,
       },
       MEDIUM: {
         1: 1.30, 2: 1.70, 3: 2.25, 4: 3.00, 5: 4.10,
         6: 5.60, 7: 7.70, 8: 10.60, 9: 14.80, 10: 20.00,
         beyond: 5.00,
+        bonus: 0.20,
       },
       HARD: {
         1: 1.65, 2: 2.50, 3: 3.85, 4: 5.90, 5: 9.20,
         6: 14.50, 7: 23.00, 8: 37.00, 9: 60.00, 10: 95.00,
         beyond: 25.00,
+        bonus: 0.35,
       },
     };
 
     const table = tables[diff] || tables.MEDIUM;
+    let baseMult = 1.0;
     if (level <= 10) {
-      return Number((table[level] || 1.0).toFixed(2));
+      baseMult = table[level] || 1.0;
+    } else {
+      baseMult = table[10] + (level - 10) * table.beyond;
     }
 
-    const mult = table[10] + (level - 10) * table.beyond;
-    return Number(mult.toFixed(2));
+    if (isPerfect) {
+      baseMult += table.bonus;
+    }
+
+    return Number(baseMult.toFixed(2));
   }
 
   /**
-   * Calculate Payout for given amount, difficulty & floor
+   * Calculate Payout for given amount, difficulty & floor (Normal vs PERFECT Drop)
    */
-  calculatePayout(amount, difficulty = "MEDIUM", floor = 0) {
+  calculatePayout(amount, difficulty = "MEDIUM", floor = 0, isPerfect = false) {
     const betAmt = Number(amount || 0);
-    const mult = this.calculateFloorMultiplier(difficulty, floor);
+    const mult = this.calculateFloorMultiplier(difficulty, floor, isPerfect);
     return Number((betAmt * mult).toFixed(2));
   }
 
