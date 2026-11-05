@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const app = require("../src/app");
+const { StackTowerService } = require("../src/modules/stackTower/stackTower.service");
 
 function testRoute(method, url, headers = {}, body = null) {
   return new Promise((resolve) => {
@@ -218,5 +219,60 @@ test("Stack Tower - Complete Game Loop APIs", async () => {
   }
 
   console.log("✅ ALL STACK TOWER API TESTS (INCLUDING LIVE/ACTIVE PLAYER ENDPOINTS) PASSED SUCCESSFULLY!");
+});
+
+test("Stack Tower - Floor-wise Multipliers & Payouts Table Verification", async () => {
+  const service = new StackTowerService();
+
+  // Test Table Values: Floor 1 to 10
+  const expectedTable = [
+    { floor: 1, easy: 1.18, medium: 1.30, hard: 1.65 },
+    { floor: 2, easy: 1.42, medium: 1.70, hard: 2.50 },
+    { floor: 3, easy: 1.75, medium: 2.25, hard: 3.85 },
+    { floor: 4, easy: 2.18, medium: 3.00, hard: 5.90 },
+    { floor: 5, easy: 2.75, medium: 4.10, hard: 9.20 },
+    { floor: 6, easy: 3.50, medium: 5.60, hard: 14.50 },
+    { floor: 7, easy: 4.50, medium: 7.70, hard: 23.00 },
+    { floor: 8, easy: 5.80, medium: 10.60, hard: 37.00 },
+    { floor: 9, easy: 7.50, medium: 14.80, hard: 60.00 },
+    { floor: 10, easy: 10.00, medium: 20.00, hard: 95.00 },
+  ];
+
+  for (const row of expectedTable) {
+    const easyMult = service.calculateFloorMultiplier("EASY", row.floor);
+    const medMult = service.calculateFloorMultiplier("MEDIUM", row.floor);
+    const hardMult = service.calculateFloorMultiplier("HARD", row.floor);
+
+    assert.equal(easyMult, row.easy, `Floor ${row.floor} EASY multiplier mismatch`);
+    assert.equal(medMult, row.medium, `Floor ${row.floor} MEDIUM multiplier mismatch`);
+    assert.equal(hardMult, row.hard, `Floor ${row.floor} HARD multiplier mismatch`);
+
+    // Payout on 100 bet
+    assert.equal(service.calculatePayout(100, "EASY", row.floor), Number((100 * row.easy).toFixed(2)));
+    assert.equal(service.calculatePayout(100, "MEDIUM", row.floor), Number((100 * row.medium).toFixed(2)));
+    assert.equal(service.calculatePayout(100, "HARD", row.floor), Number((100 * row.hard).toFixed(2)));
+  }
+
+  // Test Floor 10+ Increment:
+  // EASY: +2.5x per floor
+  // MEDIUM: +5.0x per floor
+  // HARD: +25.0x per floor
+  assert.equal(service.calculateFloorMultiplier("EASY", 11), 12.50);
+  assert.equal(service.calculateFloorMultiplier("EASY", 12), 15.00);
+
+  assert.equal(service.calculateFloorMultiplier("MEDIUM", 11), 25.00);
+  assert.equal(service.calculateFloorMultiplier("MEDIUM", 12), 30.00);
+
+  assert.equal(service.calculateFloorMultiplier("HARD", 11), 120.00);
+  assert.equal(service.calculateFloorMultiplier("HARD", 12), 145.00);
+
+  // Test Config API returns table
+  const config = await service.getConfig();
+  assert.ok(config.data.floor_multipliers_table);
+  assert.equal(config.data.floor_multipliers_table[5].MEDIUM, 4.10);
+  assert.equal(config.data.floor_multipliers_table[5].HARD, 9.20);
+  assert.equal(config.data.floor_multipliers_table[10].HARD, 95.00);
+
+  console.log("✅ Floor-wise Multipliers & Payouts Table fully verified!");
 });
 

@@ -368,15 +368,21 @@ function createStackTowerSocket(io, {
       const roundId = data.round_id || data.roundId || data.id;
       const userId = data.userid || data.user_id || data.userId || data.uid;
       const level = Number(data.level || 0);
-      const mode = String(data.difficulty || data.mode || "MEDIUM").toUpperCase();
-      let multiplier = Number(data.multiplier || 0);
-      if (!multiplier || multiplier <= 1.0) {
-        if (service && typeof service.calculateFloorMultiplier === "function") {
-          multiplier = service.calculateFloorMultiplier(mode, level);
-        } else {
-          multiplier = 1.0;
+
+      // Fetch round status if available for accurate mode & bet amount
+      let roundInfo = null;
+      try {
+        if (service && typeof service.getRoundStatus === "function") {
+          const res = await service.getRoundStatus({ round_id: roundId, userid: userId });
+          if (res?.data) roundInfo = res.data;
         }
-      }
+      } catch (_) {}
+
+      const mode = String(data.difficulty || data.mode || roundInfo?.difficulty || "MEDIUM").toUpperCase();
+      const multFromTable = service?.calculateFloorMultiplier ? service.calculateFloorMultiplier(mode, level) : 1.0;
+      const multiplier = Number(data.multiplier && Number(data.multiplier) > multFromTable ? data.multiplier : multFromTable);
+      const betAmt = Number(roundInfo?.amount || data.bet_amount || data.amount || 0);
+      const potentialPayout = Number((betAmt * multiplier).toFixed(2));
 
       // Check if obstacle is armed to topple when user drops the next block!
       if (service && typeof service.isObstacleArmed === "function" && service.isObstacleArmed(roundId, userId)) {
@@ -422,6 +428,10 @@ function createStackTowerSocket(io, {
         level,
         current_level: level,
         multiplier,
+        bet_amount: betAmt,
+        potential_payout: potentialPayout,
+        win_amount: potentialPayout,
+        mode,
         timestamp: Date.now(),
       };
 

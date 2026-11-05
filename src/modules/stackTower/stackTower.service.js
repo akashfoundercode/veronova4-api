@@ -322,12 +322,14 @@ class StackTowerService {
         throw new AppError(400, "ROUND_ALREADY_FINISHED", "This round is already settled.");
       }
 
-      const winAmount = Number((bet.amount * finalMult).toFixed(2));
+      const expectedMult = this.calculateFloorMultiplier(bet.difficulty, finalLevel);
+      const effectiveMult = Number(finalMult > 1.0 ? finalMult : (expectedMult > 1.0 ? expectedMult : 1.0));
+      const winAmount = Number((bet.amount * effectiveMult).toFixed(2));
       const profit = Number((winAmount - bet.amount).toFixed(2));
 
       bet.status = 1; // 1: WON / CASHED_OUT
       bet.current_level = finalLevel;
-      bet.multiplier = finalMult;
+      bet.multiplier = effectiveMult;
       bet.win_amount = winAmount;
       bet.updated_at = new Date();
 
@@ -346,7 +348,7 @@ class StackTowerService {
           bet_amount: bet.amount,
           betAmount: bet.amount,
           level: finalLevel,
-          multiplier: finalMult,
+          multiplier: effectiveMult,
           win_amount: winAmount,
           winAmount,
           payout: winAmount,
@@ -364,7 +366,7 @@ class StackTowerService {
       txStarted = true;
 
       const [bets] = await conn.execute(
-        `SELECT id, user_id, round_id, amount, status, obstacle_dropped 
+        `SELECT id, user_id, round_id, amount, difficulty, status, obstacle_dropped 
          FROM stack_tower_bets 
          WHERE round_id = ? AND user_id = ? FOR UPDATE`,
         [activeRoundId, userId]
@@ -387,7 +389,9 @@ class StackTowerService {
       }
 
       const betAmount = Number(bet.amount || 0);
-      const winAmount = Number((betAmount * finalMult).toFixed(4));
+      const expectedMult = this.calculateFloorMultiplier(bet.difficulty, finalLevel);
+      const effectiveMult = Number(finalMult > 1.0 ? finalMult : (expectedMult > 1.0 ? expectedMult : 1.0));
+      const winAmount = Number((betAmount * effectiveMult).toFixed(2));
       const profit = Number((winAmount - betAmount).toFixed(2));
 
       // Credit winnings to user wallet & winning_wallet
@@ -403,7 +407,7 @@ class StackTowerService {
         `UPDATE stack_tower_bets 
          SET status = 1, current_level = ?, multiplier = ?, win_amount = ?, updated_at = NOW() 
          WHERE id = ?`,
-        [finalLevel, finalMult, winAmount, bet.id]
+        [finalLevel, effectiveMult, winAmount, bet.id]
       );
 
       // Log wallet credit
@@ -612,33 +616,63 @@ class StackTowerService {
         min_bet: 10,
         max_bet: 50000,
         quick_bets: [10, 50, 100, 500, 1000, 2000],
+        floor_multipliers_table: {
+          1: { floor: 1, EASY: 1.18, MEDIUM: 1.30, HARD: 1.65, payout_100: { EASY: 118, MEDIUM: 130, HARD: 165 } },
+          2: { floor: 2, EASY: 1.42, MEDIUM: 1.70, HARD: 2.50, payout_100: { EASY: 142, MEDIUM: 170, HARD: 250 } },
+          3: { floor: 3, EASY: 1.75, MEDIUM: 2.25, HARD: 3.85, payout_100: { EASY: 175, MEDIUM: 225, HARD: 385 } },
+          4: { floor: 4, EASY: 2.18, MEDIUM: 3.00, HARD: 5.90, payout_100: { EASY: 218, MEDIUM: 300, HARD: 590 } },
+          5: { floor: 5, EASY: 2.75, MEDIUM: 4.10, HARD: 9.20, payout_100: { EASY: 275, MEDIUM: 410, HARD: 920 } },
+          6: { floor: 6, EASY: 3.50, MEDIUM: 5.60, HARD: 14.50, payout_100: { EASY: 350, MEDIUM: 560, HARD: 1450 } },
+          7: { floor: 7, EASY: 4.50, MEDIUM: 7.70, HARD: 23.00, payout_100: { EASY: 450, MEDIUM: 770, HARD: 2300 } },
+          8: { floor: 8, EASY: 5.80, MEDIUM: 10.60, HARD: 37.00, payout_100: { EASY: 580, MEDIUM: 1060, HARD: 3700 } },
+          9: { floor: 9, EASY: 7.50, MEDIUM: 14.80, HARD: 60.00, payout_100: { EASY: 750, MEDIUM: 1480, HARD: 6000 } },
+          10: { floor: 10, EASY: 10.00, MEDIUM: 20.00, HARD: 95.00, payout_100: { EASY: 1000, MEDIUM: 2000, HARD: 9500 } },
+          beyond_10: {
+            EASY: "+2.5x per floor",
+            MEDIUM: "+5.0x per floor",
+            HARD: "+25.0x per floor",
+            step: { EASY: 2.50, MEDIUM: 5.00, HARD: 25.00 }
+          }
+        },
         difficulties: {
           EASY: {
             angular_speed: 2.2,
             max_swing_angle: 13.5,
             max_safe_offset: 24,
-            multiplier_step: 0.12,
             extra_bonus: 0.10,
             bonus_multiplier: 0.10,
             bonus_text: "+0.10x Extra Bonus",
+            beyond_step: 2.50,
+            floors: {
+              1: 1.18, 2: 1.42, 3: 1.75, 4: 2.18, 5: 2.75,
+              6: 3.50, 7: 4.50, 8: 5.80, 9: 7.50, 10: 10.00
+            }
           },
           MEDIUM: {
             angular_speed: 2.8,
             max_swing_angle: 16.0,
             max_safe_offset: 20,
-            multiplier_step: 0.18,
             extra_bonus: 0.20,
             bonus_multiplier: 0.20,
             bonus_text: "+0.20x Extra Bonus",
+            beyond_step: 5.00,
+            floors: {
+              1: 1.30, 2: 1.70, 3: 2.25, 4: 3.00, 5: 4.10,
+              6: 5.60, 7: 7.70, 8: 10.60, 9: 14.80, 10: 20.00
+            }
           },
           HARD: {
             angular_speed: 3.4,
             max_swing_angle: 18.5,
             max_safe_offset: 16,
-            multiplier_step: 0.28,
             extra_bonus: 0.35,
             bonus_multiplier: 0.35,
             bonus_text: "+0.35x Extra Bonus",
+            beyond_step: 25.00,
+            floors: {
+              1: 1.65, 2: 2.50, 3: 3.85, 4: 5.90, 5: 9.20,
+              6: 14.50, 7: 23.00, 8: 37.00, 9: 60.00, 10: 95.00
+            }
           },
         },
       },
@@ -646,20 +680,49 @@ class StackTowerService {
   }
 
   /**
-   * Calculate Multiplier for given difficulty & floor
+   * Calculate Multiplier for given difficulty & floor according to Floor-wise Table:
+   * Floor 1-10: Defined exact values
+   * Floor 10+: +2.5x (EASY), +5.0x (MEDIUM), +25.0x (HARD) per floor
    */
   calculateFloorMultiplier(difficulty = "MEDIUM", floor = 0) {
     const diff = String(difficulty || "MEDIUM").toUpperCase();
-    const config = {
-      EASY: { step: 0.12, bonus: 0.10 },
-      MEDIUM: { step: 0.18, bonus: 0.20 },
-      HARD: { step: 0.28, bonus: 0.35 },
-    }[diff] || { step: 0.18, bonus: 0.20 };
-
     const level = Math.max(0, Number(floor) || 0);
     if (level === 0) return 1.0;
-    const mult = 1.0 + level * (config.step + config.bonus);
+
+    const tables = {
+      EASY: {
+        1: 1.18, 2: 1.42, 3: 1.75, 4: 2.18, 5: 2.75,
+        6: 3.50, 7: 4.50, 8: 5.80, 9: 7.50, 10: 10.00,
+        beyond: 2.50,
+      },
+      MEDIUM: {
+        1: 1.30, 2: 1.70, 3: 2.25, 4: 3.00, 5: 4.10,
+        6: 5.60, 7: 7.70, 8: 10.60, 9: 14.80, 10: 20.00,
+        beyond: 5.00,
+      },
+      HARD: {
+        1: 1.65, 2: 2.50, 3: 3.85, 4: 5.90, 5: 9.20,
+        6: 14.50, 7: 23.00, 8: 37.00, 9: 60.00, 10: 95.00,
+        beyond: 25.00,
+      },
+    };
+
+    const table = tables[diff] || tables.MEDIUM;
+    if (level <= 10) {
+      return Number((table[level] || 1.0).toFixed(2));
+    }
+
+    const mult = table[10] + (level - 10) * table.beyond;
     return Number(mult.toFixed(2));
+  }
+
+  /**
+   * Calculate Payout for given amount, difficulty & floor
+   */
+  calculatePayout(amount, difficulty = "MEDIUM", floor = 0) {
+    const betAmt = Number(amount || 0);
+    const mult = this.calculateFloorMultiplier(difficulty, floor);
+    return Number((betAmt * mult).toFixed(2));
   }
 
   /**
