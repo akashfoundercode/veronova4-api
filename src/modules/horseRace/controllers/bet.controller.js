@@ -50,8 +50,10 @@ async function getLiveBetLedger(request, response, next) {
 
 async function getLiveRaceBetPool(request, response, next) {
     try {
-        const userId = request.user ? request.user.id : null;
-        const raceIdentifier = request.query.raceId || request.query.game_serial || request.query.gameSerial || request.params.id;
+        const userId = request.user
+            ? request.user.id
+            : (request.query.userId || request.query.user_id || request.query.playerId || null);
+        const raceIdentifier = request.query.raceId || request.query.race_id || request.query.game_serial || request.query.gameSerial || request.query.gameId || request.query.game_id || request.params.id || null;
         const result = await BetService.getLiveRaceBetPool(raceIdentifier, userId);
         return response.json(result);
     } catch (error) {
