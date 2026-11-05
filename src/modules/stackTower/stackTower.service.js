@@ -101,7 +101,7 @@ class StackTowerService {
       };
       memoryBets.set(roundId, betRecord);
 
-      return {
+      const betResult = {
         status: 200,
         success: true,
         message: "Bet placed successfully",
@@ -109,9 +109,14 @@ class StackTowerService {
           round_id: roundId,
           roundId,
           game_sr_num: roundId,
+          user_id: userId,
           bet_amount: betAmount,
           betAmount,
           difficulty: diff,
+          mode: diff,
+          extra_bonus: diff === "HARD" ? 0.35 : diff === "EASY" ? 0.10 : 0.20,
+          bonus_multiplier: diff === "HARD" ? 0.35 : diff === "EASY" ? 0.10 : 0.20,
+          bonus_text: diff === "HARD" ? "+0.35x Extra Bonus" : diff === "EASY" ? "+0.10x Extra Bonus" : "+0.20x Extra Bonus",
           current_level: 0,
           multiplier: 1.0,
           wallet_balance: Number(user.wallet.toFixed(2)),
@@ -119,6 +124,16 @@ class StackTowerService {
           status: "PLAYING",
         },
       };
+
+      try {
+        const { getStackTowerSocket } = require("./stackTower.socket");
+        const socketService = getStackTowerSocket();
+        if (socketService && typeof socketService.broadcastPlayerJoined === "function") {
+          socketService.broadcastPlayerJoined(betResult.data);
+        }
+      } catch (_) {}
+
+      return betResult;
     }
 
     let txStarted = false;
@@ -171,7 +186,7 @@ class StackTowerService {
       await conn.commit();
       txStarted = false;
 
-      return {
+      const dbBetResult = {
         status: 200,
         success: true,
         message: "Bet placed successfully",
@@ -179,9 +194,14 @@ class StackTowerService {
           round_id: roundId,
           roundId,
           game_sr_num: roundId,
+          user_id: userId,
           bet_amount: betAmount,
           betAmount,
           difficulty: diff,
+          mode: diff,
+          extra_bonus: diff === "HARD" ? 0.35 : diff === "EASY" ? 0.10 : 0.20,
+          bonus_multiplier: diff === "HARD" ? 0.35 : diff === "EASY" ? 0.10 : 0.20,
+          bonus_text: diff === "HARD" ? "+0.35x Extra Bonus" : diff === "EASY" ? "+0.10x Extra Bonus" : "+0.20x Extra Bonus",
           current_level: 0,
           multiplier: 1.0,
           wallet_balance: Number(newWallet.toFixed(2)),
@@ -189,10 +209,81 @@ class StackTowerService {
           status: "PLAYING",
         },
       };
+
+      try {
+        const { getStackTowerSocket } = require("./stackTower.socket");
+        const socketService = getStackTowerSocket();
+        if (socketService && typeof socketService.broadcastPlayerJoined === "function") {
+          socketService.broadcastPlayerJoined(dbBetResult.data);
+        }
+      } catch (_) {}
+
+      return dbBetResult;
     } catch (err) {
       if (txStarted) await conn.rollback();
       throw err;
     } finally {
+      conn.release();
+    }
+  }
+
+  /**
+   * Update Floor: Updates current floor level & multiplier during live building
+   */
+  async updateFloor({ round_id, roundId, userid, uid, user_id, level = 0, multiplier = 1.0 } = {}) {
+    const activeRoundId = String(round_id || roundId || "").trim();
+    const rawUid = userid ?? uid ?? user_id;
+    const userId = rawUid !== undefined && rawUid !== null && rawUid !== "" ? Number(rawUid) : null;
+    const currentLevel = Number(level) || 0;
+    const currentMult = Number(multiplier) || 1.0;
+
+    const conn = await this.getDbConnection();
+    if (!conn) {
+      let bet = null;
+      if (activeRoundId && memoryBets.has(activeRoundId)) {
+        bet = memoryBets.get(activeRoundId);
+      } else if (userId) {
+        for (const b of Array.from(memoryBets.values()).reverse()) {
+          if (Number(b.user_id) === userId && b.status === 0) {
+            bet = b;
+            break;
+          }
+        }
+      }
+      if (bet) {
+        bet.current_level = Math.max(Number(bet.current_level || 0), currentLevel);
+        if (currentMult > 1.0) bet.multiplier = currentMult;
+        bet.win_amount = Number((Number(bet.amount || 0) * bet.multiplier).toFixed(2));
+        bet.updated_at = new Date();
+        return bet;
+      }
+      return null;
+    }
+
+    try {
+      if (activeRoundId) {
+        await conn.execute(
+          `UPDATE stack_tower_bets 
+           SET current_level = GREATEST(COALESCE(current_level, 0), ?),
+               multiplier = GREATEST(COALESCE(multiplier, 1.0), ?),
+               win_amount = amount * GREATEST(COALESCE(multiplier, 1.0), ?),
+               updated_at = NOW() 
+           WHERE round_id = ? AND status = 0`,
+          [currentLevel, currentMult, currentMult, activeRoundId]
+        );
+      } else if (userId) {
+        await conn.execute(
+          `UPDATE stack_tower_bets 
+           SET current_level = GREATEST(COALESCE(current_level, 0), ?),
+               multiplier = GREATEST(COALESCE(multiplier, 1.0), ?),
+               win_amount = amount * GREATEST(COALESCE(multiplier, 1.0), ?),
+               updated_at = NOW() 
+           WHERE user_id = ? AND status = 0 
+           ORDER BY id DESC LIMIT 1`,
+          [currentLevel, currentMult, currentMult, userId]
+        );
+      }
+    } catch (_) {} finally {
       conn.release();
     }
   }
@@ -527,22 +618,48 @@ class StackTowerService {
             max_swing_angle: 13.5,
             max_safe_offset: 24,
             multiplier_step: 0.12,
+            extra_bonus: 0.10,
+            bonus_multiplier: 0.10,
+            bonus_text: "+0.10x Extra Bonus",
           },
           MEDIUM: {
             angular_speed: 2.8,
             max_swing_angle: 16.0,
             max_safe_offset: 20,
             multiplier_step: 0.18,
+            extra_bonus: 0.20,
+            bonus_multiplier: 0.20,
+            bonus_text: "+0.20x Extra Bonus",
           },
           HARD: {
             angular_speed: 3.4,
             max_swing_angle: 18.5,
             max_safe_offset: 16,
             multiplier_step: 0.28,
+            extra_bonus: 0.35,
+            bonus_multiplier: 0.35,
+            bonus_text: "+0.35x Extra Bonus",
           },
         },
       },
     };
+  }
+
+  /**
+   * Calculate Multiplier for given difficulty & floor
+   */
+  calculateFloorMultiplier(difficulty = "MEDIUM", floor = 0) {
+    const diff = String(difficulty || "MEDIUM").toUpperCase();
+    const config = {
+      EASY: { step: 0.12, bonus: 0.10 },
+      MEDIUM: { step: 0.18, bonus: 0.20 },
+      HARD: { step: 0.28, bonus: 0.35 },
+    }[diff] || { step: 0.18, bonus: 0.20 };
+
+    const level = Math.max(0, Number(floor) || 0);
+    if (level === 0) return 1.0;
+    const mult = 1.0 + level * (config.step + config.bonus);
+    return Number(mult.toFixed(2));
   }
 
   /**

@@ -94,13 +94,19 @@ test("Stack Tower Socket - Connection, Room Management & Live Updates", async ()
   const emits = client.getClientEmits();
   assert.equal(emits[0].event, "stack_tower_connected");
 
-  // 2. Join Round
-  client.trigger("join_round", { round_id: "ST_TEST_101", userid: 5 });
+  // 2. Join Round - returns user's active round info
+  await client.trigger("join_round", { round_id: "ST_TEST_101", userid: 5, amount: 200, difficulty: "HARD" });
   assert.ok(client.joinedRooms.has("round:ST_TEST_101"));
   assert.ok(client.joinedRooms.has("user:5"));
 
+  const joinedEmit = emits.find((e) => e.event === "joined_round");
+  assert.ok(joinedEmit, "Player must receive joined_round ack response");
+  assert.equal(joinedEmit.payload.round_id, "ST_TEST_101");
+  assert.equal(joinedEmit.payload.difficulty, "HARD");
+  assert.equal(joinedEmit.payload.status, "PLAYING");
+
   // 3. Player stacks block live
-  client.trigger("stack_block", { round_id: "ST_TEST_101", level: 4, multiplier: 1.72 });
+  await client.trigger("stack_block", { round_id: "ST_TEST_101", level: 4, multiplier: 1.72 });
   const roomEvents = harness.roomEmissions.get("round:ST_TEST_101") || [];
   assert.ok(roomEvents.some((e) => e.event === "block_stacked" && e.payload.level === 4));
 
@@ -216,6 +222,82 @@ test("Stack Tower Socket - Admin Force Stop without active bet still succeeds an
   assert.ok(harness.globalEmissions.some((e) => e.event === "obstacle_armed"));
 
   socketService.stop();
+});
+
+test("Stack Tower Socket - Complete Admin Live Monitoring & Force Drop Flow", async () => {
+  const harness = createMockSocketHarness();
+  const service = new StackTowerService();
+  const socketService = createStackTowerSocket(harness.io, { service, logger: { log() {}, error() {} } });
+
+  // 1. User places a bet of 250 in HARD mode
+  const betRes = await service.placeBet({ userid: 12, amount: 250, difficulty: "HARD" });
+  const roundId = betRes.data.round_id;
+  assert.equal(betRes.data.bet_amount, 250);
+  assert.equal(betRes.data.difficulty, "HARD");
+
+  // 2. User connects to socket and joins round
+  const userClient = harness.createClientSocket();
+  harness.namespace.trigger("connection", userClient);
+  await userClient.trigger("join_round", { round_id: roundId, userid: 12 });
+
+  const userEmits = userClient.getClientEmits();
+  const joinedEvent = userEmits.find((e) => e.event === "joined_round");
+  assert.ok(joinedEvent, "User must receive joined_round");
+  assert.equal(joinedEvent.payload.round_id, roundId);
+  assert.equal(joinedEvent.payload.bet_amount, 250);
+  assert.equal(joinedEvent.payload.difficulty, "HARD");
+  assert.equal(joinedEvent.payload.status, "PLAYING");
+
+  // 3. Admin joins admin room and receives live active players list
+  const adminClient = harness.createClientSocket();
+  harness.namespace.trigger("connection", adminClient);
+  await adminClient.trigger("admin_join", {});
+
+  const adminEmits = adminClient.getClientEmits();
+  const activeListEvent = adminEmits.find((e) => e.event === "active_players_list");
+  assert.ok(activeListEvent, "Admin must receive active_players_list");
+  assert.ok(activeListEvent.payload.players.length >= 1, "Player must appear in admin active list");
+  const playerInAdminList = activeListEvent.payload.players.find((p) => p.round_id === roundId);
+  assert.ok(playerInAdminList);
+  assert.equal(playerInAdminList.bet_amount, 250);
+  assert.equal(playerInAdminList.difficulty, "HARD");
+
+  // 4. User builds floors: Floor 1, 2, 3, 4
+  for (let floor = 1; floor <= 4; floor++) {
+    await userClient.trigger("stack_block", {
+      round_id: roundId,
+      userid: 12,
+      level: floor,
+      multiplier: Number((1.0 + floor * 0.35).toFixed(2)),
+    });
+  }
+
+  // Verify room received floor 4
+  const roundRoomEvents = harness.roomEmissions.get(`round:${roundId}`) || [];
+  const latestFloorEvent = roundRoomEvents.filter((e) => e.event === "block_stacked").pop();
+  assert.equal(latestFloorEvent.payload.level, 4);
+
+  // 5. Admin triggers force_stop for this player's round
+  await adminClient.trigger("force_stop", { round_id: roundId });
+
+  // 6. User drops NEXT floor (Floor 5) -> Tower TOPPLES!
+  await userClient.trigger("stack_block", {
+    round_id: roundId,
+    userid: 12,
+    level: 5,
+    multiplier: 2.75,
+  });
+
+  // Verify tower toppled
+  const toppledEvents = (harness.roomEmissions.get(`round:${roundId}`) || []).filter(
+    (e) => e.event === "obstacle_dropped"
+  );
+  assert.ok(toppledEvents.length > 0, "Tower must topple on user's next block drop");
+  assert.equal(toppledEvents[0].payload.toppled, true);
+  assert.equal(toppledEvents[0].payload.payout, 0);
+
+  socketService.stop();
+  console.log("✅ Complete Admin Live Monitoring & Force Drop Flow tested and passed!");
   console.log("✅ ALL STACK TOWER SOCKET TESTS PASSED SUCCESSFULLY!");
 });
 
