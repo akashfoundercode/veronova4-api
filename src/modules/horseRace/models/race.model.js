@@ -555,23 +555,14 @@ class RaceModel {
                     r.winner_horse_id,
                     r.finished_at,
                     r.created_at,
-                    COALESCE(
-                        rh.serial_number,
-                        h.serial_number,
-                        (SELECT rh2.serial_number FROM race_horses rh2 WHERE rh2.race_id = r.id AND (rh2.finish_position = 1 OR rh2.result = 'WINNER') LIMIT 1)
-                    ) AS winner_horse_serial,
-                    COALESCE(
-                        rh.horse_name_snapshot,
-                        h.name,
-                        (SELECT rh2.horse_name_snapshot FROM race_horses rh2 WHERE rh2.race_id = r.id AND (rh2.finish_position = 1 OR rh2.result = 'WINNER') LIMIT 1)
-                    ) AS winner_horse_name
+                    COALESCE(h.serial_number, r.winner_horse_id, 1) AS winner_horse_serial,
+                    COALESCE(h.name, CONCAT('Horse #', COALESCE(h.serial_number, r.winner_horse_id, 1))) AS winner_horse_name
                  FROM races r
                  LEFT JOIN horses h ON r.winner_horse_id = h.id
-                 LEFT JOIN race_horses rh ON r.id = rh.race_id AND (rh.horse_id = r.winner_horse_id OR (r.winner_horse_id IS NULL AND rh.finish_position = 1))
                  WHERE r.status IN ('FINISHED', 'RESULT') OR r.winner_horse_id IS NOT NULL
                  ORDER BY r.id DESC
                  LIMIT ? OFFSET ?`,
-                [limit, offset]
+                [Number(limit), Number(offset)]
             );
             rows = rRows || [];
         } catch (_) {}
@@ -592,19 +583,13 @@ class RaceModel {
         // Fallback 2: Query race_horses if races table is empty
         if (rows.length === 0) {
             try {
-                const [countRh] = await connection.query(
-                    `SELECT COUNT(DISTINCT race_id) AS total FROM race_horses`
-                );
-                total = Math.max(total, Number(countRh[0]?.total || 0));
-
                 const [rhRows] = await connection.query(
                     `SELECT race_id, serial_number AS winner_horse_serial, horse_name_snapshot AS winner_horse_name, created_at
                      FROM race_horses
-                     WHERE finish_position = 1 OR result = 'WINNER' OR result = 'COMPLETED'
-                     GROUP BY race_id
+                     WHERE finish_position = 1 OR result = 'WINNER'
                      ORDER BY race_id DESC
                      LIMIT ? OFFSET ?`,
-                    [limit, offset]
+                    [Number(limit), Number(offset)]
                 );
                 rows = (rhRows || []).map((r) => ({
                     race_id: r.race_id,
