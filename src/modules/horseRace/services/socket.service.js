@@ -293,9 +293,18 @@
                     return;
                 }
                 try {
-                    const result = await raceEngine.configureContinuousJackpot(data || {});
+                    const isEnabled = data?.enabled !== undefined ? Boolean(data.enabled) : true;
+                    const rawMultiplier = data?.multiplier ?? data?.jackpotMultiplier ?? data?.jackpot_multiplier ?? data?.targetMultiplier ?? data?.jackpot ?? data?.val ?? data?.value ?? data?.multiplierLabel ?? data?.selectedMultiplier ?? 'RANDOM';
+                    const result = await raceEngine.configureContinuousJackpot({
+                        ...data,
+                        enabled: isEnabled,
+                        mode: isEnabled ? (data?.mode || 'CONTINUOUS') : 'OFF',
+                        multiplier: rawMultiplier,
+                    });
                     if (typeof callback === 'function') callback(result);
                     else socket.emit('admin:jackpot_control_result', result);
+                    this.emitToRaces('jackpot:update', result);
+                    this.emitToRaces('race:jackpot', result);
                 } catch (err) {
                     const result = { success: false, message: err.message };
                     if (typeof callback === 'function') callback(result);
@@ -683,10 +692,11 @@
             const handleSetJackpot = async (data, callback) => {
                 try {
                     const isEnabled = data?.enabled !== undefined ? Boolean(data.enabled) : true;
+                    const rawMultiplier = data?.multiplier ?? data?.jackpotMultiplier ?? data?.jackpot_multiplier ?? data?.targetMultiplier ?? data?.jackpot ?? data?.val ?? data?.value ?? data?.multiplierLabel ?? data?.selectedMultiplier ?? 'RANDOM';
                     const result = await raceEngine.configureContinuousJackpot({
                         enabled: isEnabled,
                         mode: isEnabled ? (data?.mode || 'CONTINUOUS') : 'OFF',
-                        multiplier: data?.multiplier ?? data?.jackpotMultiplier ?? 'RANDOM',
+                        multiplier: rawMultiplier,
                         durationSeconds: data?.durationSeconds,
                         rounds: data?.rounds,
                     });

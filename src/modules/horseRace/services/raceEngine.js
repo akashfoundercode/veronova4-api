@@ -606,13 +606,22 @@ class RaceEngine extends EventEmitter {
         this.emit('race:betting_open', this.getCurrentState());
         this.emit('race:state_changed', this.getCurrentState());
         if (jackpotMultiplier > 1 || isJackpot) {
+            const slotIndex = jackpotMultiplier <= 1 ? 0 : (jackpotMultiplier === 2 ? 1 : (jackpotMultiplier === 3 ? 2 : (jackpotMultiplier === 4 ? 3 : 4)));
             this.emit('race:jackpot', {
                 gameSerial: String(gameSerial),
                 isLive: true,
                 jackpotMultiplier,
+                jackpot_multiplier: jackpotMultiplier,
+                multiplier: jackpotMultiplier,
+                targetMultiplier: jackpotMultiplier,
                 isJackpot: true,
+                is_jackpot: 1,
                 multiplierLabel: `${jackpotMultiplier}X`,
-                slots: ['1X', '2X', '3X', '4X', '5X'],
+                label: `${jackpotMultiplier}X`,
+                jackpot: `${jackpotMultiplier}X`,
+                slotIndex,
+                slots: ['N', '2X', '3X', '4X', '5X'],
+                slotsAlt: ['1X', '2X', '3X', '4X', '5X'],
                 message: `🔥 JACKPOT ACTIVE: ${jackpotMultiplier}X PAYOUT! 🔥`,
                 reason: this.forcedCurrentJackpot?.reason || this.continuousJackpot?.reason || 'Jackpot Active',
                 timestamp: new Date().toISOString(),
@@ -760,13 +769,22 @@ class RaceEngine extends EventEmitter {
             this.emit('race:betting_open', this.getCurrentState());
             this.emit('race:state_changed', this.getCurrentState());
             if (jackpotMultiplier > 1 || isJackpot) {
+                const slotIndex = jackpotMultiplier <= 1 ? 0 : (jackpotMultiplier === 2 ? 1 : (jackpotMultiplier === 3 ? 2 : (jackpotMultiplier === 4 ? 3 : 4)));
                 this.emit('race:jackpot', {
                     gameSerial: String(gameSerial),
                     isLive: true,
                     jackpotMultiplier,
+                    jackpot_multiplier: jackpotMultiplier,
+                    multiplier: jackpotMultiplier,
+                    targetMultiplier: jackpotMultiplier,
                     isJackpot: true,
+                    is_jackpot: 1,
                     multiplierLabel: `${jackpotMultiplier}X`,
-                    slots: ['1X', '2X', '3X', '4X', '5X'],
+                    label: `${jackpotMultiplier}X`,
+                    jackpot: `${jackpotMultiplier}X`,
+                    slotIndex,
+                    slots: ['N', '2X', '3X', '4X', '5X'],
+                    slotsAlt: ['1X', '2X', '3X', '4X', '5X'],
                     message: `🔥 JACKPOT ACTIVE: ${jackpotMultiplier}X PAYOUT! 🔥`,
                     reason: this.forcedCurrentJackpot?.reason || this.continuousJackpot?.reason || 'Jackpot Active',
                     timestamp: new Date().toISOString(),
@@ -1797,23 +1815,40 @@ class RaceEngine extends EventEmitter {
                 finishTime: winnerHorse.finish_time,
                 result: winnerHorse.result,
             } : null,
-            jackpot: (() => {
+            ...(() => {
                 const ctrl = this.getJackpotControlState();
                 const continuousActive = Boolean(ctrl && ctrl.enabled && ctrl.multiplier > 1);
                 const raceMult = Number(this.currentRace.jackpot_multiplier || this.currentRace.jackpotMultiplier || 1);
                 const activeMult = raceMult > 1 ? raceMult : (continuousActive ? ctrl.multiplier : 1);
                 const isJackpot = activeMult > 1;
-                return {
+                const label = isJackpot ? `${activeMult}X` : '1X';
+                const slotIndex = activeMult <= 1 ? 0 : (activeMult === 2 ? 1 : (activeMult === 3 ? 2 : (activeMult === 4 ? 3 : 4)));
+                const jackpotPayload = {
                     isJackpot,
+                    is_jackpot: isJackpot ? 1 : 0,
                     enabled: isJackpot,
                     multiplier: activeMult,
-                    multiplierLabel: isJackpot ? `${activeMult}X` : '1X',
+                    jackpotMultiplier: activeMult,
+                    jackpot_multiplier: activeMult,
+                    targetMultiplier: activeMult,
+                    multiplierLabel: label,
                     label: isJackpot ? `${activeMult}X` : 'N',
+                    jackpot: label,
+                    slotIndex,
                     mode: ctrl?.mode || (isJackpot ? 'CONTINUOUS' : 'OFF'),
                     slots: ['N', '2X', '3X', '4X', '5X'],
+                    slotsAlt: ['1X', '2X', '3X', '4X', '5X'],
                     message: isJackpot
                         ? `🔥 JACKPOT ACTIVE: ${activeMult}X PAYOUT! 🔥`
                         : 'N (Nothing - Standard Payout)',
+                };
+                return {
+                    jackpot_multiplier: activeMult,
+                    jackpotMultiplier: activeMult,
+                    multiplier: activeMult,
+                    is_jackpot: isJackpot ? 1 : 0,
+                    isJackpot,
+                    jackpot: jackpotPayload,
                 };
             })(),
             horses: this.currentHorses.map((h, index) => {
@@ -2233,13 +2268,22 @@ class RaceEngine extends EventEmitter {
         try {
             const { socketService } = require('./socket.service');
             if (socketService.io) {
+                const slotIndex = mult <= 1 ? 0 : (mult === 2 ? 1 : (mult === 3 ? 2 : (mult === 4 ? 3 : 4)));
                 const payload = {
                     gameSerial: String(targetSerial),
                     isLive: isCurrentActive,
                     jackpotMultiplier: mult,
+                    jackpot_multiplier: mult,
+                    multiplier: mult,
+                    targetMultiplier: mult,
                     isJackpot: mult > 1,
+                    is_jackpot: mult > 1 ? 1 : 0,
                     multiplierLabel: label,
-                    slots: ['1X', '2X', '3X', '4X', '5X'],
+                    label,
+                    jackpot: label,
+                    slotIndex,
+                    slots: ['N', '2X', '3X', '4X', '5X'],
+                    slotsAlt: ['1X', '2X', '3X', '4X', '5X'],
                     message: mult > 1 ? `🔥 JACKPOT ACTIVE: ${label} PAYOUT! 🔥` : '1X (Standard Payout)',
                     reason,
                     timestamp: new Date().toISOString(),
@@ -2288,13 +2332,25 @@ class RaceEngine extends EventEmitter {
         const now = Date.now();
         const isRandom = Boolean(c && (c.isRandom || c.multiplier === 0 || String(c.reason || '').toUpperCase().includes('RANDOM')));
         const activeMult = c ? (c.currentMultiplier || (c.multiplier > 0 ? c.multiplier : 2)) : 1;
+        const isJackpot = Boolean(c && activeMult > 1);
+        const label = activeMult > 1 ? `${activeMult}X` : '1X';
+        const slotIndex = activeMult <= 1 ? 0 : (activeMult === 2 ? 1 : (activeMult === 3 ? 2 : (activeMult === 4 ? 3 : 4)));
         return {
             enabled: Boolean(c),
+            isJackpot,
+            is_jackpot: isJackpot ? 1 : 0,
             mode: c ? (c.endsAt ? 'DURATION' : c.roundsRemaining !== null ? 'ROUNDS' : (isRandom ? 'RANDOM' : 'CONTINUOUS')) : 'OFF',
             isRandom,
             multiplier: c ? activeMult : 1,
+            jackpotMultiplier: c ? activeMult : 1,
+            jackpot_multiplier: c ? activeMult : 1,
+            targetMultiplier: c ? activeMult : 1,
             multiplierLabel: c ? (isRandom ? `RANDOM (${activeMult}X)` : `${activeMult}X`) : '1X',
-            slots: ['1X', '2X', '3X', '4X', '5X'],
+            label: isJackpot ? `${activeMult}X` : 'N',
+            jackpot: label,
+            slotIndex,
+            slots: ['N', '2X', '3X', '4X', '5X'],
+            slotsAlt: ['1X', '2X', '3X', '4X', '5X'],
             allowedMultipliers: this.jackpotConfig.allowedMultipliers || [2, 3, 4, 5],
             endsAt: c?.endsAt ? new Date(c.endsAt).toISOString() : null,
             secondsLeft: c?.endsAt ? Math.max(0, Math.ceil((c.endsAt - now) / 1000)) : null,
@@ -2496,6 +2552,8 @@ class RaceEngine extends EventEmitter {
                 this.jackpotConfig.targetMultiplier = 3;
             } else if (cleanTarget === '4' || cleanTarget === '4X') {
                 this.jackpotConfig.targetMultiplier = 4;
+            } else if (cleanTarget === '5' || cleanTarget === '5X') {
+                this.jackpotConfig.targetMultiplier = 5;
             } else {
                 this.jackpotConfig.targetMultiplier = 'RANDOM';
             }
@@ -2518,7 +2576,7 @@ class RaceEngine extends EventEmitter {
         if (Array.isArray(allowedMultipliers) && allowedMultipliers.length > 0) {
             const filtered = allowedMultipliers
                 .map((m) => parseInt(String(m).replace(/\D/g, ''), 10))
-                .filter((m) => [2, 3, 4].includes(m));
+                .filter((m) => [2, 3, 4, 5].includes(m));
             if (filtered.length > 0) {
                 this.jackpotConfig.allowedMultipliers = filtered;
             }

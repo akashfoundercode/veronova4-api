@@ -148,6 +148,23 @@ test('Horse Racing - Sequential Round Increment & Jackpot Forcing', async () => 
         await raceEngine.startInMemoryRaceCycle();
         assert.equal(raceEngine.currentRace.jackpot_multiplier, 5, 'Next round must stay strictly 5X');
 
+        // 8e. Test currentState payload aliases for 2X and 3X
+        await raceEngine.setForcedJackpot({ multiplier: '2X', reason: 'Admin 2X test' });
+        const state2X = raceEngine.getCurrentState();
+        assert.equal(state2X.jackpotMultiplier, 2);
+        assert.equal(state2X.multiplier, 2);
+        assert.equal(state2X.isJackpot, true);
+        assert.equal(state2X.jackpot.multiplier, 2);
+        assert.equal(state2X.jackpot.slotIndex, 1); // 2X is slot index 1
+
+        await raceEngine.setForcedJackpot({ multiplier: 3, reason: 'Admin 3X test' });
+        const state3X = raceEngine.getCurrentState();
+        assert.equal(state3X.jackpotMultiplier, 3);
+        assert.equal(state3X.multiplier, 3);
+        assert.equal(state3X.isJackpot, true);
+        assert.equal(state3X.jackpot.multiplier, 3);
+        assert.equal(state3X.jackpot.slotIndex, 2); // 3X is slot index 2
+
         // Turn OFF after tests
         await raceEngine.configureContinuousJackpot({ multiplier: 'OFF' });
         assert.equal(raceEngine.currentRace.jackpot_multiplier, 1);
