@@ -38,6 +38,9 @@ function getPool() {
     waitForConnections: true,
     queueLimit: 0,
     decimalNumbers: true,
+    connectTimeout: 5000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 10000,
   });
 
   return pool;

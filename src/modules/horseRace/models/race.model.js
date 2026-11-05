@@ -1,6 +1,19 @@
 const { pool } = require('../config/database');
 const { RACE_STATUSES } = require('../services/raceStateMachine');
 
+function withTimeout(promise, ms = 2000, fallback = null) {
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+    });
+    return Promise.race([
+        Promise.resolve(promise).catch(() => fallback),
+        timeoutPromise
+    ]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+}
+
 class RaceModel {
     /**
      * Create a new race round
@@ -308,45 +321,61 @@ class RaceModel {
 
         let total = 0;
         try {
-            const [countRows] = await connection.execute(
-                `SELECT COUNT(*) AS total FROM races WHERE status IN ('RESULT', 'FINISHED')`
+            const countRows = await withTimeout(
+                connection.execute(`SELECT COUNT(*) AS total FROM races WHERE status IN ('RESULT', 'FINISHED')`),
+                1500,
+                null
             );
-            total = Number(countRows[0]?.total || 0);
+            if (countRows && countRows[0]) {
+                total = Number(countRows[0][0]?.total || 0);
+            }
         } catch (_) {}
 
         let races = [];
         try {
-            const [rows] = await connection.query(
-                `SELECT r.id, r.game_serial, r.status, r.started_at, r.finished_at, r.result_at,
-                        r.winner_horse_id, r.created_at,
-                        COALESCE(rh.horse_name_snapshot, h.name) AS winner_horse_name,
-                        COALESCE(rh.serial_number, h.serial_number) AS winner_serial_number,
-                        h.image_url AS winner_image_url
-                 FROM races r
-                 LEFT JOIN race_horses rh ON r.id = rh.race_id AND rh.horse_id = r.winner_horse_id
-                 LEFT JOIN horses h ON r.winner_horse_id = h.id
-                 WHERE r.status IN ('RESULT', 'FINISHED')
-                 ORDER BY r.id DESC
-                 LIMIT ? OFFSET ?`,
-                [limit, offset]
+            const rRows = await withTimeout(
+                connection.query(
+                    `SELECT r.id, r.game_serial, r.status, r.started_at, r.finished_at, r.result_at,
+                            r.winner_horse_id, r.created_at,
+                            COALESCE(rh.horse_name_snapshot, h.name) AS winner_horse_name,
+                            COALESCE(rh.serial_number, h.serial_number) AS winner_serial_number,
+                            h.image_url AS winner_image_url
+                     FROM races r
+                     LEFT JOIN race_horses rh ON r.id = rh.race_id AND rh.horse_id = r.winner_horse_id
+                     LEFT JOIN horses h ON r.winner_horse_id = h.id
+                     WHERE r.status IN ('RESULT', 'FINISHED')
+                     ORDER BY r.id DESC
+                     LIMIT ? OFFSET ?`,
+                    [limit, offset]
+                ),
+                2000,
+                null
             );
-            races = rows || [];
+            races = (rRows && rRows[0]) ? rRows[0] : [];
         } catch (_) {}
 
         // Fallback: If races table has no finished rows, read distinct race_id from race_horses
         if (races.length === 0) {
             try {
-                const [countRh] = await connection.execute(
-                    `SELECT COUNT(DISTINCT race_id) AS total FROM race_horses`
+                const countRh = await withTimeout(
+                    connection.execute(`SELECT COUNT(DISTINCT race_id) AS total FROM race_horses`),
+                    1000,
+                    null
                 );
-                total = Number(countRh[0]?.total || 0);
+                if (countRh && countRh[0]) {
+                    total = Number(countRh[0][0]?.total || 0);
+                }
 
-                const [distinctRaces] = await connection.query(
-                    `SELECT DISTINCT race_id FROM race_horses ORDER BY race_id DESC LIMIT ? OFFSET ?`,
-                    [limit, offset]
+                const distinctRaces = await withTimeout(
+                    connection.query(
+                        `SELECT DISTINCT race_id FROM race_horses ORDER BY race_id DESC LIMIT ? OFFSET ?`,
+                        [limit, offset]
+                    ),
+                    1000,
+                    null
                 );
 
-                races = (distinctRaces || []).map((dr) => ({
+                races = ((distinctRaces && distinctRaces[0]) ? distinctRaces[0] : []).map((dr) => ({
                     id: dr.race_id,
                     game_serial: String(dr.race_id),
                     status: 'FINISHED',
@@ -378,28 +407,36 @@ class RaceModel {
 
         let horsesRows = [];
         try {
-            const [rows] = await connection.query(
-                `SELECT rh.race_id, rh.horse_id, rh.serial_number, rh.horse_name_snapshot,
-                        rh.starting_position, rh.finish_position, rh.finish_time, rh.result,
-                        h.image_url
-                 FROM race_horses rh
-                 LEFT JOIN horses h ON rh.horse_id = h.id
-                 WHERE rh.race_id IN (${placeholders})
-                 ORDER BY rh.race_id DESC, rh.finish_position ASC, rh.finish_time ASC`,
-                raceIds
-            );
-            horsesRows = rows || [];
-        } catch (_) {
-            try {
-                const [rows] = await connection.query(
+            const hRows = await withTimeout(
+                connection.query(
                     `SELECT rh.race_id, rh.horse_id, rh.serial_number, rh.horse_name_snapshot,
-                            rh.starting_position, rh.finish_position, rh.finish_time, rh.result
+                            rh.starting_position, rh.finish_position, rh.finish_time, rh.result,
+                            h.image_url
                      FROM race_horses rh
+                     LEFT JOIN horses h ON rh.horse_id = h.id
                      WHERE rh.race_id IN (${placeholders})
                      ORDER BY rh.race_id DESC, rh.finish_position ASC, rh.finish_time ASC`,
                     raceIds
+                ),
+                2000,
+                null
+            );
+            horsesRows = (hRows && hRows[0]) ? hRows[0] : [];
+        } catch (_) {
+            try {
+                const hRows = await withTimeout(
+                    connection.query(
+                        `SELECT rh.race_id, rh.horse_id, rh.serial_number, rh.horse_name_snapshot,
+                                rh.starting_position, rh.finish_position, rh.finish_time, rh.result
+                         FROM race_horses rh
+                         WHERE rh.race_id IN (${placeholders})
+                         ORDER BY rh.race_id DESC, rh.finish_position ASC, rh.finish_time ASC`,
+                        raceIds
+                    ),
+                    1500,
+                    null
                 );
-                horsesRows = rows || [];
+                horsesRows = (hRows && hRows[0]) ? hRows[0] : [];
             } catch (_) {}
         }
 
@@ -535,36 +572,46 @@ class RaceModel {
 
         let total = 0;
         try {
-            const [countRows] = await connection.query(
-                `SELECT COUNT(*) AS total 
-                 FROM races 
-                 WHERE status IN ('FINISHED', 'RESULT') OR winner_horse_id IS NOT NULL`
+            const countRows = await withTimeout(
+                connection.query(
+                    `SELECT COUNT(*) AS total 
+                     FROM races 
+                     WHERE status IN ('FINISHED', 'RESULT') OR winner_horse_id IS NOT NULL`
+                ),
+                1500,
+                null
             );
-            total = Number(countRows[0]?.total || 0);
+            if (countRows && countRows[0]) {
+                total = Number(countRows[0][0]?.total || 0);
+            }
         } catch (_) {}
 
         let rows = [];
         try {
-            const [rRows] = await connection.query(
-                `SELECT 
-                    r.id AS race_id,
-                    r.game_serial,
-                    r.status,
-                    COALESCE(r.jackpot_multiplier, 1.00) AS jackpot_multiplier,
-                    COALESCE(r.is_jackpot, 0) AS is_jackpot,
-                    r.winner_horse_id,
-                    r.finished_at,
-                    r.created_at,
-                    COALESCE(h.serial_number, r.winner_horse_id, 1) AS winner_horse_serial,
-                    COALESCE(h.name, CONCAT('Horse #', COALESCE(h.serial_number, r.winner_horse_id, 1))) AS winner_horse_name
-                 FROM races r
-                 LEFT JOIN horses h ON r.winner_horse_id = h.id
-                 WHERE r.status IN ('FINISHED', 'RESULT') OR r.winner_horse_id IS NOT NULL
-                 ORDER BY r.id DESC
-                 LIMIT ? OFFSET ?`,
-                [Number(limit), Number(offset)]
+            const rRows = await withTimeout(
+                connection.query(
+                    `SELECT 
+                        r.id AS race_id,
+                        r.game_serial,
+                        r.status,
+                        COALESCE(r.jackpot_multiplier, 1.00) AS jackpot_multiplier,
+                        COALESCE(r.is_jackpot, 0) AS is_jackpot,
+                        r.winner_horse_id,
+                        r.finished_at,
+                        r.created_at,
+                        COALESCE(h.serial_number, r.winner_horse_id, 1) AS winner_horse_serial,
+                        COALESCE(h.name, CONCAT('Horse #', COALESCE(h.serial_number, r.winner_horse_id, 1))) AS winner_horse_name
+                     FROM races r
+                     LEFT JOIN horses h ON r.winner_horse_id = h.id
+                     WHERE r.status IN ('FINISHED', 'RESULT') OR r.winner_horse_id IS NOT NULL
+                     ORDER BY r.id DESC
+                     LIMIT ? OFFSET ?`,
+                    [Number(limit), Number(offset)]
+                ),
+                2000,
+                null
             );
-            rows = rRows || [];
+            rows = (rRows && rRows[0]) ? rRows[0] : [];
         } catch (_) {}
 
         // Fallback 1: Check in-memory completed races from raceEngine
@@ -583,15 +630,19 @@ class RaceModel {
         // Fallback 2: Query race_horses if races table is empty
         if (rows.length === 0) {
             try {
-                const [rhRows] = await connection.query(
-                    `SELECT race_id, serial_number AS winner_horse_serial, horse_name_snapshot AS winner_horse_name, created_at
-                     FROM race_horses
-                     WHERE finish_position = 1 OR result = 'WINNER'
-                     ORDER BY race_id DESC
-                     LIMIT ? OFFSET ?`,
-                    [Number(limit), Number(offset)]
+                const rhRows = await withTimeout(
+                    connection.query(
+                        `SELECT race_id, serial_number AS winner_horse_serial, horse_name_snapshot AS winner_horse_name, created_at
+                         FROM race_horses
+                         WHERE finish_position = 1 OR result = 'WINNER'
+                         ORDER BY race_id DESC
+                         LIMIT ? OFFSET ?`,
+                        [Number(limit), Number(offset)]
+                    ),
+                    1000,
+                    null
                 );
-                rows = (rhRows || []).map((r) => ({
+                rows = ((rhRows && rhRows[0]) ? rhRows[0] : []).map((r) => ({
                     race_id: r.race_id,
                     game_serial: String(r.race_id),
                     status: 'FINISHED',

@@ -1,5 +1,18 @@
 const HorseModel = require('../models/horse.model');
 
+function withTimeout(promise, ms = 2000, fallback = null) {
+    let timer;
+    const timeoutPromise = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+    });
+    return Promise.race([
+        Promise.resolve(promise).catch(() => fallback),
+        timeoutPromise
+    ]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+}
+
 class HorseService {
     static formatHorse(row) {
         if (!row) return null;
@@ -86,10 +99,14 @@ class HorseService {
 
         let rows = [];
         try {
-            rows = await HorseModel.findAll({
-                status: statusFilter,
-                orderBy: 'serial_number ASC',
-            });
+            rows = await withTimeout(
+                HorseModel.findAll({
+                    status: statusFilter,
+                    orderBy: 'serial_number ASC',
+                }),
+                1500,
+                []
+            );
         } catch (_) { }
 
         if (!rows || rows.length === 0) {
