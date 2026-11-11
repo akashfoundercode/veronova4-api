@@ -8,6 +8,7 @@ const controller = require("./admin.controller");
 const HorseRaceAdminController = require("../horseRace/controllers/admin.controller");
 const chickenController = require("../chicken/chicken.controller");
 const stackTowerController = require("../stackTower/stackTower.controller");
+const { uploadBannerImage } = require("./upload.middleware");
 
 const router = express.Router();
 
@@ -104,17 +105,24 @@ router.post(API_ROUTES.admin.giftItem, authenticate, requireAdmin, controller.sa
 router.delete(API_ROUTES.admin.giftItem, authenticate, requireAdmin, controller.saveGift);
 router.get(API_ROUTES.admin.giftHistory, authenticate, requireAdmin, controller.getGifts);
 
-// Activity & Banner Management (Unified GET for List & Single, POST for Add, Edit/Update & Delete)
+// Activity & Banner Management (Unified GET for List & Single, POST/PUT/PATCH for Add & Edit, DELETE for Delete)
 router.get(API_ROUTES.admin.banners, authenticate, requireAdmin, controller.getBanners);
-router.post(API_ROUTES.admin.banners, authenticate, requireAdmin, controller.saveBanner);
+router.post(API_ROUTES.admin.banners, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
 router.get(API_ROUTES.admin.bannerItem, authenticate, requireAdmin, controller.getBanners);
-router.post(API_ROUTES.admin.bannerItem, authenticate, requireAdmin, controller.saveBanner);
+router.post(API_ROUTES.admin.bannerItem, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.put(API_ROUTES.admin.bannerItem, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.patch(API_ROUTES.admin.bannerItem, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
 router.delete(API_ROUTES.admin.bannerItem, authenticate, requireAdmin, controller.saveBanner);
+router.delete(API_ROUTES.admin.banners, authenticate, requireAdmin, controller.saveBanner);
+
 router.get(API_ROUTES.admin.activityBanners, authenticate, requireAdmin, controller.getBanners);
-router.post(API_ROUTES.admin.activityBanners, authenticate, requireAdmin, controller.saveBanner);
+router.post(API_ROUTES.admin.activityBanners, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
 router.get(API_ROUTES.admin.activityBannerItem, authenticate, requireAdmin, controller.getBanners);
-router.post(API_ROUTES.admin.activityBannerItem, authenticate, requireAdmin, controller.saveBanner);
+router.post(API_ROUTES.admin.activityBannerItem, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.put(API_ROUTES.admin.activityBannerItem, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.patch(API_ROUTES.admin.activityBannerItem, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
 router.delete(API_ROUTES.admin.activityBannerItem, authenticate, requireAdmin, controller.saveBanner);
+router.delete(API_ROUTES.admin.activityBanners, authenticate, requireAdmin, controller.saveBanner);
 
 // Payment Limits Management (Unified GET for List & Single, POST for Add, Edit/Update & Delete)
 router.get(API_ROUTES.admin.paymentLimits, authenticate, requireAdmin, controller.getPaymentLimits);
@@ -178,9 +186,22 @@ router.get("/admin/deposit", authenticate, requireAdmin, controller.getDeposits)
 router.get("/admin/payment-limit", authenticate, requireAdmin, controller.getPaymentLimits);
 router.post("/admin/payment-limit", authenticate, requireAdmin, controller.savePaymentLimit);
 router.get("/admin/activity-banner", authenticate, requireAdmin, controller.getBanners);
-router.post("/admin/activity-banner", authenticate, requireAdmin, controller.saveBanner);
+router.post("/admin/activity-banner", authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
 router.get("/admin/sliders", authenticate, requireAdmin, controller.getBanners);
-router.post("/admin/sliders", authenticate, requireAdmin, controller.saveBanner);
+router.post("/admin/sliders", authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.get("/admin/sliders/:id", authenticate, requireAdmin, controller.getBanners);
+router.post("/admin/sliders/:id", authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.put("/admin/sliders/:id", authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.patch("/admin/sliders/:id", authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);
+router.delete("/admin/sliders/:id", authenticate, requireAdmin, controller.saveBanner);
+router.delete("/admin/sliders", authenticate, requireAdmin, controller.saveBanner);
+
+// Public Slider & Banner Endpoints for Frontend (Homepage, slider carousel, activity popups)
+router.get("/banners", controller.getBanners);
+router.get("/sliders", controller.getBanners);
+router.get("/activity-banners", controller.getBanners);
+router.get("/banners/:id", controller.getBanners);
+router.get("/sliders/:id", controller.getBanners);
 router.get("/admin/gift-history", authenticate, requireAdmin, controller.getGifts);
 router.post("/admin/add-gift", authenticate, requireAdmin, controller.saveGift);
 router.get("/admin/mlm-salary", authenticate, requireAdmin, controller.getSalaryList);

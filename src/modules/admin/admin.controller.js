@@ -572,6 +572,28 @@ async function saveBanner(req, res) {
       id: req.body?.id ?? req.params?.id,
       paramsId: req.params?.id,
     };
+
+    // If files were uploaded via multipart/form-data
+    if (req.files && Array.isArray(req.files) && req.files.length > 0) {
+      for (const f of req.files) {
+        const field = (f.fieldname || "").toLowerCase();
+        const fileUrl = `/uploads/sliders/${f.filename}`;
+        if (field.includes("activity")) {
+          payload.activity_image = fileUrl;
+          payload["Activity Image"] = fileUrl;
+        } else {
+          payload.banner_image = fileUrl;
+          payload.image = fileUrl;
+          payload["Banner Image"] = fileUrl;
+        }
+      }
+    } else if (req.file) {
+      const fileUrl = `/uploads/sliders/${req.file.filename}`;
+      payload.banner_image = fileUrl;
+      payload.image = fileUrl;
+      payload["Banner Image"] = fileUrl;
+    }
+
     if (req.method === "DELETE" || req.query?.action === "delete") {
       payload.action = "delete";
     }

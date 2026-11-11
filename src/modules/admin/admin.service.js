@@ -3937,16 +3937,20 @@ class AdminService {
 
     // 3. ADD / CREATE
     const title = data.title ? String(data.title).trim() : (data.Title ? String(data.Title).trim() : "");
-    const bannerImage = data.banner_image
+    const rawBannerImage = data.banner_image
       ? String(data.banner_image).trim()
       : (data["Banner Image"] ? String(data["Banner Image"]).trim() : (data.image ? String(data.image).trim() : ""));
-    const activityImage = data.activity_image
+    const rawActivityImage = data.activity_image
       ? String(data.activity_image).trim()
       : (data["Activity Image"] ? String(data["Activity Image"]).trim() : "");
 
-    if (!title || !bannerImage || !activityImage) {
+    // If neither image is provided, or title is missing, throw standard error
+    if (!title || (!rawBannerImage && !rawActivityImage)) {
       throw new AppError(400, "VALIDATION_ERROR", "Title, Banner Image, and Activity Image are required.");
     }
+
+    const bannerImage = rawBannerImage || rawActivityImage;
+    const activityImage = rawActivityImage || rawBannerImage;
 
     const activityImageUrl = data.activity_image_url
       ? String(data.activity_image_url).trim()
