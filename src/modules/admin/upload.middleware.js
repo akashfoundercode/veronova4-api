@@ -57,3 +57,4 @@ const uploadBannerImage = (req, res, next) => {
 module.exports = {
   uploadBannerImage,
 };
+
