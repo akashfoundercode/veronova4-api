@@ -542,12 +542,16 @@ async function saveGift(req, res) {
 }
 
 function getBaseUrl(req) {
-  if (!req) return process.env.BASE_URL || "";
-  const forwardedProto = req.headers ? (req.headers["x-forwarded-proto"] || req.headers["x-forwarded-protocol"]) : null;
-  const protocol = forwardedProto || req.protocol || "https";
-  const host = (req.headers ? (req.headers["x-forwarded-host"] || req.get("host")) : null) || (typeof req.get === "function" ? req.get("host") : "") || "";
-  if (!host) return process.env.BASE_URL || "";
-  return `${protocol}://${host}`;
+  const fallback = process.env.BASE_URL || "https://api.wingo4all.site";
+  if (!req) return fallback;
+  const rawProto = req.headers ? (req.headers["x-forwarded-proto"] || req.headers["x-forwarded-protocol"]) : null;
+  const proto = (Array.isArray(rawProto) ? rawProto[0] : (rawProto ? String(rawProto).split(",")[0] : null)) || req.protocol || "https";
+  const rawHost = req.headers ? (req.headers["x-forwarded-host"] || (typeof req.get === "function" ? req.get("host") : null)) : null;
+  const host = (Array.isArray(rawHost) ? rawHost[0] : (rawHost ? String(rawHost).split(",")[0] : null)) || (typeof req.get === "function" ? req.get("host") : "");
+  if (!host || host === "localhost" || host.startsWith("127.0.0.1")) {
+    return fallback;
+  }
+  return `${proto.trim()}://${host.trim()}`;
 }
 
 async function getBanners(req, res) {

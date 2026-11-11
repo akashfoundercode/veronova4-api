@@ -744,17 +744,19 @@ function resolveImageUrl(url, baseUrl = "") {
   if (!url || typeof url !== "string") return "";
   let clean = url.trim();
 
-  // If baseUrl is provided, clean and rewrite to current host
-  if (baseUrl) {
-    if (clean.includes("root.veronova.co.in")) {
-      clean = clean.replace(/https?:\/\/root\.veronova\.co\.in/gi, "");
-    }
-    if (clean.startsWith("/uploads/")) {
-      return `${baseUrl.replace(/\/+$/, "")}${clean}`;
-    }
-    if (!clean.startsWith("http://") && !clean.startsWith("https://") && !clean.startsWith("/")) {
-      return `${baseUrl.replace(/\/+$/, "")}/uploads/sliders/${clean}`;
-    }
+  // Always strip legacy root.veronova.co.in unconditionally
+  if (clean.includes("root.veronova.co.in")) {
+    clean = clean.replace(/https?:\/\/root\.veronova\.co\.in/gi, "");
+  }
+
+  const effectiveBase = (baseUrl && baseUrl.trim()) || process.env.BASE_URL || "https://api.wingo4all.site";
+  const cleanBase = effectiveBase.replace(/\/+$/, "");
+
+  if (clean.startsWith("/uploads/")) {
+    return `${cleanBase}${clean}`;
+  }
+  if (!clean.startsWith("http://") && !clean.startsWith("https://") && !clean.startsWith("/")) {
+    return `${cleanBase}/uploads/sliders/${clean}`;
   }
 
   return clean;

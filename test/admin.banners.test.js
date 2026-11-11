@@ -140,10 +140,10 @@ test("formatBanner accurately formats all required table columns", () => {
   assert.equal(formatted.id, 18);
   assert.equal(formatted.Title, "Welcome To Bdg Cassino");
   assert.equal(formatted.title, "Welcome To Bdg Cassino");
-  assert.equal(formatted["Banner Image"], "https://root.veronova.co.in/uploads/sliders/banner1.jpg");
-  assert.equal(formatted.banner_image, "https://root.veronova.co.in/uploads/sliders/banner1.jpg");
-  assert.equal(formatted["Activity Image"], "https://root.veronova.co.in/uploads/sliders/image_1.jpeg");
-  assert.equal(formatted.activity_image, "https://root.veronova.co.in/uploads/sliders/image_1.jpeg");
+  assert.equal(formatted["Banner Image"], "https://api.wingo4all.site/uploads/sliders/banner1.jpg");
+  assert.equal(formatted.banner_image, "https://api.wingo4all.site/uploads/sliders/banner1.jpg");
+  assert.equal(formatted["Activity Image"], "https://api.wingo4all.site/uploads/sliders/image_1.jpeg");
+  assert.equal(formatted.activity_image, "https://api.wingo4all.site/uploads/sliders/image_1.jpeg");
   assert.equal(formatted.Status, 1);
   assert.equal(formatted.status_label, "Active");
   assert.deepEqual(formatted.Actions, ["edit", "update", "delete", "status"]);
@@ -215,8 +215,8 @@ test("AdminService.saveBanner adds a new banner validating Title *, Banner Image
   assert.equal(res.success, true);
   assert.equal(res.message, "Activity banner added successfully");
   assert.equal(res.data.title, "IPL Mega Cashback");
-  assert.equal(res.data.banner_image, "https://root.veronova.co.in/uploads/sliders/ipl_banner.jpg");
-  assert.equal(res.data.activity_image, "https://root.veronova.co.in/uploads/sliders/ipl_activity.jpeg");
+  assert.equal(res.data.banner_image, "https://api.wingo4all.site/uploads/sliders/ipl_banner.jpg");
+  assert.equal(res.data.activity_image, "https://api.wingo4all.site/uploads/sliders/ipl_activity.jpeg");
   assert.equal(res.data.status, 1);
 });
 
@@ -235,7 +235,7 @@ test("AdminService.saveBanner edits an existing banner", async () => {
   assert.equal(res.message, "Activity banner updated successfully");
   assert.equal(res.data.id, 18);
   assert.equal(res.data.title, "Updated Bdg Casino Title");
-  assert.equal(res.data.banner_image, "https://root.veronova.co.in/uploads/sliders/new_banner.jpg");
+  assert.equal(res.data.banner_image, "https://api.wingo4all.site/uploads/sliders/new_banner.jpg");
 });
 
 test("AdminService.saveBanner deletes a banner when action=delete", async () => {
