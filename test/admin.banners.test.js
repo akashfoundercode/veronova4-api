@@ -149,6 +149,26 @@ test("formatBanner accurately formats all required table columns", () => {
   assert.deepEqual(formatted.Actions, ["edit", "update", "delete", "status"]);
 });
 
+test("formatBanner rewrites legacy root.veronova.co.in to current server base_url", () => {
+  const row = {
+    id: 20,
+    title: "Referral Income",
+    image: "https://root.veronova.co.in/uploads/sliders/1753874344_1.png",
+    activity_image: "https://root.veronova.co.in/uploads/sliders/image_3.jpeg",
+    activity_image_url: "https://root.veronova.co.in/uploads/sliders/image_3.jpeg",
+    status: 0,
+    created_at: new Date("2025-07-30T11:19:04.000Z"),
+  };
+
+  const formatted = formatBanner(row, "https://api.wingo4all.site");
+  assert.equal(formatted["Banner Image"], "https://api.wingo4all.site/uploads/sliders/1753874344_1.png");
+  assert.equal(formatted.banner_image, "https://api.wingo4all.site/uploads/sliders/1753874344_1.png");
+  assert.equal(formatted.image, "https://api.wingo4all.site/uploads/sliders/1753874344_1.png");
+  assert.equal(formatted["Activity Image"], "https://api.wingo4all.site/uploads/sliders/image_3.jpeg");
+  assert.equal(formatted.activity_image, "https://api.wingo4all.site/uploads/sliders/image_3.jpeg");
+  assert.equal(formatted.activity_image_url, "https://api.wingo4all.site/uploads/sliders/image_3.jpeg");
+});
+
 test("AdminService.getBanners retrieves paginated banners and summary", async () => {
   const pool = createMockPool();
   const service = new AdminService(pool);

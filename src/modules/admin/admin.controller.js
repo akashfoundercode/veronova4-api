@@ -541,11 +541,22 @@ async function saveGift(req, res) {
   }
 }
 
+function getBaseUrl(req) {
+  if (!req) return process.env.BASE_URL || "";
+  const forwardedProto = req.headers ? (req.headers["x-forwarded-proto"] || req.headers["x-forwarded-protocol"]) : null;
+  const protocol = forwardedProto || req.protocol || "https";
+  const host = (req.headers ? (req.headers["x-forwarded-host"] || req.get("host")) : null) || (typeof req.get === "function" ? req.get("host") : "") || "";
+  if (!host) return process.env.BASE_URL || "";
+  return `${protocol}://${host}`;
+}
+
 async function getBanners(req, res) {
   try {
+    const baseUrl = getBaseUrl(req);
     const query = {
       ...req.query,
       id: req.params?.id ?? req.query?.id,
+      baseUrl,
     };
     const data = await service.getBanners(query);
     const message = query.id ? "Activity banner fetched successfully" : "Activity & banners fetched successfully";
@@ -567,10 +578,12 @@ async function getBanners(req, res) {
 
 async function saveBanner(req, res) {
   try {
+    const baseUrl = getBaseUrl(req);
     const payload = {
       ...req.body,
       id: req.body?.id ?? req.params?.id,
       paramsId: req.params?.id,
+      baseUrl,
     };
 
     // If files were uploaded via multipart/form-data

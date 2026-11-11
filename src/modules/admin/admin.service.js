@@ -722,22 +722,58 @@ async function ensureSlidersTable(pool) {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
+
+    // Clean up legacy external domain references in sliders table so images resolve from current base URL
+    try {
+      await pool.execute(`
+        UPDATE sliders
+        SET image = REPLACE(image, 'https://root.veronova.co.in', ''),
+            activity_image = REPLACE(activity_image, 'https://root.veronova.co.in', ''),
+            activity_image_url = REPLACE(activity_image_url, 'https://root.veronova.co.in', '')
+        WHERE image LIKE '%root.veronova.co.in%' OR activity_image LIKE '%root.veronova.co.in%' OR activity_image_url LIKE '%root.veronova.co.in%'
+      `);
+    } catch (_) {}
+
     slidersTableInitialized = true;
   } catch {
     // If pool mock or sandbox, proceed
   }
 }
 
-function formatBanner(row) {
+function resolveImageUrl(url, baseUrl = "") {
+  if (!url || typeof url !== "string") return "";
+  let clean = url.trim();
+
+  // If baseUrl is provided, clean and rewrite to current host
+  if (baseUrl) {
+    if (clean.includes("root.veronova.co.in")) {
+      clean = clean.replace(/https?:\/\/root\.veronova\.co\.in/gi, "");
+    }
+    if (clean.startsWith("/uploads/")) {
+      return `${baseUrl.replace(/\/+$/, "")}${clean}`;
+    }
+    if (!clean.startsWith("http://") && !clean.startsWith("https://") && !clean.startsWith("/")) {
+      return `${baseUrl.replace(/\/+$/, "")}/uploads/sliders/${clean}`;
+    }
+  }
+
+  return clean;
+}
+
+function formatBanner(row, baseUrl = "") {
   if (!row) return null;
   const id = Number(row.id);
   const statusNum = Number(row.status ?? 1);
   const isStatusActive = statusNum === 1;
   const statusLabel = statusNum === -1 ? "Deleted" : (isStatusActive ? "Active" : "Inactive");
-  const bannerImage = row.image ?? row.banner_image ?? "";
-  const activityImage = row.activity_image ?? "";
-  const activityImageUrl = row.activity_image_url ?? activityImage;
+  const rawBannerImage = row.image ?? row.banner_image ?? "";
+  const rawActivityImage = row.activity_image ?? "";
+  const rawActivityImageUrl = row.activity_image_url ?? rawActivityImage;
   const title = row.title ?? "";
+
+  const bannerImage = resolveImageUrl(rawBannerImage, baseUrl);
+  const activityImage = resolveImageUrl(rawActivityImage, baseUrl);
+  const activityImageUrl = resolveImageUrl(rawActivityImageUrl, baseUrl);
 
   const dateVal = row.created_at || row.updated_at;
   const dateStr = dateVal instanceof Date
@@ -3753,6 +3789,7 @@ class AdminService {
     const pool = this.poolProvider();
     await ensureSlidersTable(pool);
 
+    const baseUrl = query.baseUrl || query.base_url || "";
     const targetId = query.id ?? query.banner_id ?? query.slider_id;
     if (targetId !== undefined && targetId !== null && String(targetId).trim() !== "") {
       const [rows] = await pool.execute(
@@ -3763,8 +3800,8 @@ class AdminService {
         throw new AppError(404, "BANNER_NOT_FOUND", `Banner with ID '${targetId}' not found`);
       }
       return {
-        banner: formatBanner(rows[0]),
-        data: formatBanner(rows[0]),
+        banner: formatBanner(rows[0], baseUrl),
+        data: formatBanner(rows[0], baseUrl),
       };
     }
 
@@ -3837,7 +3874,7 @@ class AdminService {
     for (const r of rows) {
       const mid = Number(r.id);
       if (!uniqueMap.has(mid)) {
-        uniqueMap.set(mid, formatBanner(r));
+        uniqueMap.set(mid, formatBanner(r, baseUrl));
       }
     }
     const list = Array.from(uniqueMap.values());
@@ -3859,6 +3896,7 @@ class AdminService {
     const pool = this.poolProvider();
     await ensureSlidersTable(pool);
 
+    const baseUrl = data.baseUrl || data.base_url || "";
     const targetId = Number(data.id ?? data.paramsId);
     const isDeleteAction =
       data.action === "delete" ||
@@ -3931,7 +3969,7 @@ class AdminService {
       return {
         success: true,
         message: "Activity banner updated successfully",
-        data: formatBanner(updatedRows[0]),
+        data: formatBanner(updatedRows[0], baseUrl),
       };
     }
 
@@ -3972,7 +4010,7 @@ class AdminService {
     return {
       success: true,
       message: "Activity banner added successfully",
-      data: formatBanner(newRow[0]),
+      data: formatBanner(newRow[0], baseUrl),
     };
   }
 
