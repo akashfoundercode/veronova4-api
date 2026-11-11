@@ -727,9 +727,9 @@ async function ensureSlidersTable(pool) {
     try {
       await pool.execute(`
         UPDATE sliders
-        SET image = REPLACE(image, 'https://root.veronova.co.in', ''),
-            activity_image = REPLACE(activity_image, 'https://root.veronova.co.in', ''),
-            activity_image_url = REPLACE(activity_image_url, 'https://root.veronova.co.in', '')
+        SET image = REPLACE(REPLACE(image, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''),
+            activity_image = REPLACE(REPLACE(activity_image, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''),
+            activity_image_url = REPLACE(REPLACE(activity_image_url, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', '')
         WHERE image LIKE '%root.veronova.co.in%' OR activity_image LIKE '%root.veronova.co.in%' OR activity_image_url LIKE '%root.veronova.co.in%'
       `);
     } catch (_) {}
