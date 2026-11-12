@@ -1,0 +1,370 @@
+<?php $__env->startSection('admin'); ?>
+
+<?php if(session('success')): ?>
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <?php echo e(session('success')); ?>
+
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+        </button>
+    </div>
+<?php endif; ?>
+
+<?php if(session('error')): ?>
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <?php echo e(session('error')); ?>
+
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+        </button>
+    </div>
+<?php endif; ?>
+
+<?php if($errors->has('pin')): ?>
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <?php echo e($errors->first('pin')); ?>
+
+        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+        </button>
+    </div>
+<?php endif; ?>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-12">
+            <div class="white_shd full margin_bottom_30">
+                <div class="full graph_head">
+    <div class="heading1 margin_0 d-flex justify-content-between align-items-center">
+        <h2 class="mb-0">Deposit List - <?php echo e($id == 1 ? 'Pending' : ($id == 2 ? 'Success' : 'Rejected')); ?></h2>
+        <div class="text-muted mb-0" style="font-size: 14px; font-weight: 500; margin-right:-1000px;">
+            Total: <?php echo e($deposits->total()); ?> records
+        </div>
+    </div>
+</div>
+                <div class="table_section padding_infor_info">
+                    <div class="table-responsive-sm">
+                        <table class="table table-striped table-bordered" style="width:100%">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th width="5%">Id</th>
+                                    <th width="8%">User Id</th>
+                                    <th width="12%">User Name</th>
+                                    <th width="15%">Order Id</th>
+                                    <th width="8%">Amount</th>
+                                    <th width="12%">Status</th>
+                                    <th width="15%">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php $__empty_1 = true; $__currentLoopData = $deposits; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $item): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); $__empty_1 = false; ?>
+                                    <tr>
+                                        <td><?php echo e($item->id); ?></td>
+                                        <td><?php echo e($item->userid); ?></td>
+                                        <td><?php echo e($item->uname); ?></td>
+                                        <td><?php echo e($item->order_id); ?></td>
+                                        <td><?php echo e(number_format($item->cash, 2)); ?></td>
+                                        <td>
+                                            <?php if($item->status == 1): ?>
+                                                <div class="dropdown">
+                                                    <button class="btn btn-warning btn-sm dropdown-toggle" type="button" id="dropdownMenuButton<?php echo e($item->id); ?>" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                                                        Pending
+                                                    </button>
+                                                    <div class="dropdown-menu" aria-labelledby="dropdownMenuButton<?php echo e($item->id); ?>">
+                                                        <a class="dropdown-item" data-toggle="modal" data-target="#successModal<?php echo e($item->id); ?>" style="background-color: green; color: white;">
+                                                            Success
+                                                        </a>
+                                                        <a class="dropdown-item" data-toggle="modal" data-target="#rejectModal<?php echo e($item->id); ?>" style="background-color: Red; color: white;">
+                                                            Reject
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            <?php elseif($item->status == 2): ?>
+                                                <button class="btn btn-success btn-sm">Success</button>
+                                            <?php elseif($item->status == 3): ?>
+                                                <button class="btn btn-danger btn-sm">Reject</button>
+                                            <?php else: ?>
+                                                <span class="badge badge-secondary">Unknown Status</span>
+                                            <?php endif; ?>
+                                         </td>
+                                        <td><?php echo e(date('d-m-Y H:i:s', strtotime($item->created_at))); ?></td>
+                                    </tr>
+
+                                    <!-- Success Modal -->
+                                    <div class="modal fade" id="successModal<?php echo e($item->id); ?>" tabindex="-1" role="dialog" aria-labelledby="successModalLabel<?php echo e($item->id); ?>" aria-hidden="true">
+                                        <div class="modal-dialog modal-dialog-centered modal-sm" role="document">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title" id="successModalLabel<?php echo e($item->id); ?>">Success Deposit</h5>
+                                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                        <span aria-hidden="true">&times;</span>
+                                                    </button>
+                                                </div>
+                                                <form action="<?php echo e(route('payin_success', $item->id)); ?>" method="POST">
+                                                    <?php echo csrf_field(); ?>
+                                                    <div class="modal-body">
+                                                        <div class="form-group">
+                                                            <label for="pin_<?php echo e($item->id); ?>">Please Enter PIN</label>
+                                                            <input type="number" class="form-control" id="pin_<?php echo e($item->id); ?>" name="pin" placeholder="Enter your PIN" required autocomplete="off">
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+                                                        <button type="submit" class="btn btn-primary btn-sm">Submit</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Reject Modal -->
+                                    <div class="modal fade" id="rejectModal<?php echo e($item->id); ?>" tabindex="-1" role="dialog" aria-labelledby="rejectModalLabel<?php echo e($item->id); ?>" aria-hidden="true">
+                                        <div class="modal-dialog modal-dialog-centered" role="document">
+                                            <div class="modal-content">
+                                                <div class="modal-header">
+                                                    <h5 class="modal-title" id="rejectModalLabel<?php echo e($item->id); ?>">Reject Deposit</h5>
+                                                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                        <span aria-hidden="true">&times;</span>
+                                                    </button>
+                                                </div>
+                                                <form action="<?php echo e(route('deposit.reject', $item->id)); ?>" method="POST">
+                                                    <?php echo csrf_field(); ?>
+                                                    <div class="modal-body">
+                                                        <div class="form-group">
+                                                            <label for="msg_<?php echo e($item->id); ?>">Reason for rejection</label>
+                                                            <textarea class="form-control" id="msg_<?php echo e($item->id); ?>" name="msg" rows="3" placeholder="Enter reason for rejection" required></textarea>
+                                                        </div>
+                                                    </div>
+                                                    <div class="modal-footer">
+                                                        <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Close</button>
+                                                        <button type="submit" class="btn btn-primary btn-sm">Submit</button>
+                                                    </div>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); if ($__empty_1): ?>
+                                    <tr>
+                                        <td colspan="7" class="text-center">No records found</td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                        
+                        <!-- Custom Styled Pagination -->
+                        <div class="custom-pagination">
+                            <div class="d-flex justify-content-between align-items-center flex-wrap">
+                                <div class="pagination-info">
+                                    Showing <?php echo e($deposits->firstItem()); ?> to <?php echo e($deposits->lastItem()); ?> of <?php echo e($deposits->total()); ?> entries
+                                </div>
+                                <div>
+                                    <?php echo e($deposits->appends(['id' => $id])->links('pagination::bootstrap-4')); ?>
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Custom Pagination Styles */
+    .custom-pagination {
+        margin-top: 20px;
+        padding: 15px 10px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    
+    .pagination-info {
+        color: #6c757d;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    /* Bootstrap 4 Pagination Styling */
+    .pagination {
+        margin-bottom: 0;
+        flex-wrap: wrap;
+    }
+    
+    .page-item {
+        margin: 0 2px;
+    }
+    
+    .page-item .page-link {
+        border-radius: 6px !important;
+        padding: 8px 14px;
+        color: #007bff;
+        background-color: #fff;
+        border: 1px solid #dee2e6;
+        transition: all 0.3s ease;
+        font-size: 14px;
+    }
+    
+    .page-item.active .page-link {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-color: #667eea;
+        color: white;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .page-item.disabled .page-link {
+        color: #6c757d;
+        background-color: #fff;
+        border-color: #dee2e6;
+        opacity: 0.6;
+    }
+    
+    .page-item:not(.disabled) .page-link:hover {
+        background-color: #e9ecef;
+        border-color: #dee2e6;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    
+    .page-item.active .page-link:hover {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        transform: translateY(-1px);
+    }
+    
+    /* First and Last page items special styling */
+    .page-item:first-child .page-link,
+    .page-item:last-child .page-link {
+        font-weight: 500;
+    }
+    
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .custom-pagination .d-flex {
+            flex-direction: column;
+            gap: 15px;
+            align-items: center !important;
+        }
+        
+        .page-item .page-link {
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+        
+        .pagination-info {
+            font-size: 12px;
+            text-align: center;
+        }
+        
+        /* Make heading responsive on mobile */
+        .full.graph_head .heading1 {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+        }
+        
+        .full.graph_head .heading1 .d-flex {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+        }
+        
+        .text-muted.ml-3 {
+            margin-left: 0 !important;
+            margin-top: 5px;
+        }
+    }
+    
+    /* Modal styling improvements */
+    .modal-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+    }
+    
+    .modal-header .close {
+        color: white;
+        opacity: 1;
+    }
+    
+    .modal-header .close:hover {
+        color: white;
+        opacity: 0.8;
+    }
+    
+    /* Table styling */
+    .table {
+        font-size: 14px;
+    }
+    
+    .table thead th {
+        background-color: #343a40;
+        color: white;
+        border-bottom: none;
+        vertical-align: middle;
+    }
+    
+    .table tbody tr:hover {
+        background-color: #f8f9fa;
+        transition: background-color 0.3s ease;
+    }
+    
+    /* Button improvements */
+    .btn-sm {
+        font-size: 12px;
+        padding: 5px 12px;
+    }
+    
+    .dropdown-menu {
+        min-width: 100px;
+        padding: 5px 0;
+    }
+    
+    .dropdown-item {
+        font-size: 13px;
+        padding: 6px 12px;
+    }
+    
+    /* Alert animations */
+    .alert {
+        animation: slideDown 0.5s ease;
+    }
+    
+    @keyframes slideDown {
+        from {
+            transform: translateY(-100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+</style>
+
+<!-- Scripts -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.bundle.min.js"></script>
+
+<script>
+    $(document).ready(function() {
+        // Auto-hide alerts after 5 seconds
+        setTimeout(function() {
+            $('.alert').fadeOut('slow');
+        }, 5000);
+        
+        // Clear modal input fields when closed
+        $('.modal').on('hidden.bs.modal', function () {
+            $(this).find('form')[0].reset();
+        });
+        
+        // Add smooth loading effect on pagination click
+        $(document).on('click', '.pagination a', function(e) {
+            e.preventDefault();
+            var url = $(this).attr('href');
+            if(url) {
+                $('body').css('opacity', '0.5');
+                window.location.href = url;
+            }
+        });
+    });
+</script>
+
+<?php $__env->stopSection(); ?>
+<?php echo $__env->make('admin.body.adminmaster', \Illuminate\Support\Arr::except(get_defined_vars(), ['__data', '__path']))->render(); ?><?php /**PATH /var/www/vhosts/fun-zone.co.in/veronova.co.in/root.veronova.co.in/resources/views/work_order_assign/deposit.blade.php ENDPATH**/ ?>

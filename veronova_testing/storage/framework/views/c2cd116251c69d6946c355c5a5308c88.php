@@ -1,0 +1,2 @@
+<li><a href="<?php echo e(route('colour_prediction',13)); ?>"><i class="fa fa-clone"></i> <span>Andar Bahar</span></a></li>
+<?php /**PATH /var/www/vhosts/fun-zone.co.in/veronova.co.in/root.veronova.co.in/resources/views/admin/body/andarbahar_sidebar.blade.php ENDPATH**/ ?>

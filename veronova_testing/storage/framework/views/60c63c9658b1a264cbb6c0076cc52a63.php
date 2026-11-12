@@ -1,0 +1,2 @@
+<li><a href="<?php echo e(route('colour_prediction',10)); ?>"><i class="fa fa-paw"></i> <span>Dragon</span></a></li>
+<?php /**PATH /var/www/vhosts/fun-zone.co.in/veronova.co.in/root.veronova.co.in/resources/views/admin/body/dragon_sidebar.blade.php ENDPATH**/ ?>

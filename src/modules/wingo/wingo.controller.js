@@ -450,10 +450,12 @@ async function adminBetHistory(req, res) {
 
 async function colourPredictionStore(req, res) {
   try {
-    const body = req.body ?? {};
-    const gameId = Number(body.game_id ?? body.gameid);
-    const gamesno = String(body.game_no ?? body.gamesno ?? body.period_num ?? "");
-    const number = Number(body.number ?? body.card_number);
+    const body = { ...(req.query || {}), ...(req.body || {}) };
+    const rawGameId = body.game_id ?? body.gameid ?? body.gameId ?? body.id;
+    const gameId = Number(rawGameId);
+    const gamesno = String(body.game_no ?? body.gamesno ?? body.period_num ?? body.period ?? "").trim();
+    const rawNumber = body.number ?? body.card_number ?? body.result ?? body.win_number;
+    const number = Number(rawNumber);
 
     if (
       !gamesno ||
@@ -477,9 +479,13 @@ async function colourPredictionStore(req, res) {
     });
   } catch (error) {
     if (error instanceof AppError) {
-      return responseError(res, 400, error.message);
+      return responseError(res, error.statusCode || 400, error.message);
     }
-    throw error;
+    console.error("[Colour Prediction Store Error]:", error);
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Failed to store prediction",
+    });
   }
 }
 

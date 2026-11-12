@@ -1,0 +1,2 @@
+<li><a href="<?php echo e(route('colour_prediction',14)); ?>"><i class="fa fa-bullseye"></i> <span>Head Tail</span></a></li>
+<?php /**PATH /var/www/vhosts/fun-zone.co.in/veronova.co.in/root.veronova.co.in/resources/views/admin/body/Headtail_sidebar.blade.php ENDPATH**/ ?>
