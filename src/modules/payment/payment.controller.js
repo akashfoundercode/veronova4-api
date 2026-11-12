@@ -202,32 +202,67 @@ async function withdrawHistory(req, res) {
   return res.status(result.status || 200).json(result);
 }
 
-// 17. Account View
+// 17. Account View (matching Laravel PublicApiController@Account_view)
 async function accountView(req, res) {
-  const q = req.method === "POST" ? req.body : req.query;
-  const user_id = q.user_id || req.user?.id;
-  if (!user_id) {
+  const userId =
+    req.query?.user_id ||
+    req.query?.userid ||
+    req.query?.userId ||
+    req.query?.id ||
+    req.body?.user_id ||
+    req.body?.userid ||
+    req.body?.userId ||
+    req.body?.id ||
+    req.params?.user_id ||
+    req.params?.id ||
+    req.user?.id ||
+    req.auth?.tokenId ||
+    req.headers?.["user-id"] ||
+    req.headers?.userid;
+
+  if (!userId) {
     return res.status(400).json({ status: 400, message: "The user id field is required." });
   }
-  const result = await service.accountView(user_id);
+  const result = await service.accountView(userId);
   return res.status(result.status || 200).json(result);
 }
 
-// 18. Add Account
+// 18. Add Account (matching Laravel PublicApiController@add_account)
 async function addAccount(req, res) {
   const body = req.body || {};
-  const user_id = body.user_id || req.user?.id;
-  const name = body.name;
-  const account_number = body.account_number;
-  const ifsc_code = body.ifsc_code;
-  const bank_name = body.bank_name;
-  const branch = body.branch || "";
+  const query = req.query || {};
+
+  const user_id =
+    body.user_id ||
+    body.userid ||
+    body.userId ||
+    query.user_id ||
+    query.userid ||
+    req.user?.id ||
+    req.auth?.tokenId ||
+    req.headers?.["user-id"] ||
+    req.headers?.userid;
+
+  const name = body.name || body.account_holder_name || body.holder_name || query.name;
+  const account_number = body.account_number || body.account_no || body.accountno || query.account_number;
+  const ifsc_code = body.ifsc_code || body.ifsc || body.ifscCode || query.ifsc_code;
+  const bank_name = body.bank_name || body.bankName || body.bname || body.bank || query.bank_name;
+  const branch = body.branch || query.branch || "";
+  const upi_id = body.upi_id || body.upi || query.upi_id || null;
 
   if (!user_id || !name || !account_number || !ifsc_code || !bank_name) {
     return res.status(400).json({ status: 400, message: "All bank account fields are required." });
   }
 
-  const result = await service.addAccount({ user_id, name, account_number, ifsc_code, bank_name, branch });
+  const result = await service.addAccount({
+    user_id,
+    name,
+    account_number,
+    ifsc_code,
+    bank_name,
+    branch,
+    upi_id,
+  });
   return res.status(result.status || 200).json(result);
 }
 

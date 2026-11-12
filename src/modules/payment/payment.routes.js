@@ -48,14 +48,28 @@ router.get("/deposit_history", controller.depositHistory);
 router.post("/deposit_history", controller.depositHistory);
 router.get("/withdraw_history", controller.withdrawHistory);
 router.post("/withdraw_history", controller.withdrawHistory);
+
+// Account_view routes (Exact match for Laravel Route::get('/Account_view', [PublicApiController::class, 'Account_view']))
 router.get("/Account_view", controller.accountView);
 router.post("/Account_view", controller.accountView);
+router.get("/Account_view/:user_id", controller.accountView);
 router.get("/account_view", controller.accountView);
 router.post("/account_view", controller.accountView);
+router.get("/account_view/:user_id", controller.accountView);
 router.get("/account-view", controller.accountView);
+router.post("/account-view", controller.accountView);
+router.get("/account-view/:user_id", controller.accountView);
+router.get("/account_details", controller.accountView);
+router.post("/account_details", controller.accountView);
+router.get("/account-details", controller.accountView);
+router.get("/bank_details", controller.accountView);
+router.get("/bank-details", controller.accountView);
+
+// Add Account routes
 router.post("/add_account", controller.addAccount);
 router.get("/add_account", controller.addAccount);
 router.post("/add-account", controller.addAccount);
+router.get("/add-account", controller.addAccount);
 router.post("/add_bank", controller.addAccount);
 router.post("/add-bank", controller.addAccount);
 

@@ -854,16 +854,27 @@ class PaymentService {
     }
   }
 
-  // 16. Linked Bank Accounts
+  // 16. Linked Bank Accounts (matching Laravel PublicApiController@Account_view)
   async accountView(userId) {
     await this.ensureTables();
     try {
       const pool = this.getPool();
-      const [rows] = await pool.execute("SELECT * FROM account_details WHERE user_id = ? ORDER BY id DESC", [userId]);
+      const [rows] = await pool.execute(
+        "SELECT id, user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at FROM account_details WHERE user_id = ? ORDER BY id DESC",
+        [userId]
+      );
+      if (rows && rows.length > 0) {
+        return {
+          message: "Successfully",
+          status: 200,
+          data: rows,
+          account: rows[0],
+        };
+      }
       return {
-        message: rows.length ? "Successfully" : "No record found",
-        status: rows.length ? 200 : 400,
-        data: rows,
+        message: "No record found",
+        status: 400,
+        data: [],
       };
     } catch (_) {
       return {
@@ -875,7 +886,7 @@ class PaymentService {
   }
 
   // 17. Add Bank Account (matching Laravel PublicApiController@add_account)
-  async addAccount({ user_id, name, account_number, ifsc_code, bank_name, branch }) {
+  async addAccount({ user_id, name, account_number, ifsc_code, bank_name, branch, upi_id = null }) {
     await this.ensureTables();
     try {
       const pool = this.getPool();
@@ -896,9 +907,9 @@ class PaymentService {
       }
 
       await pool.execute(
-        `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-        [user_id, name, account_number, ifsc_code, bank_name, branch || ""],
+        `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+        [user_id, name, account_number, ifsc_code, bank_name, branch || "", upi_id || null],
       );
 
       return { status: 200, message: "Account added successfully!" };

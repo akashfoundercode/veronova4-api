@@ -1100,6 +1100,38 @@ async function ensureAllTables() {
       }
     } catch (_) {}
 
+    // 10. SLIDERS & BANNERS TABLE
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS sliders (
+        id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        image VARCHAR(255) NOT NULL,
+        activity_image VARCHAR(255) NOT NULL,
+        activity_image_url VARCHAR(255) DEFAULT NULL,
+        status TINYINT(4) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try {
+      const [existingSliders] = await connection.query("SELECT COUNT(*) as cnt FROM sliders");
+      if (!existingSliders[0]?.cnt) {
+        const seedSliders = [
+          [18, 'Welcome To Bdg Cassino', '/uploads/sliders/1754071518_IMG-20250710-WA0113.jpg', '/uploads/sliders/image_1.jpeg', '/uploads/sliders/url_1.pdf', 1],
+          [19, 'Invitation Bonus', '/uploads/sliders/1754068851_IMG-20250710-WA0112.jpg', '/uploads/sliders/image_2.jpeg', '/uploads/sliders/url_2.jpeg', 1],
+          [20, 'Referral Income', '/uploads/sliders/1753874344_1.png', '/uploads/sliders/image_3.jpeg', '/uploads/sliders/url_3.jpeg', 1],
+          [22, 'Lucky Recharge Bonus', '/uploads/sliders/1754069010_IMG-20250710-WA0104.jpg', '/uploads/sliders/image_4.jpeg', '/uploads/sliders/url_4.jpeg', 1],
+          [23, 'Salary Income', '/uploads/sliders/1754068778_2_20250710_125010_0001.png', '/uploads/sliders/image_5.jpeg', '/uploads/sliders/url_5.jpeg', 1]
+        ];
+        for (const s of seedSliders) {
+          await safeExec(
+            `INSERT IGNORE INTO sliders (id, title, image, activity_image, activity_image_url, status) VALUES (${s[0]}, '${s[1]}', '${s[2]}', '${s[3]}', '${s[4]}', ${s[5]});`
+          );
+        }
+      }
+    } catch (_) {}
+
     console.log("[SchemaBootstrap] ✅ All tables verified & synchronized in single database (veronova_db).");
   } catch (err) {
     console.warn("[SchemaBootstrap] ⚠️ Non-fatal schema verification error:", err.message);

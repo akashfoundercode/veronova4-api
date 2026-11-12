@@ -544,8 +544,13 @@ async function saveGift(req, res) {
 function getBaseUrl(req) {
   const fallback = process.env.BASE_URL || "https://api.wingo4all.site";
   if (!req) return fallback;
-  const rawProto = req.headers ? (req.headers["x-forwarded-proto"] || req.headers["x-forwarded-protocol"]) : null;
-  const proto = (Array.isArray(rawProto) ? rawProto[0] : (rawProto ? String(rawProto).split(",")[0] : null)) || req.protocol || "https";
+  let proto = "https";
+  try {
+    const rawProto = req.headers ? (req.headers["x-forwarded-proto"] || req.headers["x-forwarded-protocol"]) : null;
+    proto = (Array.isArray(rawProto) ? rawProto[0] : (rawProto ? String(rawProto).split(",")[0] : null)) || req.protocol || "https";
+  } catch (_) {
+    proto = "https";
+  }
   const rawHost = req.headers ? (req.headers["x-forwarded-host"] || (typeof req.get === "function" ? req.get("host") : null)) : null;
   const host = (Array.isArray(rawHost) ? rawHost[0] : (rawHost ? String(rawHost).split(",")[0] : null)) || (typeof req.get === "function" ? req.get("host") : "");
   if (!host || host === "localhost" || host.startsWith("127.0.0.1")) {
@@ -577,6 +582,21 @@ async function getBanners(req, res) {
       });
     }
     throw error;
+  }
+}
+
+async function sliderImageView(req, res) {
+  try {
+    const baseUrl = getBaseUrl(req);
+    const result = await service.getSliderImageView({ baseUrl });
+    const httpStatus = result.status === 200 ? 200 : (result.status || 400);
+    return res.status(httpStatus).json(result);
+  } catch (error) {
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+      data: [],
+    });
   }
 }
 
@@ -1045,6 +1065,7 @@ module.exports = {
   saveSupportSetting,
   saveVipLevel,
   service,
+  sliderImageView,
   suspendPlayer,
   transferFund,
   unsuspendPlayer,

@@ -110,8 +110,24 @@ test("Payment Routes Integration Tests", async (t) => {
   });
 
   await t.test("GET /api/Account_view handles query with graceful response", async () => {
-    const res = await testRoute("GET", "/api/Account_view?user_id=1");
+    const res = await testRoute("GET", "/api/Account_view?user_id=13");
     assert.ok([200, 400].includes(res.statusCode));
+    const parsed = JSON.parse(res.body);
+    assert.ok(parsed.message);
+  });
+
+  await t.test("GET /Account_view (root alias) handles query with user_id=13", async () => {
+    const res = await testRoute("GET", "/Account_view?user_id=13");
+    assert.ok([200, 400].includes(res.statusCode));
+    const parsed = JSON.parse(res.body);
+    assert.ok(parsed.message);
+  });
+
+  await t.test("GET /api/Account_view validates missing user_id with 400", async () => {
+    const res = await testRoute("GET", "/api/Account_view");
+    assert.strictEqual(res.statusCode, 400);
+    const parsed = JSON.parse(res.body);
+    assert.strictEqual(parsed.message, "The user id field is required.");
   });
 
   await t.test("GET /api/usdt_account_view handles query with graceful response", async () => {

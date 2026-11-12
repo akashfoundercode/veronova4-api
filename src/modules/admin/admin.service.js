@@ -727,11 +727,31 @@ async function ensureSlidersTable(pool) {
     try {
       await pool.execute(`
         UPDATE sliders
-        SET image = REPLACE(REPLACE(image, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''),
-            activity_image = REPLACE(REPLACE(activity_image, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''),
-            activity_image_url = REPLACE(REPLACE(activity_image_url, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', '')
-        WHERE image LIKE '%root.veronova.co.in%' OR activity_image LIKE '%root.veronova.co.in%' OR activity_image_url LIKE '%root.veronova.co.in%'
+        SET image = REPLACE(REPLACE(REPLACE(REPLACE(image, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''), 'https://root.bdgcassino.com', ''), 'http://root.bdgcassino.com', ''),
+            activity_image = REPLACE(REPLACE(REPLACE(REPLACE(activity_image, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''), 'https://root.bdgcassino.com', ''), 'http://root.bdgcassino.com', ''),
+            activity_image_url = REPLACE(REPLACE(REPLACE(REPLACE(activity_image_url, 'https://root.veronova.co.in', ''), 'http://root.veronova.co.in', ''), 'https://root.bdgcassino.com', ''), 'http://root.bdgcassino.com', '')
+        WHERE image LIKE '%root.%' OR activity_image LIKE '%root.%' OR activity_image_url LIKE '%root.%'
       `);
+    } catch (_) {}
+
+    // Seed default sliders if table is empty
+    try {
+      const [countRows] = await pool.execute("SELECT COUNT(*) AS total FROM sliders");
+      if (Number(countRows[0]?.total || 0) === 0) {
+        const initialSliders = [
+          [18, 'Welcome To Bdg Cassino', '/uploads/sliders/1754071518_IMG-20250710-WA0113.jpg', '/uploads/sliders/image_1.jpeg', '/uploads/sliders/url_1.pdf', 1],
+          [19, 'Invitation Bonus', '/uploads/sliders/1754068851_IMG-20250710-WA0112.jpg', '/uploads/sliders/image_2.jpeg', '/uploads/sliders/url_2.jpeg', 1],
+          [20, 'Referral Income', '/uploads/sliders/1753874344_1.png', '/uploads/sliders/image_3.jpeg', '/uploads/sliders/url_3.jpeg', 1],
+          [22, 'Lucky Recharge Bonus', '/uploads/sliders/1754069010_IMG-20250710-WA0104.jpg', '/uploads/sliders/image_4.jpeg', '/uploads/sliders/url_4.jpeg', 1],
+          [23, 'Salary Income', '/uploads/sliders/1754068778_2_20250710_125010_0001.png', '/uploads/sliders/image_5.jpeg', '/uploads/sliders/url_5.jpeg', 1]
+        ];
+        for (const row of initialSliders) {
+          await pool.execute(
+            "INSERT IGNORE INTO sliders (id, title, image, activity_image, activity_image_url, status) VALUES (?, ?, ?, ?, ?, ?)",
+            row
+          );
+        }
+      }
     } catch (_) {}
 
     slidersTableInitialized = true;
@@ -744,16 +764,19 @@ function resolveImageUrl(url, baseUrl = "") {
   if (!url || typeof url !== "string") return "";
   let clean = url.trim();
 
-  // Always strip legacy root.veronova.co.in unconditionally
-  if (clean.includes("root.veronova.co.in")) {
-    clean = clean.replace(/https?:\/\/root\.veronova\.co\.in/gi, "");
-  }
+  // Always strip legacy domains unconditionally
+  clean = clean.replace(/https?:\/\/root\.veronova\.co\.in/gi, "");
+  clean = clean.replace(/https?:\/\/root\.bdgcassino\.com/gi, "");
+  clean = clean.replace(/https?:\/\/bdgcassino\.com/gi, "");
 
   const effectiveBase = (baseUrl && baseUrl.trim()) || process.env.BASE_URL || "https://api.wingo4all.site";
   const cleanBase = effectiveBase.replace(/\/+$/, "");
 
   if (clean.startsWith("/uploads/")) {
     return `${cleanBase}${clean}`;
+  }
+  if (clean.startsWith("uploads/")) {
+    return `${cleanBase}/${clean}`;
   }
   if (!clean.startsWith("http://") && !clean.startsWith("https://") && !clean.startsWith("/")) {
     return `${cleanBase}/uploads/sliders/${clean}`;
@@ -3784,6 +3807,103 @@ class AdminService {
       success: true,
       message: "Gift added successfully",
       data: formatGift(newRow[0]),
+    };
+  }
+
+  async getSliderImageView(options = {}) {
+    const baseUrl = options.baseUrl || options.base_url || "";
+    const pool = this.poolProvider();
+    await ensureSlidersTable(pool);
+
+    const fallbackSliders = [
+      {
+        id: 18,
+        title: "Welcome To Bdg Cassino",
+        name: "Welcome To Bdg Cassino",
+        image: "/uploads/sliders/1754071518_IMG-20250710-WA0113.jpg",
+        activity_image: "/uploads/sliders/image_1.jpeg",
+        activity_image_url: "/uploads/sliders/url_1.pdf",
+        status: 1,
+      },
+      {
+        id: 19,
+        title: "Invitation Bonus",
+        name: "Invitation Bonus",
+        image: "/uploads/sliders/1754068851_IMG-20250710-WA0112.jpg",
+        activity_image: "/uploads/sliders/image_2.jpeg",
+        activity_image_url: "/uploads/sliders/url_2.jpeg",
+        status: 1,
+      },
+      {
+        id: 20,
+        title: "Referral Income",
+        name: "Referral Income",
+        image: "/uploads/sliders/1753874344_1.png",
+        activity_image: "/uploads/sliders/image_3.jpeg",
+        activity_image_url: "/uploads/sliders/url_3.jpeg",
+        status: 1,
+      },
+      {
+        id: 22,
+        title: "Lucky Recharge Bonus",
+        name: "Lucky Recharge Bonus",
+        image: "/uploads/sliders/1754069010_IMG-20250710-WA0104.jpg",
+        activity_image: "/uploads/sliders/image_4.jpeg",
+        activity_image_url: "/uploads/sliders/url_4.jpeg",
+        status: 1,
+      },
+      {
+        id: 23,
+        title: "Salary Income",
+        name: "Salary Income",
+        image: "/uploads/sliders/1754068778_2_20250710_125010_0001.png",
+        activity_image: "/uploads/sliders/image_5.jpeg",
+        activity_image_url: "/uploads/sliders/url_5.jpeg",
+        status: 1,
+      },
+    ];
+
+    let rows = [];
+    try {
+      const [dbRows] = await pool.execute(
+        "SELECT sliders.title as name, sliders.image as image, sliders.activity_image as activity_image, sliders.activity_image_url as activity_image_url FROM `sliders` WHERE `status` = 1 ORDER BY id DESC"
+      );
+      if (Array.isArray(dbRows) && dbRows.length > 0) {
+        rows = dbRows;
+      }
+    } catch (_) {
+      // In sandbox/tests or offline DB, use fallback
+    }
+
+    if (!rows || rows.length === 0) {
+      rows = fallbackSliders;
+    }
+
+    const data = rows.map((r) => {
+      const name = r.name || r.title || "";
+      const img = resolveImageUrl(r.image, baseUrl);
+      const actImg = resolveImageUrl(r.activity_image, baseUrl);
+      const actUrl = resolveImageUrl(r.activity_image_url, baseUrl);
+      return {
+        name,
+        image: img,
+        activity_image: actImg,
+        activity_image_url: actUrl,
+      };
+    });
+
+    if (data.length > 0) {
+      return {
+        message: "Successfully",
+        status: 200,
+        data,
+      };
+    }
+
+    return {
+      message: "No record found",
+      status: 400,
+      data: [],
     };
   }
 
