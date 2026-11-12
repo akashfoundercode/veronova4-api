@@ -97,3 +97,15 @@ test("the existing /api/v1 health endpoint remains available", async () => {
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { data: { status: "ok" } });
 });
+
+test("POST /auto_wingo_result_insert and aliases reject unauthenticated calls gracefully", async () => {
+  const res1 = await testRoute("POST", "/auto_wingo_result_insert", {
+    "content-type": "application/json",
+  }, { gameid: 1, period_num: "20261112001", card_number: 5 });
+  assert.equal(res1.statusCode, 401);
+
+  const res2 = await testRoute("POST", "/api/auto_wingo_result_insert", {
+    "content-type": "application/json",
+  }, { game_id: 1, game_no: "20261112001", number: 5 });
+  assert.equal(res2.statusCode, 401);
+});

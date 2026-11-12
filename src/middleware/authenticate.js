@@ -34,7 +34,8 @@ async function authenticate(req, res, next) {
     req.get("bearer_token") ||
     req.get("token_id");
   const queryToken = req.query?.token ?? req.query?.bearer_token;
-  const parsed = parseBearerToken(authHeader || queryToken);
+  const bodyToken = req.body?.token ?? req.body?.bearer_token;
+  const parsed = parseBearerToken(authHeader || queryToken || bodyToken);
 
   if (parsed) {
     try {

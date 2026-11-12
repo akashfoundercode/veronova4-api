@@ -29,11 +29,16 @@ router.get("/crone/:game_id/", controller.cron);
 router.get("/cron/:game_id", controller.cron);
 router.get("/cron/:game_id/", controller.cron);
 router.post(API_ROUTES.wingo.autoResultInsert, authenticate, requireAdmin, controller.autoWingoResultInsert);
+router.post("/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
+router.post("/api/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
+router.all("/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
 router.get(API_ROUTES.wingo.fetchHistory, controller.fetchHistory);
 router.get(API_ROUTES.wingo.fetchHistoryByGame, controller.fetchHistory);
 router.get("/fetch/:gameid", controller.fetchData);
 router.get("/fetch", controller.fetchData);
 router.post("/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.post("/colour_prediction_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.post("/future-result-store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.post("/future_result_store", authenticate, requireAdmin, controller.colourPredictionStore);
 
 module.exports = router;

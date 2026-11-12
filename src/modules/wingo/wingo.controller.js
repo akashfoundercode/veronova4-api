@@ -307,42 +307,55 @@ async function getResults(req, res) {
 }
 
 async function autoWingoResultInsert(req, res) {
-  const { period_num, card_number, gameid } = req.body ?? {};
-  const gameId = Number(gameid);
-  const period = String(period_num ?? "");
-  const resultNumber = Number(card_number);
-  const isDragonTiger = gameId === DRAGON_TIGER_GAME_ID;
-  const isSevenUpDown = gameId === 15;
-  const isRedBlack = gameId === 16;
-  const validStandardGame = STANDARD_GAME_IDS.includes(gameId);
-  const validResultNumber =
-    Number.isInteger(resultNumber) &&
-    resultNumber >= (isDragonTiger || isSevenUpDown || isRedBlack ? 1 : 0) &&
-    (isDragonTiger || isSevenUpDown || isRedBlack
-      ? resultNumber <= (isRedBlack ? 7 : 3)
-      : !WINGO_GAME_IDS.includes(gameId) || resultNumber <= 9);
-  if (
-    !period ||
-    !validStandardGame ||
-    !validResultNumber
-  ) {
-    return responseError(res, 400, "Invalid period_num, card_number, or gameid.");
-  }
-  const inserted = await serviceForGame(gameId).addAdminResult({
-    period_num: period,
-    card_number: resultNumber,
-    gameid: gameId,
-  });
-  if (!inserted) {
+  try {
+    const body = { ...(req.query || {}), ...(req.body || {}) };
+    const rawGameId = body.gameid ?? body.game_id ?? body.gameId ?? body.id;
+    const gameId = Number(rawGameId);
+    const period = String(body.period_num ?? body.game_no ?? body.gamesno ?? body.period ?? "").trim();
+    const rawNumber = body.card_number ?? body.number ?? body.result ?? body.win_number;
+    const resultNumber = Number(rawNumber);
+    const isDragonTiger = gameId === DRAGON_TIGER_GAME_ID;
+    const isSevenUpDown = gameId === 15;
+    const isRedBlack = gameId === 16;
+    const validStandardGame = STANDARD_GAME_IDS.includes(gameId);
+    const validResultNumber =
+      Number.isInteger(resultNumber) &&
+      resultNumber >= (isDragonTiger || isSevenUpDown || isRedBlack ? 1 : 0) &&
+      (isDragonTiger || isSevenUpDown || isRedBlack
+        ? resultNumber <= (isRedBlack ? 7 : 3)
+        : !WINGO_GAME_IDS.includes(gameId) || resultNumber <= 9);
+    if (
+      !period ||
+      !validStandardGame ||
+      !validResultNumber
+    ) {
+      return responseError(res, 400, "Invalid period_num, card_number, or gameid.");
+    }
+    const inserted = await serviceForGame(gameId).addAdminResult({
+      period_num: period,
+      card_number: resultNumber,
+      gameid: gameId,
+    });
+    if (!inserted) {
+      return res.status(200).json({
+        status: 409,
+        message: "Result for this period is already set!",
+      });
+    }
     return res.status(200).json({
-      status: 409,
-      message: "Result for this period is already set!",
+      status: 200,
+      message: "Prediction stored successfully.",
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      return responseError(res, error.statusCode || 400, error.message);
+    }
+    console.error("[Wingo Result Insert Error]:", error);
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Failed to store prediction",
     });
   }
-  return res.status(200).json({
-    status: 200,
-    message: "Prediction stored successfully.",
-  });
 }
 
 async function fetchHistory(req, res) {

@@ -813,6 +813,20 @@ class WingoService {
   async addAdminResult({ period_num, card_number, gameid }) {
     assertStandardGameId(gameid);
     const pool = this.poolProvider();
+    try {
+      await pool.execute(`
+        CREATE TABLE IF NOT EXISTS admin_winner_results (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          gamesno VARCHAR(100) NOT NULL,
+          gameId INT NOT NULL,
+          number VARCHAR(100) NULL,
+          status VARCHAR(100) NOT NULL DEFAULT '1',
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+    } catch (_) {}
+
     const [existing] = await pool.execute(
       "SELECT id FROM admin_winner_results WHERE gamesno = ? AND gameId = ? LIMIT 1",
       [period_num, gameid],
@@ -822,8 +836,8 @@ class WingoService {
     }
 
     await pool.execute(
-      "INSERT INTO admin_winner_results (gamesno, number, gameId) VALUES (?, ?, ?)",
-      [period_num, card_number, gameid],
+      "INSERT INTO admin_winner_results (gamesno, number, gameId, status) VALUES (?, ?, ?, '1')",
+      [period_num, String(card_number), gameid],
     );
     return true;
   }
