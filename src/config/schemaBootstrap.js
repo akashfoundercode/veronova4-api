@@ -217,6 +217,54 @@ async function ensureAllTables() {
     }
 
     await safeExec(`
+      CREATE TABLE IF NOT EXISTS invite_bonus (
+        id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        no_of_user INT(11) NOT NULL,
+        amount DOUBLE(10,2) NOT NULL DEFAULT 500.00,
+        claim_amount DOUBLE(10,2) NOT NULL DEFAULT 0.00,
+        status TINYINT(4) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS invite_bonus_claim (
+        id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        userid BIGINT(20) NOT NULL,
+        invite_id BIGINT(20) NOT NULL,
+        amount DOUBLE(10,2) NULL DEFAULT 0.00,
+        status TINYINT(4) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_userid (userid),
+        INDEX idx_invite_id (invite_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const defaultInviteBonus = [
+      [1, 1, 500, 55],
+      [2, 3, 500, 155],
+      [3, 10, 500, 600],
+      [4, 30, 500, 1800],
+      [5, 50, 500, 3000],
+      [6, 100, 500, 6000],
+      [7, 200, 500, 12000],
+      [8, 500, 500, 30000],
+      [9, 1000, 500, 75000],
+      [10, 5000, 500, 400000],
+      [11, 10000, 500, 1000000],
+      [12, 20000, 500, 2000000],
+      [13, 50000, 500, 5000000],
+      [14, 100000, 500, 10000000],
+    ];
+    for (const b of defaultInviteBonus) {
+      await safeExec(
+        `INSERT IGNORE INTO invite_bonus (id, no_of_user, amount, claim_amount, status) VALUES (${b[0]}, ${b[1]}, ${b[2]}, ${b[3]}, 1);`
+      );
+    }
+
+    await safeExec(`
       CREATE TABLE IF NOT EXISTS virtual_games (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         game_id INT NOT NULL,

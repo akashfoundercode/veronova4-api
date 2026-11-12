@@ -39,3 +39,44 @@ INSERT IGNORE INTO mlm_levels (id, name, count, commission, status) VALUES
 ALTER TABLE wallet_history ADD COLUMN IF NOT EXISTS description VARCHAR(255) NULL;
 ALTER TABLE wallet_history ADD COLUMN IF NOT EXISTS description_2 VARCHAR(255) NULL;
 
+-- 5. Ensure invite_bonus and invite_bonus_claim tables exist
+CREATE TABLE IF NOT EXISTS invite_bonus (
+  id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  no_of_user INT(11) NOT NULL,
+  amount DOUBLE(10,2) NOT NULL DEFAULT 500.00,
+  claim_amount DOUBLE(10,2) NOT NULL DEFAULT 0.00,
+  status TINYINT(4) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invite_bonus_claim (
+  id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  userid BIGINT(20) NOT NULL,
+  invite_id BIGINT(20) NOT NULL,
+  amount DOUBLE(10,2) NULL DEFAULT 0.00,
+  status TINYINT(4) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_userid (userid),
+  INDEX idx_invite_id (invite_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. Insert default invitation milestone bonus tiers
+INSERT IGNORE INTO invite_bonus (id, no_of_user, amount, claim_amount, status) VALUES
+(1, 1, 500, 55, 1),
+(2, 3, 500, 155, 1),
+(3, 10, 500, 600, 1),
+(4, 30, 500, 1800, 1),
+(5, 50, 500, 3000, 1),
+(6, 100, 500, 6000, 1),
+(7, 200, 500, 12000, 1),
+(8, 500, 500, 30000, 1),
+(9, 1000, 500, 75000, 1),
+(10, 5000, 500, 400000, 1),
+(11, 10000, 500, 1000000, 1),
+(12, 20000, 500, 2000000, 1),
+(13, 50000, 500, 5000000, 1),
+(14, 100000, 500, 10000000, 1);
+
+

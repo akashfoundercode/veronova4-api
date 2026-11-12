@@ -107,11 +107,50 @@ async function calculateTurnovers(req, res, next) {
   }
 }
 
+async function getInvitationBonusList(req, res, next) {
+  try {
+    const userId = extractUserId(req);
+    if (!userId) {
+      return res.status(400).json({
+        status: 400,
+        message: "User ID is required",
+      });
+    }
+
+    const result = await agencyService.getInvitationBonusList(userId);
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+async function claimInvitationBonus(req, res, next) {
+  try {
+    const userId = extractUserId(req);
+    const inviteId = req.body?.invite_id || req.body?.inviteId || req.query?.invite_id;
+    const amount = req.body?.amount || req.query?.amount;
+
+    if (!userId) {
+      return res.status(400).json({
+        status: 400,
+        message: "User ID is required",
+      });
+    }
+
+    const result = await agencyService.claimInvitationBonus({ userId, inviteId, amount });
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 module.exports = {
   getPromotionData,
   getNewSubordinates,
   getTiers,
   getSubordinateData,
   calculateTurnovers,
+  getInvitationBonusList,
+  claimInvitationBonus,
 };
 

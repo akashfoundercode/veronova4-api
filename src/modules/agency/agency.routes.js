@@ -69,5 +69,19 @@ router.get("/turnover", controller.calculateTurnovers);
 router.get("/turnover-new", controller.calculateTurnovers);
 router.get("/turnover_new", controller.calculateTurnovers);
 
+// 6. Invitation Milestone Bonus Routes
+router.get("/invitation_bonus_list", controller.getInvitationBonusList);
+router.post("/invitation_bonus_list", controller.getInvitationBonusList);
+router.get("/invitation-bonus-list", controller.getInvitationBonusList);
+router.post("/invitation-bonus-list", controller.getInvitationBonusList);
+router.get("/invitation_bonus_list_old", controller.getInvitationBonusList);
+
+// 7. Invitation Milestone Bonus Claim Routes
+router.post("/invitation_bonus_claim", controller.claimInvitationBonus);
+router.get("/invitation_bonus_claim", controller.claimInvitationBonus);
+router.post("/claim_invite_bonus", controller.claimInvitationBonus);
+router.get("/claim_invite_bonus", controller.claimInvitationBonus);
+router.post("/invitation-bonus-claim", controller.claimInvitationBonus);
+
 module.exports = router;
 

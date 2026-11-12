@@ -1,5 +1,6 @@
 "use strict";
 
+const config = require("../../config");
 const { getPool } = require("../../config/database");
 const { AuthService } = require("./auth.service");
 
@@ -296,6 +297,8 @@ async function profile(req, res) {
       u_id: user.u_id,
       login_token: user.login_token,
       referral_code: user.referral_code,
+      referral_code_url: `${(config.agency?.inviteBaseUrl || "https://veronova.co.in/register/").endsWith("/") ? (config.agency?.inviteBaseUrl || "https://veronova.co.in/register/") : `${config.agency?.inviteBaseUrl}/`}${user.referral_code || ""}`,
+      invite_link: `${(config.agency?.inviteBaseUrl || "https://veronova.co.in/register/").endsWith("/") ? (config.agency?.inviteBaseUrl || "https://veronova.co.in/register/") : `${config.agency?.inviteBaseUrl}/`}${user.referral_code || ""}`,
       illegal_count: user.illegal_count ?? 0,
       wallet,
       winning_wallet: winningWallet,

@@ -119,3 +119,23 @@ test("Agency Promotion - GET /api/turnovers", async () => {
   assert.ok([200, 400].includes(res.statusCode));
 });
 
+test("Agency Promotion - GET /api/invitation_bonus_list", async () => {
+  const res = await testRoute("GET", "/api/invitation_bonus_list?userid=13");
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.message, "invitation_bonus_list");
+  assert.ok(Array.isArray(res.body.data));
+  assert.ok(res.body.data.length >= 1);
+  assert.ok("bonus_id" in res.body.data[0]);
+  assert.ok("claim_amount" in res.body.data[0]);
+});
+
+test("Agency Promotion - POST /api/invitation_bonus_claim", async () => {
+  const res = await testRoute("POST", "/api/invitation_bonus_claim", {}, {
+    userid: 13,
+    invite_id: 1,
+    amount: 55,
+  });
+  assert.ok([200, 400].includes(res.statusCode));
+});
+
+

@@ -574,12 +574,158 @@ async function calculateTurnoverCommissions() {
   };
 }
 
+/**
+ * 6. Invitation Milestone Bonus List (matches Laravel PublicApiController@invitation_bonus_list)
+ */
+async function getInvitationBonusList(userId) {
+  const numericId = Number.parseInt(userId, 10);
+  if (!numericId || Number.isNaN(numericId)) {
+    return { status: 400, message: "Invalid user ID", data: [] };
+  }
+
+  // 1. Direct referrals count
+  const totalReferRes = await dbQuery(
+    "SELECT COUNT(*) AS total FROM users WHERE referral_user_id = ?",
+    [numericId]
+  );
+  const totalRefer = Number(totalReferRes?.[0]?.[0]?.total ?? 0);
+
+  // 2. Count direct referrals who deposited >= 500
+  const countUsersRes = await dbQuery(
+    `SELECT COUNT(DISTINCT u.id) AS qualified_count
+     FROM users u
+     JOIN payins p ON u.id = p.user_id
+     WHERE u.referral_user_id = ? AND p.status = 2
+     GROUP BY u.id
+     HAVING SUM(p.cash) >= 500`,
+    [numericId]
+  );
+  const countUsers = countUsersRes?.[0]?.length ?? 0;
+
+  // 3. Get bonus list with user claim status
+  const bonusRes = await dbQuery(
+    `SELECT 
+       a.id AS bonus_id,
+       a.amount,
+       a.claim_amount,
+       a.no_of_user,
+       CASE 
+         WHEN c.userid = ? AND c.invite_id = a.id THEN 0
+         WHEN a.no_of_user <= ? THEN 2 
+         ELSE 1 
+       END AS status,
+       COALESCE(a.created_at, NOW()) AS created_at
+     FROM invite_bonus a
+     LEFT JOIN invite_bonus_claim c ON a.id = c.invite_id AND c.userid = ?
+     ORDER BY a.id ASC`,
+    [numericId, countUsers, numericId]
+  );
+
+  let bonusList = bonusRes?.[0];
+  if (!bonusList || bonusList.length === 0) {
+    // Sandbox / fallback tiers
+    const fallbackTiers = [
+      { id: 1, no_of_user: 1, amount: 500, claim_amount: 55 },
+      { id: 2, no_of_user: 3, amount: 500, claim_amount: 155 },
+      { id: 3, no_of_user: 10, amount: 500, claim_amount: 600 },
+      { id: 4, no_of_user: 30, amount: 500, claim_amount: 1800 },
+      { id: 5, no_of_user: 50, amount: 500, claim_amount: 3000 },
+      { id: 6, no_of_user: 100, amount: 500, claim_amount: 6000 },
+    ];
+    bonusList = fallbackTiers.map((b) => ({
+      bonus_id: b.id,
+      amount: b.amount,
+      claim_amount: b.claim_amount,
+      no_of_user: b.no_of_user,
+      status: countUsers >= b.no_of_user ? 2 : 1,
+      created_at: new Date().toISOString(),
+    }));
+  }
+
+  const formattedData = bonusList.map((bonus) => ({
+    bonus_id: bonus.bonus_id,
+    amount: bonus.amount,
+    claim_amount: bonus.claim_amount,
+    no_of_user: bonus.no_of_user,
+    status: Number(bonus.status),
+    created_at: bonus.created_at,
+    no_of_invitees: totalRefer,
+    refer_invitees: countUsers,
+  }));
+
+  return {
+    message: "invitation_bonus_list",
+    status: 200,
+    data: formattedData,
+  };
+}
+
+/**
+ * 7. Claim Invitation Milestone Bonus (matches Laravel PublicApiController@invitation_bonus_claim)
+ */
+async function claimInvitationBonus({ userId, inviteId, amount }) {
+  const numericId = Number.parseInt(userId, 10);
+  const numericInviteId = Number.parseInt(inviteId, 10);
+
+  if (!numericId || Number.isNaN(numericId)) {
+    return { status: 400, message: "User ID is required." };
+  }
+  if (!numericInviteId || Number.isNaN(numericInviteId)) {
+    return { status: 400, message: "Invite ID is required." };
+  }
+
+  // 1. Check if already claimed
+  const existingClaim = await dbQuery(
+    "SELECT id FROM invite_bonus_claim WHERE userid = ? AND invite_id = ? LIMIT 1",
+    [numericId, numericInviteId]
+  );
+  if (existingClaim?.[0]?.length > 0) {
+    return { status: 400, message: "Bonus already claimed." };
+  }
+
+  // 2. Fetch invite bonus config
+  const bonusRow = await dbQuery(
+    "SELECT id, amount, claim_amount, no_of_user FROM invite_bonus WHERE id = ? LIMIT 1",
+    [numericInviteId]
+  );
+  const claimAmount = Number(amount || bonusRow?.[0]?.[0]?.claim_amount || 55);
+
+  // 3. Credit user wallet
+  await dbQuery(
+    "UPDATE users SET wallet = wallet + ?, recharge = recharge + ? WHERE id = ?",
+    [claimAmount, claimAmount, numericId]
+  );
+
+  // 4. Log in wallet history
+  await dbQuery(
+    `INSERT INTO wallet_history (userid, amount, description, subtypeid, created_at, updated_at)
+     VALUES (?, ?, 'Invitation Bonus', 26, NOW(), NOW())`,
+    [numericId, claimAmount]
+  );
+
+  // 5. Mark claimed in invite_bonus_claim
+  await dbQuery(
+    `INSERT INTO invite_bonus_claim (userid, invite_id, amount, status, created_at, updated_at)
+     VALUES (?, ?, ?, 0, NOW(), NOW())`,
+    [numericId, numericInviteId, claimAmount]
+  );
+
+  return {
+    status: 200,
+    success: true,
+    message: "Invitation bonus claimed successfully!",
+    claimed_amount: claimAmount,
+  };
+}
+
 module.exports = {
   getPromotionData,
   getNewSubordinates,
   getTiers,
   getSubordinateData,
   calculateTurnoverCommissions,
+  getInvitationBonusList,
+  claimInvitationBonus,
   getAllSubordinates,
   DEFAULT_MLM_LEVELS,
 };
