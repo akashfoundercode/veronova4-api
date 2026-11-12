@@ -147,24 +147,15 @@ class OtpService {
       createdAt: now.getTime(),
     });
 
-    const isTestMode = !isLiveMode;
-    const responseMsg = isLiveMode
-      ? "OTP sent successfully to mobile number via SMS"
-      : `OTP generated (TEST MODE): use ${generatedOtp}. Activate Live Mode on IndoPay portal to dispatch real SMS.`;
-
     return {
       status: 200,
       success: true,
-      message: responseMsg,
+      message: "OTP sent successfully",
       data: {
         mobile: normalizedMobile,
         digit: otpDigits,
         expires_in_seconds: expiryMinutes * 60,
-        remaining_sms: remainingSms,
-        mode: isLiveMode ? "live" : "test",
-        is_live: isLiveMode,
-        test_otp: isTestMode ? generatedOtp : undefined,
-        debug_otp: process.env.NODE_ENV !== "production" ? generatedOtp : undefined,
+        ...(process.env.NODE_ENV === "test" ? { debug_otp: generatedOtp } : {}),
       },
     };
   }
