@@ -55,6 +55,16 @@ module.exports = Object.freeze({
       "https://api.gamebridge.co.in/seller/v1/get-block-hash",
     managerKey: process.env.TRX_MANAGER_KEY,
   }),
+  otp: Object.freeze({
+    merchantKey:
+      process.env.OTP_MERCHANT_KEY ??
+      "b4c17c34479e5f4525fad322a9d32eca69fd700613a370b5",
+    baseUrl: (
+      process.env.OTP_BASE_URL ?? "https://indopay.cloud/otp"
+    ).replace(/\/$/, ""),
+    digits: Number.parseInt(process.env.OTP_DEFAULT_DIGITS ?? "6", 10),
+    expiryMinutes: Number.parseInt(process.env.OTP_EXPIRY_MINUTES ?? "5", 10),
+  }),
   appUrl,
   corsOrigins: (process.env.CORS_ORIGINS ?? process.env.APP_URL ?? "http://localhost:3000")
     .split(",")

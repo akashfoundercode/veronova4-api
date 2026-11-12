@@ -27,6 +27,7 @@ const miniRouletteRoutes = require("./modules/miniRoulette/miniRoulette.routes")
 const jackpotRoutes = require("./modules/jackpot/jackpot.routes");
 const balloonRoutes = require("./modules/balloon/balloon.routes");
 const stackTowerRoutes = require("./modules/stackTower/stackTower.routes");
+const otpRoutes = require("./modules/otp/otp.routes");
 const jiliRoutes = require("./modules/jili/jili.routes");
 const horseRaceRoutes = require("./modules/horseRace/horseRace.routes");
 const customerServiceRoutes = require("./modules/customerService/customerService.routes");
@@ -118,6 +119,10 @@ app.use(API_PREFIX, stackTowerRoutes);
 app.use("/api/stack-tower", stackTowerRoutes);
 app.use("/stack-tower", stackTowerRoutes);
 app.use(stackTowerRoutes);
+app.use(API_PREFIX, otpRoutes);
+app.use("/api/otp", otpRoutes);
+app.use("/otp", otpRoutes);
+app.use(otpRoutes);
 app.use(API_PREFIX, jiliRoutes);
 app.use(
   "/uploads/customer_service",

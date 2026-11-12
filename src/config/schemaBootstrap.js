@@ -344,6 +344,24 @@ async function ensureAllTables() {
     await safeExec("ALTER TABLE stack_tower_bets ADD COLUMN obstacle_type VARCHAR(50) NULL");
 
     await safeExec(`
+      CREATE TABLE IF NOT EXISTS otps (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        mobile VARCHAR(20) NOT NULL,
+        otp VARCHAR(10) NOT NULL,
+        digit INT NOT NULL DEFAULT 6,
+        type VARCHAR(50) NOT NULL DEFAULT 'verification',
+        status TINYINT NOT NULL DEFAULT 0 COMMENT '0: pending, 1: verified, 2: expired/cancelled',
+        response_meta TEXT NULL,
+        expires_at DATETIME NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_otp_mobile (mobile),
+        INDEX idx_otp_status (status),
+        INDEX idx_otp_expires (expires_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
       CREATE TABLE IF NOT EXISTS lottery_bets (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         user_id BIGINT UNSIGNED NOT NULL,
