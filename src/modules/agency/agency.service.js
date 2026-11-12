@@ -135,7 +135,7 @@ async function getPromotionData(userId) {
   }
 
   // Construct Invitation / Referral Link
-  const base = (config.agency?.inviteBaseUrl || "https://veronova.co.in/register/").trim();
+  const base = (config.agency?.inviteBaseUrl || "https://veronova.co.in/veronova4/register/").trim();
   const inviteBase = base.endsWith("/") ? base : `${base}/`;
   const inviteLink = `${inviteBase}${referralCode}`;
 
@@ -250,6 +250,7 @@ async function getPromotionData(userId) {
     invitation_link: inviteLink,
     invite_link: inviteLink,
     invite_url: inviteLink,
+    register_url: inviteLink,
     invitation_code: referralCode,
   };
 

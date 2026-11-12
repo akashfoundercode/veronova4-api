@@ -68,7 +68,7 @@ module.exports = Object.freeze({
   }),
   agency: Object.freeze({
     inviteBaseUrl:
-      process.env.INVITE_BASE_URL ?? "https://veronova.co.in/register/",
+      process.env.INVITE_BASE_URL ?? "https://veronova.co.in/veronova4/register/",
   }),
   appUrl,
   corsOrigins: (process.env.CORS_ORIGINS ?? process.env.APP_URL ?? "http://localhost:3000")

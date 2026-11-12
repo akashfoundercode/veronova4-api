@@ -83,5 +83,27 @@ router.post("/claim_invite_bonus", controller.claimInvitationBonus);
 router.get("/claim_invite_bonus", controller.claimInvitationBonus);
 router.post("/invitation-bonus-claim", controller.claimInvitationBonus);
 
+// 8. Frontend Invite Redirections for /veronova4/register
+router.get("/veronova4/register/:code", (req, res) => {
+  const code = req.params?.code || "";
+  const target = `https://veronova.co.in/veronova4/register${code ? `/${encodeURIComponent(code)}` : ""}`;
+  return res.redirect(target);
+});
+router.get("/veronova4/register", (req, res) => {
+  const code = req.query?.invitationCode || req.query?.r_code || "";
+  const target = `https://veronova.co.in/veronova4/register${code ? `/${encodeURIComponent(code)}` : ""}`;
+  return res.redirect(target);
+});
+router.get("/registerwithref/:code", (req, res) => {
+  const code = req.params?.code || "";
+  const target = `https://veronova.co.in/veronova4/register${code ? `/${encodeURIComponent(code)}` : ""}`;
+  return res.redirect(target);
+});
+router.get("/registerwithref", (req, res) => {
+  const code = req.query?.invitationCode || req.query?.r_code || "";
+  const target = `https://veronova.co.in/veronova4/register${code ? `/${encodeURIComponent(code)}` : ""}`;
+  return res.redirect(target);
+});
+
 module.exports = router;
 

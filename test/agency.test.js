@@ -69,7 +69,7 @@ test("Agency Promotion Data - Exact URL: GET /api/agency-promotion-data-13", asy
   assert.ok(res.body.invitation_link, "invitation_link must be present");
   assert.ok(res.body.invite_link, "invite_link must be present");
   assert.ok(res.body.invite_link.includes(res.body.referral_code), "invite_link must contain referral_code");
-  assert.ok(res.body.invite_link.startsWith("https://veronova.co.in/register/"), "invite_link must use configured baseUrl");
+  assert.ok(res.body.invite_link.startsWith("https://veronova.co.in/veronova4/register/"), "invite_link must use configured baseUrl");
 
   // Also verify nested data for axios/vanilla unpack compatibility
   assert.equal(res.body.data.referral_code, res.body.referral_code);
