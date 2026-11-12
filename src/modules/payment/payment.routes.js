@@ -50,9 +50,25 @@ router.get("/withdraw_history", controller.withdrawHistory);
 router.post("/withdraw_history", controller.withdrawHistory);
 router.get("/Account_view", controller.accountView);
 router.post("/Account_view", controller.accountView);
+router.get("/account_view", controller.accountView);
+router.post("/account_view", controller.accountView);
+router.get("/account-view", controller.accountView);
 router.post("/add_account", controller.addAccount);
+router.get("/add_account", controller.addAccount);
+router.post("/add-account", controller.addAccount);
+router.post("/add_bank", controller.addAccount);
+router.post("/add-bank", controller.addAccount);
 
-// 7. Payment Modes & Limits
+// 7. IFSC Code Details (matching Laravel IfscApiController@getIfscDetails)
+router.get("/get-ifsc-details", controller.getIfscDetails);
+router.post("/get-ifsc-details", controller.getIfscDetails);
+router.get("/get-ifsc-details/:ifsc", controller.getIfscDetails);
+router.get("/get_ifsc_details", controller.getIfscDetails);
+router.post("/get_ifsc_details", controller.getIfscDetails);
+router.get("/get_ifsc_details/:ifsc", controller.getIfscDetails);
+router.get("/ifsc-details", controller.getIfscDetails);
+
+// 8. Payment Modes & Limits
 router.get("/pay_modes", controller.payModes);
 router.post("/pay_modes", controller.payModes);
 router.get("/payment-limits", controller.getPaymentLimits);

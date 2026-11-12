@@ -231,7 +231,15 @@ async function addAccount(req, res) {
   return res.status(result.status || 200).json(result);
 }
 
-// 19. USDT Account View
+// 19. Get IFSC Details (Razorpay IFSC lookup)
+async function getIfscDetails(req, res) {
+  const ifsc = req.query?.ifsc || req.params?.ifsc || req.body?.ifsc;
+  const result = await service.getIfscDetails(ifsc);
+  const statusCode = result.status === "success" ? 200 : 400;
+  return res.status(statusCode).json(result);
+}
+
+// 20. USDT Account View
 async function usdtAccountView(req, res) {
   const q = req.method === "POST" ? req.body : req.query;
   const user_id = q.user_id || req.user?.id;
@@ -304,6 +312,7 @@ module.exports = {
   withdrawHistory,
   accountView,
   addAccount,
+  getIfscDetails,
   usdtAccountView,
   addUsdtAddress,
   payModes,

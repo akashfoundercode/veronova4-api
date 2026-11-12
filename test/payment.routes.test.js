@@ -118,5 +118,46 @@ test("Payment Routes Integration Tests", async (t) => {
     const res = await testRoute("GET", "/api/usdt_account_view?user_id=1");
     assert.strictEqual(res.statusCode, 200);
   });
+
+  await t.test("GET /api/get-ifsc-details returns IFSC details for valid IFSC", async () => {
+    const res = await testRoute("GET", "/api/get-ifsc-details?ifsc=SBIN0000008");
+    assert.strictEqual(res.statusCode, 200);
+    const parsed = JSON.parse(res.body);
+    assert.strictEqual(parsed.status, "success");
+    assert.strictEqual(parsed.message, "IFSC details found.");
+    assert.ok(parsed.data);
+    assert.ok(parsed.data.bank);
+    assert.ok(parsed.data.branch);
+  });
+
+  await t.test("GET /get-ifsc-details (root alias) returns IFSC details", async () => {
+    const res = await testRoute("GET", "/get-ifsc-details?ifsc=SBIN0000008");
+    assert.strictEqual(res.statusCode, 200);
+    const parsed = JSON.parse(res.body);
+    assert.strictEqual(parsed.status, "success");
+    assert.ok(parsed.data.bank);
+  });
+
+  await t.test("GET /api/get-ifsc-details handles invalid IFSC with 400", async () => {
+    const res = await testRoute("GET", "/api/get-ifsc-details?ifsc=INVALID999");
+    assert.strictEqual(res.statusCode, 400);
+    const parsed = JSON.parse(res.body);
+    assert.strictEqual(parsed.status, "error");
+    assert.strictEqual(parsed.message, "Invalid IFSC Code");
+  });
+
+  await t.test("POST /api/add_account validates input fields", async () => {
+    const res = await testRoute("POST", "/api/add_account", {
+      user_id: 13,
+      name: "Akash Rai",
+      account_number: "123456789012",
+      ifsc_code: "SBIN0000008",
+      bank_name: "State Bank of India",
+      branch: "ALIPORE",
+    });
+    assert.ok([200, 400, 409].includes(res.statusCode));
+    const parsed = JSON.parse(res.body);
+    assert.ok(parsed.message);
+  });
 });
 
