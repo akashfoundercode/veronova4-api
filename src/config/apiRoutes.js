@@ -342,6 +342,13 @@ const API_ROUTES = Object.freeze({
     resultByPeriod: "/trx/results_by_periodno",
     updateResults: "/trx/update_result_cron",
   }),
+  agency: Object.freeze({
+    promotionData: "/agency-promotion-data-:id",
+    newSubordinate: "/new-subordinate",
+    tier: "/tier",
+    subordinateData: "/subordinate-data",
+    turnovers: "/turnovers",
+  }),
   health: "/health",
 });
 

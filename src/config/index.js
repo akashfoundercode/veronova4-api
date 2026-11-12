@@ -66,6 +66,10 @@ module.exports = Object.freeze({
     digits: Number.parseInt(process.env.OTP_DEFAULT_DIGITS ?? "6", 10),
     expiryMinutes: Number.parseInt(process.env.OTP_EXPIRY_MINUTES ?? "5", 10),
   }),
+  agency: Object.freeze({
+    inviteBaseUrl:
+      process.env.INVITE_BASE_URL ?? "https://veronova.co.in/register/",
+  }),
   appUrl,
   corsOrigins: (process.env.CORS_ORIGINS ?? process.env.APP_URL ?? "http://localhost:3000")
     .split(",")

@@ -115,6 +115,17 @@ async function ensureAllTables() {
       "ADD COLUMN today_turnover DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
       "ADD COLUMN total_turnover DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
       "ADD COLUMN login_token VARCHAR(255) NULL",
+      "ADD COLUMN commission DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
+      "ADD COLUMN yesterday_total_commission DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
+      "ADD COLUMN salary_first_recharge TINYINT NOT NULL DEFAULT 1",
+      "ADD COLUMN first_recharge INT NOT NULL DEFAULT 0",
+      "ADD COLUMN first_recharge_amount DECIMAL(20, 4) NULL DEFAULT '0.0000'",
+      "ADD COLUMN account_type TINYINT NOT NULL DEFAULT 0",
+      "ADD COLUMN bonus DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
+      "ADD COLUMN bonus_wallet DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
+      "ADD COLUMN total_payin DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
+      "ADD COLUMN no_of_payin INT NOT NULL DEFAULT 0",
+      "ADD COLUMN deposit_balance DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
     ];
     for (const col of userColumns) {
       await safeExec(`ALTER TABLE users ${col};`);
@@ -176,6 +187,33 @@ async function ensureAllTables() {
     ];
     for (const g of wingoGameSettings) {
       await safeExec(`INSERT IGNORE INTO game_settings (id, name, winning_percentage, status) VALUES (${g[0]}, '${g[1]}', ${g[2]}, 1);`);
+    }
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS mlm_levels (
+        id BIGINT(20) UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        count INT(11) NOT NULL DEFAULT 1,
+        commission FLOAT NOT NULL DEFAULT 0.00,
+        cashback DECIMAL(10,2) DEFAULT NULL,
+        status TINYINT(4) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    const defaultMlmLevels = [
+      [1, "level 1", 1, 0.6],
+      [2, "level 2", 2, 0.18],
+      [3, "level 3", 3, 0.054],
+      [4, "level 4", 4, 0.016],
+      [5, "level 5", 5, 0.0048],
+      [6, "level 6", 6, 0.0014],
+    ];
+    for (const lvl of defaultMlmLevels) {
+      await safeExec(
+        `INSERT IGNORE INTO mlm_levels (id, name, count, commission, status) VALUES (${lvl[0]}, '${lvl[1]}', ${lvl[2]}, ${lvl[3]}, 1);`
+      );
     }
 
     await safeExec(`
@@ -272,10 +310,15 @@ async function ensureAllTables() {
         userid BIGINT NOT NULL,
         amount DECIMAL(20, 2) NOT NULL,
         subtypeid INT NOT NULL DEFAULT 0,
+        description VARCHAR(255) NULL,
+        description_2 VARCHAR(255) NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    await safeExec("ALTER TABLE wallet_history ADD COLUMN description VARCHAR(255) NULL;");
+    await safeExec("ALTER TABLE wallet_history ADD COLUMN description_2 VARCHAR(255) NULL;");
 
     await safeExec(`
       CREATE TABLE IF NOT EXISTS admin_winner_results (
