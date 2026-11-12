@@ -119,3 +119,63 @@ test("POST /auto_wingo_result_insert and aliases reject unauthenticated calls gr
   }, { game_id: 1, game_no: "20261112001", number: 5 });
   assert.equal(res4.statusCode, 401);
 });
+
+test("WingoService.addAdminResult handles normal insert, forced update, and ER_DUP_ENTRY recovery", async () => {
+  const { WingoService } = require("../src/modules/wingo/wingo.service");
+  let executedSql = [];
+  let existingRows = [];
+  let simulatePrimaryDupOnce = true;
+
+  const mockPool = {
+    async execute(sql, params) {
+      executedSql.push({ sql, params });
+      if (sql.includes("CREATE TABLE IF NOT EXISTS")) {
+        return [[], []];
+      }
+      if (sql.includes("SELECT id FROM admin_winner_results")) {
+        return [existingRows, []];
+      }
+      if (sql.includes("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM admin_winner_results")) {
+        return [[{ next_id: 42 }], []];
+      }
+      if (sql.includes("UPDATE admin_winner_results")) {
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes("ALTER TABLE")) {
+        return [[], []];
+      }
+      if (sql.includes("INSERT INTO admin_winner_results")) {
+        if (simulatePrimaryDupOnce && !sql.includes("(id,")) {
+          simulatePrimaryDupOnce = false;
+          const err = new Error("Duplicate entry '0' for key 'PRIMARY'");
+          err.code = "ER_DUP_ENTRY";
+          throw err;
+        }
+        return [{ insertId: params?.[0] === 42 ? 42 : 1 }, []];
+      }
+      return [[], []];
+    },
+  };
+
+  const wingoService = new WingoService(() => mockPool);
+
+  // Test 1: Duplicate entry '0' for key 'PRIMARY' auto-recovers
+  const res1 = await wingoService.addAdminResult({
+    period_num: "20261112001",
+    card_number: 7,
+    gameid: 1,
+  });
+  assert.equal(res1, true);
+  assert.ok(executedSql.some((e) => e.sql.includes("(id,") && e.params[0] === 42));
+  assert.ok(executedSql.some((e) => e.sql.includes("ALTER TABLE admin_winner_results MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT")));
+
+  // Test 2: Admin force update when period already exists
+  existingRows = [{ id: 42 }];
+  const res2 = await wingoService.addAdminResult({
+    period_num: "20261112001",
+    card_number: 3,
+    gameid: 1,
+  });
+  assert.equal(res2, true);
+  assert.ok(executedSql.some((e) => e.sql.includes("UPDATE admin_winner_results SET number = ?") && e.params[0] === "3"));
+});

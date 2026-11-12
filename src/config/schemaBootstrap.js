@@ -381,6 +381,11 @@ async function ensureAllTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // Ensure admin_winner_results has AUTO_INCREMENT and no id = 0 collision
+    await safeExec("UPDATE admin_winner_results SET id = (SELECT next_id FROM (SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM admin_winner_results) t) WHERE id = 0");
+    await safeExec("ALTER TABLE admin_winner_results MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT");
+    await safeExec("ALTER TABLE admin_winner_results ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+
     await safeExec(`
       CREATE TABLE IF NOT EXISTS balloon_bet (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,

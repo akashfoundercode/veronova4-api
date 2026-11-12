@@ -32,6 +32,7 @@ router.post(API_ROUTES.wingo.autoResultInsert, authenticate, requireAdmin, contr
 router.post("/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
 router.post("/api/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
 router.all("/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
+router.all("/api/auto_wingo_result_insert", authenticate, requireAdmin, controller.autoWingoResultInsert);
 router.get(API_ROUTES.wingo.fetchHistory, controller.fetchHistory);
 router.get(API_ROUTES.wingo.fetchHistoryByGame, controller.fetchHistory);
 router.get("/fetch/:gameid", controller.fetchData);
@@ -42,9 +43,13 @@ router.post("/api/colour_prediction_store", authenticate, requireAdmin, controll
 router.post("/api/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.all("/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.all("/colour_prediction_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/api/colour_prediction_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/api/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.post("/future-result-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.post("/future_result_store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.all("/future-result-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.all("/future_result_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/api/future-result-store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/api/future_result_store", authenticate, requireAdmin, controller.colourPredictionStore);
 
 module.exports = router;

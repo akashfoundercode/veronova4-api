@@ -846,13 +846,62 @@ class WingoService {
       [period_num, gameid],
     );
     if (existing.length > 0) {
-      return false;
+      await pool.execute(
+        "UPDATE admin_winner_results SET number = ?, status = '1', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [String(card_number), existing[0].id],
+      );
+      return true;
     }
 
-    await pool.execute(
-      "INSERT INTO admin_winner_results (gamesno, number, gameId, status) VALUES (?, ?, ?, '1')",
-      [period_num, String(card_number), gameid],
-    );
+    const executeInsert = async (explicitId = null) => {
+      if (explicitId !== null) {
+        return pool.execute(
+          "INSERT INTO admin_winner_results (id, gamesno, number, gameId, status) VALUES (?, ?, ?, ?, '1')",
+          [explicitId, period_num, String(card_number), gameid],
+        );
+      }
+      return pool.execute(
+        "INSERT INTO admin_winner_results (gamesno, number, gameId, status) VALUES (?, ?, ?, '1')",
+        [period_num, String(card_number), gameid],
+      );
+    };
+
+    try {
+      await executeInsert();
+    } catch (insertErr) {
+      const isDuplicateKey =
+        insertErr &&
+        (insertErr.code === "ER_DUP_ENTRY" ||
+          String(insertErr.message || "").includes("Duplicate entry"));
+      const errMsg = String(insertErr?.message || insertErr?.sqlMessage || "").toLowerCase();
+
+      if (isDuplicateKey && (errMsg.includes("primary") || errMsg.includes("'0' for key"))) {
+        try {
+          await pool.execute(
+            "UPDATE admin_winner_results SET id = (SELECT next_id FROM (SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM admin_winner_results) t) WHERE id = 0",
+          );
+        } catch (_) {}
+
+        const [maxRows] = await pool.execute(
+          "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM admin_winner_results",
+        );
+        const nextId = Number(maxRows[0]?.next_id || 1);
+        await executeInsert(nextId);
+
+        try {
+          await pool.execute(
+            "ALTER TABLE admin_winner_results MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          );
+        } catch (_) {}
+      } else if (isDuplicateKey) {
+        await pool.execute(
+          "UPDATE admin_winner_results SET number = ?, status = '1', updated_at = CURRENT_TIMESTAMP WHERE gamesno = ? AND gameId = ?",
+          [String(card_number), period_num, gameid],
+        );
+      } else {
+        throw insertErr;
+      }
+    }
     return true;
   }
 

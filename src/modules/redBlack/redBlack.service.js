@@ -200,11 +200,63 @@ class RedBlackService {
       "SELECT id FROM admin_winner_results WHERE gamesno = ? AND gameId = ? LIMIT 1",
       [options.period_num, RED_BLACK_GAME_ID],
     );
-    if (existing.length > 0) return false;
-    await pool.execute(
-      "INSERT INTO admin_winner_results (gamesno, number, gameId, status) VALUES (?, ?, ?, '1')",
-      [options.period_num, String(result), RED_BLACK_GAME_ID],
-    );
+    if (existing.length > 0) {
+      await pool.execute(
+        "UPDATE admin_winner_results SET number = ?, status = '1', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [String(result), existing[0].id],
+      );
+      return true;
+    }
+
+    const executeInsert = async (explicitId = null) => {
+      if (explicitId !== null) {
+        return pool.execute(
+          "INSERT INTO admin_winner_results (id, gamesno, number, gameId, status) VALUES (?, ?, ?, ?, '1')",
+          [explicitId, options.period_num, String(result), RED_BLACK_GAME_ID],
+        );
+      }
+      return pool.execute(
+        "INSERT INTO admin_winner_results (gamesno, number, gameId, status) VALUES (?, ?, ?, '1')",
+        [options.period_num, String(result), RED_BLACK_GAME_ID],
+      );
+    };
+
+    try {
+      await executeInsert();
+    } catch (insertErr) {
+      const isDuplicateKey =
+        insertErr &&
+        (insertErr.code === "ER_DUP_ENTRY" ||
+          String(insertErr.message || "").includes("Duplicate entry"));
+      const errMsg = String(insertErr?.message || insertErr?.sqlMessage || "").toLowerCase();
+
+      if (isDuplicateKey && (errMsg.includes("primary") || errMsg.includes("'0' for key"))) {
+        try {
+          await pool.execute(
+            "UPDATE admin_winner_results SET id = (SELECT next_id FROM (SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM admin_winner_results) t) WHERE id = 0",
+          );
+        } catch (_) {}
+
+        const [maxRows] = await pool.execute(
+          "SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM admin_winner_results",
+        );
+        const nextId = Number(maxRows[0]?.next_id || 1);
+        await executeInsert(nextId);
+
+        try {
+          await pool.execute(
+            "ALTER TABLE admin_winner_results MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          );
+        } catch (_) {}
+      } else if (isDuplicateKey) {
+        await pool.execute(
+          "UPDATE admin_winner_results SET number = ?, status = '1', updated_at = CURRENT_TIMESTAMP WHERE gamesno = ? AND gameId = ?",
+          [String(result), options.period_num, RED_BLACK_GAME_ID],
+        );
+      } else {
+        throw insertErr;
+      }
+    }
     return true;
   }
 
