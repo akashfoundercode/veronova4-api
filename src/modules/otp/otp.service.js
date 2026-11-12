@@ -74,6 +74,7 @@ class OtpService {
 
     let generatedOtp = null;
     let remainingSms = null;
+    let providerMode = "test";
     let isLiveMode = false;
 
     // Check IndoPay response
@@ -81,7 +82,8 @@ class OtpService {
       if (providerResponse.status === "success" || providerResponse.error === "200") {
         generatedOtp = providerResponse.otp ? String(providerResponse.otp) : null;
         remainingSms = providerResponse.remaining !== undefined ? providerResponse.remaining : null;
-        isLiveMode = providerResponse.mode === "live";
+        providerMode = String(providerResponse.mode || "test").toLowerCase();
+        isLiveMode = providerMode === "live";
       } else {
         const errorMsg = providerResponse.msg || providerResponse.message || "Failed to send OTP.";
         const errorCode = Number(providerResponse.error) || 400;
@@ -145,18 +147,24 @@ class OtpService {
       createdAt: now.getTime(),
     });
 
+    const isTestMode = !isLiveMode;
+    const responseMsg = isLiveMode
+      ? "OTP sent successfully to mobile number via SMS"
+      : `OTP generated (TEST MODE): use ${generatedOtp}. Activate Live Mode on IndoPay portal to dispatch real SMS.`;
+
     return {
       status: 200,
       success: true,
-      message: "OTP sent successfully",
+      message: responseMsg,
       data: {
         mobile: normalizedMobile,
         digit: otpDigits,
         expires_in_seconds: expiryMinutes * 60,
         remaining_sms: remainingSms,
-        mode: isLiveMode ? "live" : "development",
-        // Only exposed in non-production/sandbox environments for easy testing
-        ...(process.env.NODE_ENV !== "production" ? { debug_otp: generatedOtp } : {}),
+        mode: isLiveMode ? "live" : "test",
+        is_live: isLiveMode,
+        test_otp: isTestMode ? generatedOtp : undefined,
+        debug_otp: process.env.NODE_ENV !== "production" ? generatedOtp : undefined,
       },
     };
   }
