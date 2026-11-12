@@ -108,4 +108,14 @@ test("POST /auto_wingo_result_insert and aliases reject unauthenticated calls gr
     "content-type": "application/json",
   }, { game_id: 1, game_no: "20261112001", number: 5 });
   assert.equal(res2.statusCode, 401);
+
+  const res3 = await testRoute("POST", "/colour_prediction_store", {
+    "content-type": "application/json",
+  }, { game_id: 1, game_no: "20261112001", number: 5 });
+  assert.equal(res3.statusCode, 401);
+
+  const res4 = await testRoute("POST", "/api/colour_prediction_store", {
+    "content-type": "application/json",
+  }, { game_id: 1, game_no: "20261112001", number: 5 });
+  assert.equal(res4.statusCode, 401);
 });

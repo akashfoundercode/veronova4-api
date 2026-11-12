@@ -38,7 +38,13 @@ router.get("/fetch/:gameid", controller.fetchData);
 router.get("/fetch", controller.fetchData);
 router.post("/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.post("/colour_prediction_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.post("/api/colour_prediction_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.post("/api/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/colour_prediction-store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/colour_prediction_store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.post("/future-result-store", authenticate, requireAdmin, controller.colourPredictionStore);
 router.post("/future_result_store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/future-result-store", authenticate, requireAdmin, controller.colourPredictionStore);
+router.all("/future_result_store", authenticate, requireAdmin, controller.colourPredictionStore);
 
 module.exports = router;
