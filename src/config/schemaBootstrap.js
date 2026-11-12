@@ -1132,6 +1132,52 @@ async function ensureAllTables() {
       }
     } catch (_) {}
 
+    // 11. EXTRA FIRST DEPOSIT BONUS TABLES
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS extra_first_deposit_bonus (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        first_deposit_ammount DOUBLE NOT NULL DEFAULT 0,
+        amount DOUBLE NOT NULL DEFAULT 0,
+        max_amount DOUBLE NOT NULL DEFAULT 999999,
+        bonus DOUBLE NOT NULL DEFAULT 0,
+        name VARCHAR(255) DEFAULT NULL,
+        status TINYINT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS extra_first_deposit_bonus_claim (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        userid BIGINT UNSIGNED NOT NULL,
+        extra_fdb_id INT NOT NULL,
+        amount DOUBLE NOT NULL,
+        bonus DOUBLE NOT NULL,
+        status TINYINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_userid (userid)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    try {
+      const [existingExtra] = await connection.query("SELECT COUNT(*) as cnt FROM extra_first_deposit_bonus");
+      if (!existingExtra[0]?.cnt) {
+        const seedBonus = [
+          [1, 100, 100, 499, 10, '100', 1],
+          [2, 500, 500, 999, 15, '500', 1],
+          [3, 1000, 1000, 4999, 20, '1000', 1],
+          [4, 5000, 5000, 999999, 25, '5000', 1]
+        ];
+        for (const b of seedBonus) {
+          await safeExec(
+            `INSERT IGNORE INTO extra_first_deposit_bonus (id, first_deposit_ammount, amount, max_amount, bonus, name, status) VALUES (${b[0]}, ${b[1]}, ${b[2]}, ${b[3]}, ${b[4]}, '${b[5]}', ${b[6]});`
+          );
+        }
+      }
+    } catch (_) {}
+
     console.log("[SchemaBootstrap] ✅ All tables verified & synchronized in single database (veronova_db).");
   } catch (err) {
     console.warn("[SchemaBootstrap] ⚠️ Non-fatal schema verification error:", err.message);

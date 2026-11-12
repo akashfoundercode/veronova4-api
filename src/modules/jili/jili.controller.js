@@ -38,4 +38,12 @@ module.exports = {
   games: wrap(async (req) => {
     return service.games(req.query);
   }),
+  getResellerInfo: wrap(async (req) => {
+    const managerKey =
+      req.params?.manager_key ||
+      req.query?.manager_key ||
+      req.body?.manager_key ||
+      "FEGISo8cR74cf";
+    return service.getResellerInfo(managerKey);
+  }),
 };

@@ -90,6 +90,10 @@ router.get("/getPaymentLimits", controller.getPaymentLimits);
 router.post("/update-wallet", requireAdmin, controller.deductAmount);
 
 // 8. SkillPay & Other Gateway Aliases
+router.get("/extra_first_deposit_bonus", controller.extraFirstDepositBonus);
+router.post("/extra_first_deposit_bonus", controller.extraFirstDepositBonus);
+router.get("/extra-first-deposit-bonus", controller.extraFirstDepositBonus);
+router.post("/extra-first-deposit-bonus", controller.extraFirstDepositBonus);
 router.post("/Skillpay", controller.payin);
 router.post("/skillpaycallback", controller.payzaaarCallback);
 router.post("/skillpay_payin", controller.payin);

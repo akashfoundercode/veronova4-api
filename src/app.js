@@ -127,6 +127,7 @@ app.use(otpRoutes);
 app.use(API_PREFIX, agencyRoutes);
 app.use(agencyRoutes);
 app.use(API_PREFIX, jiliRoutes);
+app.use(jiliRoutes);
 app.use(
   "/uploads/customer_service",
   authenticate,

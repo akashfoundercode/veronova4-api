@@ -328,6 +328,29 @@ async function deductAmount(req, res) {
   return res.status(result.status === 200 ? 200 : 400).json(result);
 }
 
+// 22. Extra First Deposit Bonus (matching Laravel PublicApiController@extra_first_deposit_bonus)
+async function extraFirstDepositBonus(req, res) {
+  const rawUserId =
+    req.query?.userid ??
+    req.query?.user_id ??
+    req.query?.id ??
+    req.body?.userid ??
+    req.body?.user_id ??
+    req.params?.userid ??
+    req.user?.id;
+
+  if (rawUserId === undefined || rawUserId === null || String(rawUserId).trim() === "") {
+    return res.status(400).json({
+      status: 400,
+      message: "The userid field is required.",
+    });
+  }
+
+  const result = await service.getExtraFirstDepositBonus(rawUserId);
+  const httpStatus = result.status === 200 ? 200 : (result.status === 404 ? 404 : 400);
+  return res.status(httpStatus).json(result);
+}
+
 module.exports = {
   innersoulcares,
   checkInnersoulPayment,
@@ -348,6 +371,7 @@ module.exports = {
   accountView,
   addAccount,
   getIfscDetails,
+  extraFirstDepositBonus,
   usdtAccountView,
   addUsdtAddress,
   payModes,
