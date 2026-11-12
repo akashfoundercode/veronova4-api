@@ -107,6 +107,23 @@ test("OTP Service - Complete Send & Verify Cycle", async () => {
   assert.equal(getVerify.statusCode, 200);
   assert.equal(getVerify.body.success, true);
 
+  // 7. Test exact route: POST /api/verify with { mobile, otp }
+  const testSend = await testRoute("POST", "/api/send", {}, {
+    mobile: "7991877018",
+    digit: 4,
+  });
+  assert.equal(testSend.statusCode, 200);
+  const testOtp = testSend.body.data.debug_otp;
+
+  const exactVerifyRes = await testRoute("POST", "/api/verify", {}, {
+    mobile: "7991877018",
+    otp: testOtp,
+  });
+  assert.equal(exactVerifyRes.statusCode, 200);
+  assert.equal(exactVerifyRes.body.success, true);
+  assert.equal(exactVerifyRes.body.data.verified, true);
+  assert.equal(exactVerifyRes.body.data.mobile, "7991877018");
+
   console.log("✅ ALL OTP SEND & VERIFY TESTS PASSED SUCCESSFULLY!");
 });
 
