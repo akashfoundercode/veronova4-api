@@ -272,14 +272,28 @@ class WingoService {
         );
       }
 
-      await connection.execute(
-        `UPDATE users
-         SET recharge = CASE WHEN recharge >= ? THEN recharge - ? ELSE 0 END,
-             wallet = wallet - ?,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
-        [amount, amount, amount, userid],
-      );
+      try {
+        await connection.execute(
+          `UPDATE users
+           SET recharge = CASE WHEN recharge >= ? THEN recharge - ? ELSE 0 END,
+               wallet = wallet - ?,
+               today_turnover = COALESCE(today_turnover, 0) + ?,
+               turnover = COALESCE(turnover, 0) + ?,
+               total_turnover = COALESCE(total_turnover, 0) + ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [amount, amount, amount, amount, amount, amount, userid],
+        );
+      } catch (_) {
+        await connection.execute(
+          `UPDATE users
+           SET recharge = CASE WHEN recharge >= ? THEN recharge - ? ELSE 0 END,
+               wallet = wallet - ?,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [amount, amount, amount, userid],
+        );
+      }
 
       await connection.commit();
       transactionStarted = false;

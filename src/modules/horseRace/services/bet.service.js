@@ -347,10 +347,22 @@ class BetService {
 
                 try {
                     await connection.execute(
-                        'UPDATE users SET wallet = ? WHERE id = ?',
-                        [exactBalanceAfter, userId]
+                        `UPDATE users
+                         SET wallet = ?,
+                             today_turnover = COALESCE(today_turnover, 0) + ?,
+                             turnover = COALESCE(turnover, 0) + ?,
+                             total_turnover = COALESCE(total_turnover, 0) + ?
+                         WHERE id = ?`,
+                        [exactBalanceAfter, totalBetAmount, totalBetAmount, totalBetAmount, userId]
                     );
-                } catch (_) {}
+                } catch (_) {
+                    try {
+                        await connection.execute(
+                            'UPDATE users SET wallet = ? WHERE id = ?',
+                            [exactBalanceAfter, userId]
+                        );
+                    } catch (_) {}
+                }
 
                 // Record in wallet_transactions ledger if table exists
                 try {

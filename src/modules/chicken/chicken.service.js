@@ -161,10 +161,22 @@ class ChickenService {
         }
       }
 
-      await c.execute(
-        "UPDATE users SET wallet = wallet - ? WHERE id = ?",
-        [amount, uid],
-      );
+      try {
+        await c.execute(
+          `UPDATE users
+           SET wallet = wallet - ?,
+               today_turnover = COALESCE(today_turnover, 0) + ?,
+               turnover = COALESCE(turnover, 0) + ?,
+               total_turnover = COALESCE(total_turnover, 0) + ?
+           WHERE id = ?`,
+          [amount, amount, amount, amount, uid],
+        );
+      } catch (_) {
+        await c.execute(
+          "UPDATE users SET wallet = wallet - ? WHERE id = ?",
+          [amount, uid],
+        );
+      }
 
       try {
         await c.execute(

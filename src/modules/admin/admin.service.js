@@ -1289,8 +1289,14 @@ class AdminService {
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS previous_turnover,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS today_turnover,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS yesterday_turnover
-           FROM bets b
-           INNER JOIN users u ON u.id = b.userid
+           FROM (
+             SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
+             UNION ALL
+             SELECT cb.user_id AS uid, cb.amount, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
+             UNION ALL
+             SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+           ) b
+           INNER JOIN users u ON u.id = b.uid
            WHERE u.account_type = 0`,
           [
             startDate, endDate, previousStartDate, previousEndDate,
@@ -1342,8 +1348,8 @@ class AdminService {
              (SELECT COALESCE(SUM(commission), 0) FROM users WHERE account_type = 0) AS total_commission,
              (SELECT COUNT(*) FROM users WHERE account_type = 1) AS demo_users,
              (SELECT COUNT(*) FROM users WHERE illegal_count > 0) AS illegal_betters,
-             (SELECT COALESCE(SUM(amount) - SUM(win_amount), 0) FROM chicken_bets) AS chicken_net,
-             (SELECT COALESCE(SUM(amount) - SUM(win), 0) FROM aviator_bet) AS aviator_net,
+             (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
+             (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = COALESCE(ab.uid, ab.user_id) WHERE u.account_type = 0) AS aviator_net,
              (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack,
              (SELECT COUNT(*) FROM feedbacks WHERE created_at >= ? AND created_at < ?) AS current_feedbacks,
              (SELECT COUNT(*) FROM feedbacks WHERE created_at >= ? AND created_at < ?) AS previous_feedbacks,
@@ -1353,10 +1359,10 @@ class AdminService {
              (SELECT COUNT(*) FROM users WHERE account_type = 1 AND created_at >= ? AND created_at < ?) AS previous_demo_users,
              (SELECT COUNT(*) FROM users WHERE illegal_count > 0 AND created_at >= ? AND created_at < ?) AS current_illegal_betters,
              (SELECT COUNT(*) FROM users WHERE illegal_count > 0 AND created_at >= ? AND created_at < ?) AS previous_illegal_betters,
-             (SELECT COALESCE(SUM(amount) - SUM(win_amount), 0) FROM chicken_bets WHERE created_at >= ? AND created_at < ?) AS current_chicken_net,
-             (SELECT COALESCE(SUM(amount) - SUM(win_amount), 0) FROM chicken_bets WHERE created_at >= ? AND created_at < ?) AS previous_chicken_net,
-             (SELECT COALESCE(SUM(amount) - SUM(win), 0) FROM aviator_bet WHERE created_at >= ? AND created_at < ?) AS current_aviator_net,
-             (SELECT COALESCE(SUM(amount) - SUM(win), 0) FROM aviator_bet WHERE created_at >= ? AND created_at < ?) AS previous_aviator_net`,
+             (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0 AND cb.created_at >= ? AND cb.created_at < ?) AS current_chicken_net,
+             (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0 AND cb.created_at >= ? AND cb.created_at < ?) AS previous_chicken_net,
+             (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = COALESCE(ab.uid, ab.user_id) WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS current_aviator_net,
+             (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = COALESCE(ab.uid, ab.user_id) WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_net`,
           [
             startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
@@ -1368,7 +1374,14 @@ class AdminService {
         ),
         pool.execute(
           `SELECT DATE(b.created_at) AS day, COALESCE(SUM(b.amount), 0) AS value
-           FROM bets b INNER JOIN users u ON u.id = b.userid
+           FROM (
+             SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
+             UNION ALL
+             SELECT cb.user_id AS uid, cb.amount, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
+             UNION ALL
+             SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+           ) b
+           INNER JOIN users u ON u.id = b.uid
            WHERE u.account_type = 0 AND b.created_at >= ? AND b.created_at < ?
            GROUP BY DATE(b.created_at) ORDER BY day`,
           [startDate, endDate],
@@ -1470,8 +1483,14 @@ class AdminService {
            COALESCE(SUM(b.amount), 0) AS total_turnover,
            COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS today_turnover,
            COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS yesterday_turnover
-         FROM bets b
-         INNER JOIN users u ON u.id = b.userid
+         FROM (
+           SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
+           UNION ALL
+           SELECT cb.user_id AS uid, cb.amount, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
+           UNION ALL
+           SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+         ) b
+         INNER JOIN users u ON u.id = b.uid
          WHERE u.account_type = 0`,
         [today, todayEndDate, yesterday, today],
       ),
@@ -1504,8 +1523,8 @@ class AdminService {
            (SELECT COALESCE(SUM(commission), 0) FROM users WHERE account_type = 0) AS total_commission,
            (SELECT COUNT(*) FROM users WHERE account_type = 1) AS demo_users,
            (SELECT COUNT(*) FROM users WHERE illegal_count > 0) AS illegal_betters,
-           (SELECT COALESCE(SUM(amount) - SUM(win_amount), 0) FROM chicken_bets) AS chicken_net,
-           (SELECT COALESCE(SUM(amount) - SUM(win), 0) FROM aviator_bet) AS aviator_net,
+           (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
+           (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = COALESCE(ab.uid, ab.user_id) WHERE u.account_type = 0) AS aviator_net,
            (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack`,
       ),
     ]);
