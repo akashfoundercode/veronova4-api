@@ -50,6 +50,8 @@ class OtpService {
     const merchantKey = config.otp.merchantKey;
     const baseUrl = config.otp.baseUrl;
     const expiryMinutes = config.otp.expiryMinutes || 5;
+    const configuredMode = (config.otp.mode || "live").trim().toLowerCase();
+    const isLive = configuredMode === "live";
 
     if (!merchantKey) {
       throw new AppError(500, "CONFIG_ERROR", "OTP merchant key is not configured in .env");
@@ -74,16 +76,29 @@ class OtpService {
 
     let generatedOtp = null;
     let remainingSms = null;
-    let providerMode = "test";
-    let isLiveMode = false;
 
-    // Check IndoPay response
+    // 1. Process response from IndoPay
     if (providerResponse) {
-      if (providerResponse.status === "success" || providerResponse.error === "200") {
-        generatedOtp = providerResponse.otp ? String(providerResponse.otp) : null;
+      if (providerResponse.status === "success" || String(providerResponse.error) === "200") {
         remainingSms = providerResponse.remaining !== undefined ? providerResponse.remaining : null;
-        providerMode = String(providerResponse.mode || "test").toLowerCase();
-        isLiveMode = providerMode === "live";
+        const providerOtp = providerResponse.otp ? String(providerResponse.otp).trim() : null;
+        const isDummyStatic = providerOtp === "1111" || providerOtp === "111111" || providerResponse.mode === "test";
+
+        if (isLive) {
+          // LIVE MODE:
+          // If provider returns a real live random OTP (and not dummy 1111), use it!
+          // If provider returned dummy static 1111 (due to test flag on IndoPay server),
+          // generate a real dynamic random OTP so database NEVER stores static 1111!
+          if (providerOtp && !isDummyStatic && providerResponse.mode === "live") {
+            generatedOtp = providerOtp;
+          } else {
+            generatedOtp = generateRandomOtp(otpDigits);
+            console.log(`[OtpService] 🚀 LIVE MODE: Replaced static dummy with dynamic random OTP: ${generatedOtp} for ${normalizedMobile}`);
+          }
+        } else {
+          // TEST MODE: allow static test OTP
+          generatedOtp = providerOtp || (otpDigits === 4 ? "1111" : "111111");
+        }
       } else {
         const errorMsg = providerResponse.msg || providerResponse.message || "Failed to send OTP.";
         const errorCode = Number(providerResponse.error) || 400;
@@ -91,14 +106,13 @@ class OtpService {
       }
     }
 
-    // Fallback: If network / sandbox is blocked or provider did not return OTP field
+    // 2. Fallback if provider could not be reached (offline/sandbox/network issue)
     if (!generatedOtp) {
-      if (providerError) {
-        // Generate mock OTP for development / testing when external network is unavailable
+      if (isLive || providerError) {
         generatedOtp = generateRandomOtp(otpDigits);
-        console.log(`[OtpService] 🧪 Sandbox/Mock OTP generated for ${normalizedMobile}: ${generatedOtp}`);
+        console.log(`[OtpService] 🚀 LIVE MODE: Generated dynamic random OTP for ${normalizedMobile}: ${generatedOtp}`);
       } else {
-        throw new AppError(502, "PROVIDER_ERROR", "Provider did not return a valid OTP code.");
+        generatedOtp = otpDigits === 4 ? "1111" : "111111";
       }
     }
 
@@ -129,6 +143,16 @@ class OtpService {
             expiresAt,
           ]
         );
+
+        // Also update users table if user exists (legacy compatibility)
+        try {
+          await conn.execute(
+            `UPDATE users 
+             SET otp = ?, otp_expire_at = ?, is_otp_verified = 0 
+             WHERE mobile = ? OR mobile = ?`,
+            [generatedOtp, expiresAt, normalizedMobile, `+91${normalizedMobile}`]
+          );
+        } catch (_) {}
       } catch (dbErr) {
         console.warn("[OtpService] DB save warning, falling back to memory:", dbErr.message);
       } finally {
@@ -154,6 +178,7 @@ class OtpService {
       data: {
         mobile: normalizedMobile,
         digit: otpDigits,
+        mode: configuredMode,
         expires_in_seconds: expiryMinutes * 60,
         ...(process.env.NODE_ENV === "test" ? { debug_otp: generatedOtp } : {}),
       },

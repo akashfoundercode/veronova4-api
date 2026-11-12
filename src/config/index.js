@@ -56,6 +56,7 @@ module.exports = Object.freeze({
     managerKey: process.env.TRX_MANAGER_KEY,
   }),
   otp: Object.freeze({
+    mode: (process.env.OTP_MODE || "live").trim().toLowerCase(),
     merchantKey:
       process.env.OTP_MERCHANT_KEY ??
       "b4c17c34479e5f4525fad322a9d32eca69fd700613a370b5",
