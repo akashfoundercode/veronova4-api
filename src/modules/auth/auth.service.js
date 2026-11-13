@@ -7,6 +7,23 @@ const { getPool } = require("../../config/database");
 
 const USER_TOKEN_TYPE = "App\\Models\\User";
 
+function getIdentityCandidates(identity, country_code = "91") {
+  const rawIdentity = String(identity || "").trim();
+  const cleanIdentity = rawIdentity.replace(/^\+/, "").trim();
+  const digitsOnly = cleanIdentity.replace(/\D/g, "");
+  const last10Digits = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : digitsOnly;
+  const cleanCountry = String(country_code || "91").replace(/\D/g, "") || "91";
+  return [...new Set([
+    rawIdentity,
+    cleanIdentity,
+    digitsOnly,
+    last10Digits,
+    `${cleanCountry}${last10Digits}`,
+    `+${cleanCountry}${last10Digits}`,
+    `0${last10Digits}`,
+  ])].filter((candidate) => Boolean(candidate && candidate.trim()));
+}
+
 function matchesPassword(storedPassword, providedPassword) {
   if (typeof storedPassword !== "string" || typeof providedPassword !== "string") {
     return false;
@@ -66,23 +83,7 @@ class AuthService {
       await connection.beginTransaction();
       transactionStarted = true;
 
-      const rawIdentity = String(identity || "").trim();
-      const cleanIdentity = rawIdentity.replace(/^\+/, "").trim();
-      const digitsOnly = cleanIdentity.replace(/\D/g, "");
-      const last10Digits = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : digitsOnly;
-      const cleanCountry = String(country_code || "91").replace(/\D/g, "") || "91";
-
-      const candidateSet = new Set([
-        rawIdentity,
-        cleanIdentity,
-        digitsOnly,
-        last10Digits,
-        `${cleanCountry}${last10Digits}`,
-        `+${cleanCountry}${last10Digits}`,
-        `0${last10Digits}`,
-      ]);
-
-      const candidates = [...candidateSet].filter((c) => Boolean(c && String(c).trim().length > 0));
+      const candidates = getIdentityCandidates(identity, country_code);
       const placeholders = candidates.map(() => "?").join(", ");
 
       const [users] = await connection.execute(
@@ -166,6 +167,19 @@ class AuthService {
     } finally {
       connection.release();
     }
+  }
+
+  async getLoginAccountStatus({ identity, country_code }) {
+    const candidates = getIdentityCandidates(identity, country_code);
+    const placeholders = candidates.map(() => "?").join(", ");
+    const [users] = await this.poolProvider().execute(
+      `SELECT id, status FROM users
+       WHERE email IN (${placeholders}) OR mobile IN (${placeholders})
+          OR username IN (${placeholders}) OR u_id IN (${placeholders})
+       LIMIT 1`,
+      [...candidates, ...candidates, ...candidates, ...candidates],
+    );
+    return users[0] ?? null;
   }
 
   async register({ email, country_code, mobile, password, referral_code }) {

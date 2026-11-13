@@ -138,6 +138,28 @@ async function login(req, res) {
     country_code: countryCode.trim(),
   });
   if (!result || result.error) {
+    try {
+      const account = await service.getLoginAccountStatus({
+        identity: identityValue.trim(),
+        country_code: countryCode.trim(),
+      });
+      if (!account) {
+        return res.status(404).json({
+          message: "This account is not registered. Please register first.",
+          status: "404",
+          code: "ACCOUNT_NOT_FOUND",
+        });
+      }
+      if (Number(account.status) !== 1) {
+        return res.status(403).json({
+          message: "This account is inactive. Please contact support.",
+          status: "403",
+          code: "ACCOUNT_INACTIVE",
+        });
+      }
+    } catch (_) {
+      // Keep the generic credentials response if the lookup itself is unavailable.
+    }
     return invalidLogin(res, result?.message);
   }
 
