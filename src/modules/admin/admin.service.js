@@ -1183,7 +1183,7 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
   const chickenProfit = Math.max(chickenNet, 0);
   const chickenLoss = Math.abs(Math.min(chickenNet, 0));
   const aviatorProfit = Math.max(aviatorNet, 0);
-  const aviatorLoss = Math.abs(Math.min(aviatorNet, 0));
+  const aviatorLoss = number(extra.aviator_loss);
   const otpPack = number(extra.otp_pack);
 
   return {
@@ -1356,6 +1356,7 @@ class AdminService {
              (SELECT COUNT(*) FROM users WHERE illegal_count > 0) AS illegal_betters,
              (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
              (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_net,
+             (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2) AS aviator_loss,
              (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack,
              (SELECT COUNT(*) FROM feedbacks WHERE created_at >= ? AND created_at < ?) AS current_feedbacks,
              (SELECT COUNT(*) FROM feedbacks WHERE created_at >= ? AND created_at < ?) AS previous_feedbacks,
@@ -1368,8 +1369,11 @@ class AdminService {
              (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0 AND cb.created_at >= ? AND cb.created_at < ?) AS current_chicken_net,
              (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0 AND cb.created_at >= ? AND cb.created_at < ?) AS previous_chicken_net,
              (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS current_aviator_net,
-             (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_net`,
+             (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_net,
+             (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2 AND ab.created_at >= ? AND ab.created_at < ?) AS current_aviator_loss,
+             (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_loss`,
           [
+            startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
@@ -1425,6 +1429,9 @@ class AdminService {
     const chickenThen = number(extra.previous_chicken_net);
     const aviatorNow = number(extra.current_aviator_net);
     const aviatorThen = number(extra.previous_aviator_net);
+    const aviatorLoss = number(extra.aviator_loss);
+    const aviatorLossNow = number(extra.current_aviator_loss);
+    const aviatorLossThen = number(extra.previous_aviator_loss);
     const counts = buildCounts({ user, bet, deposit, withdrawal, extra });
     const metrics = {
       totalRevenue: metric(bet.total_revenue, bet.current_revenue, bet.previous_revenue),
@@ -1447,7 +1454,7 @@ class AdminService {
       chickenRoadAdminProfit: metric(Math.max(chickenNet, 0), Math.max(chickenNow, 0), Math.max(chickenThen, 0)),
       chickenRoadAdminLoss: metric(Math.abs(Math.min(chickenNet, 0)), Math.abs(Math.min(chickenNow, 0)), Math.abs(Math.min(chickenThen, 0))),
       aviatorAdminProfit: metric(Math.max(aviatorNet, 0), Math.max(aviatorNow, 0), Math.max(aviatorThen, 0)),
-      aviatorAdminLoss: metric(Math.abs(Math.min(aviatorNet, 0)), Math.abs(Math.min(aviatorNow, 0)), Math.abs(Math.min(aviatorThen, 0))),
+      aviatorAdminLoss: metric(aviatorLoss, aviatorLossNow, aviatorLossThen),
       otpPack: metric(extra.otp_pack, 0, 0),
       otpPackBalance: metric(extra.otp_pack, 0, 0),
     };
@@ -1531,6 +1538,7 @@ class AdminService {
            (SELECT COUNT(*) FROM users WHERE illegal_count > 0) AS illegal_betters,
            (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
            (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_net,
+           (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2) AS aviator_loss,
            (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack`,
       ),
     ]);

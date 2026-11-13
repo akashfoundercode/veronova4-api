@@ -66,6 +66,7 @@ function createPool() {
           illegal_betters: 2,
           chicken_net: -15,
           aviator_net: 8,
+          aviator_loss: 24,
           otp_pack: 4955,
           current_feedbacks: 3,
           previous_feedbacks: 1,
@@ -79,6 +80,8 @@ function createPool() {
           previous_chicken_net: -5,
           current_aviator_net: 4,
           previous_aviator_net: 2,
+          current_aviator_loss: 9,
+          previous_aviator_loss: 5,
         }], []];
       }
       if (sql.includes("DATE(b.created_at)")) {
@@ -127,6 +130,9 @@ test("admin dashboard returns all cards and daily chart series for the selected 
   assert.equal(result.metrics.pendingWithdrawal.value, 2);
   assert.equal(result.metrics.chickenRoadAdminLoss.value, 15);
   assert.equal(result.metrics.aviatorAdminProfit.value, 8);
+  assert.equal(result.metrics.aviatorAdminLoss.value, 24);
+  assert.equal(result.metrics.aviatorAdminLoss.currentPeriod, 9);
+  assert.equal(result.metrics.aviatorAdminLoss.previousPeriod, 5);
   assert.equal(result.metrics.otpPack.value, 4955);
   assert.equal(result.metrics.otpPackBalance.value, 4955);
   assert.equal(result.counts.total_player, 80);
@@ -140,7 +146,7 @@ test("admin dashboard returns all cards and daily chart series for the selected 
   assert.equal(result.counts.chicken_road_admin_profit, 0);
   assert.equal(result.counts.chicken_road_admin_loss, 15);
   assert.equal(result.counts.aviator_admin_profit, 8);
-  assert.equal(result.counts.aviator_admin_loss, 0);
+  assert.equal(result.counts.aviator_admin_loss, 24);
   assert.equal(result.counts.active_player, 60);
   assert.equal(result.counts.today_user, 2);
   assert.equal(result.counts.today_turnover, 50);
@@ -195,8 +201,8 @@ test("admin getDashboardCounts returns standalone dashboard counts", async () =>
   assert.equal(counts.chickenRoadAdminLoss, 15);
   assert.equal(counts.aviator_admin_profit, 8);
   assert.equal(counts.aviatorAdminProfit, 8);
-  assert.equal(counts.aviator_admin_loss, 0);
-  assert.equal(counts.aviatorAdminLoss, 0);
+  assert.equal(counts.aviator_admin_loss, 24);
+  assert.equal(counts.aviatorAdminLoss, 24);
   assert.equal(counts.active_player, 60);
   assert.equal(counts.activePlayer, 60);
   assert.equal(counts.today_user, 2);

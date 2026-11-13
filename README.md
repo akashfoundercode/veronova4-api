@@ -192,8 +192,10 @@ requires the existing administrator identity (`users.id = 1`, `role_id = 1`,
 `currentPeriod`, `previousPeriod`, `changePercent`, and `trend`. The API's
 `totalRevenue` metric is calculated from real-player game bets as wager amounts
 minus paid winnings (`bets`, `chicken_bets`, and `aviator_bet`). Deposit
-metrics remain based on approved `payins`. Chart series contain one zero-filled
-record per day in the selected range.
+metrics remain based on approved `payins`. `aviatorAdminLoss` reports the
+amount staked on losing Aviator bets (`status = 2`), separately from net
+`aviatorAdminProfit`. Chart series contain one zero-filled record per day in
+the selected range.
 
 Dragon Tiger uses game ID 10 and the existing `virtual_games`, `cards`,
 `betlogs`, `bets`, `bet_results`, `admin_winner_results`, and `users` tables.
