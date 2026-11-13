@@ -32,6 +32,7 @@ const agencyRoutes = require("./modules/agency/agency.routes");
 const jiliRoutes = require("./modules/jili/jili.routes");
 const horseRaceRoutes = require("./modules/horseRace/horseRace.routes");
 const customerServiceRoutes = require("./modules/customerService/customerService.routes");
+const legacyApiRoutes = require("./modules/legacyApi/legacyApi.routes");
 const paymentRoutes = require("./modules/payment/payment.routes");
 const authenticate = require("./middleware/authenticate");
 const errorHandler = require("./middleware/errorHandler");
@@ -87,6 +88,8 @@ app.use(
 );
 app.use(API_PREFIX, authRoutes);
 app.use(authRoutes);
+app.use(API_PREFIX, legacyApiRoutes);
+app.use(legacyApiRoutes);
 app.use(API_PREFIX, adminRoutes);
 app.use(adminRoutes);
 app.use(API_PREFIX, gameRoutes);

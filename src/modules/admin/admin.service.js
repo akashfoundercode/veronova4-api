@@ -1884,7 +1884,7 @@ class AdminService {
       verification,
     } = data;
 
-    let mobile = data.mobile;
+    let mobile = data.mobile ?? data.mobile_no ?? data.phone;
     let password = data.password;
     let username = data.username;
 
@@ -1899,7 +1899,8 @@ class AdminService {
     }
 
     const normalizedMobile = String(mobile).trim();
-    const normalizedEmail = email ? String(email).trim().toLowerCase() : null;
+    const emailValue = email == null ? "" : String(email).trim().toLowerCase();
+    const normalizedEmail = emailValue && emailValue !== "null" ? emailValue : null;
     const initialWallet = Math.max(0, number(wallet));
     const kycVerification = verification !== undefined
       ? Number(verification)
@@ -1911,14 +1912,27 @@ class AdminService {
     try {
       await connection.beginTransaction();
 
+      const mobileDigits = normalizedMobile.replace(/\D/g, "");
+      const last10Mobile = mobileDigits.length >= 10 ? mobileDigits.slice(-10) : mobileDigits;
+      const mobileCandidates = [...new Set([normalizedMobile, last10Mobile, `+91${last10Mobile}`, `91${last10Mobile}`])]
+        .filter(Boolean);
+      const duplicateConditions = [`mobile IN (${mobileCandidates.map(() => "?").join(", ")})`];
+      const duplicateParams = [...mobileCandidates];
+      if (normalizedEmail) {
+        duplicateConditions.push("LOWER(email) = ?");
+        duplicateParams.push(normalizedEmail);
+      }
       const [existing] = await connection.execute(
-        `SELECT id FROM users
-         WHERE mobile = ? OR (email = ? AND ? IS NOT NULL)
-         LIMIT 1 FOR UPDATE`,
-        [normalizedMobile, normalizedEmail, normalizedEmail],
+        `SELECT id, mobile, email FROM users WHERE ${duplicateConditions.join(" OR ")} LIMIT 1 FOR UPDATE`,
+        duplicateParams,
       );
       if (existing.length > 0) {
-        throw new AppError(409, "DUPLICATE_USER", "This mobile number or email is already registered.");
+        const emailConflict = normalizedEmail && String(existing[0].email || "").toLowerCase() === normalizedEmail;
+        throw new AppError(
+          409,
+          "DUPLICATE_USER",
+          emailConflict ? "This email is already registered." : "This mobile number is already registered.",
+        );
       }
 
       let referralUserId = 1;
