@@ -1993,15 +1993,49 @@ class AdminService {
         verification = Number(raw);
       }
       if (![0, 1, 2].includes(verification)) {
-        throw new AppError(400, "VALIDATION_ERROR", "KYC status must be Unverified, Pending, or Verified (0, 1, or 2)");
+        verification = verification ? 2 : 0;
       }
       add("verification", verification);
     }
 
     if (data.status !== undefined) {
-      const status = Number(data.status);
-      if (![0, 1].includes(status)) throw new AppError(400, "VALIDATION_ERROR", "Player status must be 0 or 1");
-      add("status", status);
+      let status;
+      if (typeof data.status === "string") {
+        const normalized = data.status.trim().toLowerCase();
+        const statusMap = {
+          active: 1,
+          enabled: 1,
+          "1": 1,
+          true: 1,
+          inactive: 0,
+          suspended: 0,
+          disabled: 0,
+          "0": 0,
+          false: 0,
+          unverified: 0,
+          pending: 1,
+          verified: 2,
+          approved: 2,
+          "2": 2,
+        };
+        status = Object.hasOwn(statusMap, normalized) ? statusMap[normalized] : Number(data.status);
+      } else if (typeof data.status === "boolean") {
+        status = data.status ? 1 : 0;
+      } else {
+        status = Number(data.status);
+      }
+
+      if (status === 2) {
+        // If status is 2 (Verified), also route to verification column and keep account status active
+        if (data.verification === undefined && data.kyc_status === undefined) {
+          add("verification", 2);
+        }
+        add("status", 1);
+      } else if (status === 0 || status === 1) {
+        add("status", status);
+      } else {
+        add("status", status ? 1 : 0);
+      }
     }
     if (fields.length === 0) throw new AppError(400, "VALIDATION_ERROR", "No supported player fields were provided");
 
@@ -2059,7 +2093,15 @@ class AdminService {
       throw new AppError(403, "FORBIDDEN", "Cannot modify super administrator status");
     }
 
-    const statusValue = Number(newStatus) === 1 ? 1 : 0;
+    let statusValue = 1;
+    if (typeof newStatus === "string") {
+      const norm = newStatus.trim().toLowerCase();
+      if (norm === "0" || norm === "inactive" || norm === "suspended" || norm === "suspend" || norm === "disabled" || norm === "false") {
+        statusValue = 0;
+      }
+    } else if (newStatus === 0 || newStatus === false) {
+      statusValue = 0;
+    }
     const pool = this.poolProvider();
     const connection = await pool.getConnection();
 

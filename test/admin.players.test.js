@@ -411,6 +411,15 @@ test("admin.controller endpoints return standard envelopes and handle errors", a
   assert.equal(res9.statusCode, 200);
   assert.equal(res9.body.message, "Player updated successfully");
   assert.equal(res9.body.data.id, 10);
+
+  // 10. updatePlayer with status: 2 / "Verified" (form sending status=2 for KYC verification)
+  const res10 = createMockResponse();
+  await controller.updatePlayer(
+    { params: { id: "10" }, body: { status: 2 } },
+    res10,
+  );
+  assert.equal(res10.statusCode, 200);
+  assert.equal(res10.body.message, "Player updated successfully");
 });
 
 test("AdminService.addPlayer delegates to updatePlayer when target ID is passed", async () => {
