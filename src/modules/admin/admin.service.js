@@ -1186,6 +1186,56 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
   const aviatorLoss = number(extra.aviator_loss);
   const otpPack = number(extra.otp_pack);
 
+  const chickenGames = number(extra.chicken_games);
+  const aviatorGames = number(extra.aviator_games);
+
+  const stackTowerNet = number(extra.stack_tower_net);
+  const stackTowerProfit = Math.max(stackTowerNet, 0);
+  const stackTowerLoss = extra.stack_tower_loss !== undefined && extra.stack_tower_loss !== null && number(extra.stack_tower_loss) > 0 ? number(extra.stack_tower_loss) : Math.abs(Math.min(stackTowerNet, 0));
+  const stackTowerGames = number(extra.stack_tower_games);
+
+  const wingoNet = number(extra.wingo_net);
+  const wingoProfit = Math.max(wingoNet, 0);
+  const wingoLoss = extra.wingo_loss !== undefined && extra.wingo_loss !== null && number(extra.wingo_loss) > 0 ? number(extra.wingo_loss) : Math.abs(Math.min(wingoNet, 0));
+  const wingoGames = number(extra.wingo_games);
+  const wingoBets = number(extra.wingo_bets);
+
+  const horseRacingNet = number(extra.horse_racing_net);
+  const horseRacingProfit = Math.max(horseRacingNet, 0);
+  const horseRacingLoss = extra.horse_racing_loss !== undefined && extra.horse_racing_loss !== null && number(extra.horse_racing_loss) > 0 ? number(extra.horse_racing_loss) : Math.abs(Math.min(horseRacingNet, 0));
+  const horseRacingGames = number(extra.horse_racing_games);
+  const horseRacingBets = number(extra.horse_racing_bets);
+
+  const gameBreakdown = {
+    chickenRoad: {
+      games: chickenGames,
+      adminProfit: chickenProfit,
+      adminLoss: chickenLoss,
+    },
+    aviator: {
+      games: aviatorGames,
+      adminProfit: aviatorProfit,
+      adminLoss: aviatorLoss,
+    },
+    stackTower: {
+      games: stackTowerGames,
+      adminProfit: stackTowerProfit,
+      adminLoss: stackTowerLoss,
+    },
+    wingo: {
+      games: wingoGames,
+      bets: wingoBets,
+      adminProfit: wingoProfit,
+      adminLoss: wingoLoss,
+    },
+    horseRacing: {
+      games: horseRacingGames,
+      bets: horseRacingBets,
+      adminProfit: horseRacingProfit,
+      adminLoss: horseRacingLoss,
+    },
+  };
+
   return {
     total_player: number(user.total_players),
     total_turnover: number(bet.total_turnover),
@@ -1195,10 +1245,28 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
     total_commission: number(extra.total_commission),
     total_games: number(extra.total_games),
     feedbacks: number(extra.feedbacks),
+
+    chicken_road_games: chickenGames,
     chicken_road_admin_profit: chickenProfit,
     chicken_road_admin_loss: chickenLoss,
+    aviator_games: aviatorGames,
     aviator_admin_profit: aviatorProfit,
     aviator_admin_loss: aviatorLoss,
+
+    stack_tower_games: stackTowerGames,
+    stack_tower_admin_profit: stackTowerProfit,
+    stack_tower_admin_loss: stackTowerLoss,
+
+    wingo_games: wingoGames,
+    wingo_bets: wingoBets,
+    wingo_admin_profit: wingoProfit,
+    wingo_admin_loss: wingoLoss,
+
+    horse_racing_games: horseRacingGames,
+    horse_racing_bets: horseRacingBets,
+    horse_racing_admin_profit: horseRacingProfit,
+    horse_racing_admin_loss: horseRacingLoss,
+
     active_player: number(user.active_players),
     today_user: number(user.today_players),
     today_turnover: number(bet.today_turnover),
@@ -1217,10 +1285,28 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
     otpPack: otpPack,
     totalCommission: number(extra.total_commission),
     totalGames: number(extra.total_games),
+
+    chickenRoadGames: chickenGames,
     chickenRoadAdminProfit: chickenProfit,
     chickenRoadAdminLoss: chickenLoss,
+    aviatorGames: aviatorGames,
     aviatorAdminProfit: aviatorProfit,
     aviatorAdminLoss: aviatorLoss,
+
+    stackTowerGames: stackTowerGames,
+    stackTowerAdminProfit: stackTowerProfit,
+    stackTowerAdminLoss: stackTowerLoss,
+
+    wingoGames: wingoGames,
+    wingoBets: wingoBets,
+    wingoAdminProfit: wingoProfit,
+    wingoAdminLoss: wingoLoss,
+
+    horseRacingGames: horseRacingGames,
+    horseRacingBets: horseRacingBets,
+    horseRacingAdminProfit: horseRacingProfit,
+    horseRacingAdminLoss: horseRacingLoss,
+
     activePlayer: number(user.active_players),
     todayUser: number(user.today_players),
     todayTurnover: number(bet.today_turnover),
@@ -1230,6 +1316,9 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
     pendingDeposit: number(deposit.pending_deposit),
     illegalBetters: number(extra.illegal_betters),
     demoUsers: number(extra.demo_users),
+
+    game_breakdown: gameBreakdown,
+    gameBreakdown,
   };
 }
 
@@ -1295,11 +1384,13 @@ class AdminService {
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS today_turnover,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS yesterday_turnover
            FROM (
-             SELECT b.userid AS uid, b.amount, b.win_amount, b.status, b.created_at FROM bets b
+             SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.win_amount, b.status, b.created_at FROM bets b
              UNION ALL
              SELECT cb.user_id AS uid, cb.amount, cb.win_amount, cb.status, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
              UNION ALL
-             SELECT ab.uid AS uid, ab.amount, ab.win AS win_amount, ab.status, ab.created_at FROM aviator_bet ab
+             SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.win AS win_amount, ab.status, ab.created_at FROM aviator_bet ab
+             UNION ALL
+             SELECT stb.user_id AS uid, stb.amount, stb.win_amount, stb.status, stb.created_at FROM stack_tower_bets stb
            ) b
            INNER JOIN users u ON u.id = b.uid
            WHERE u.account_type = 0`,
@@ -1358,6 +1449,19 @@ class AdminService {
              (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_net,
              (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2) AS aviator_loss,
              (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack,
+             (SELECT COUNT(*) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_games,
+             (SELECT COUNT(*) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_games,
+             (SELECT COUNT(*) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0) AS stack_tower_games,
+             (SELECT COALESCE(SUM(stb.amount) - SUM(CASE WHEN stb.status = 1 THEN stb.win_amount ELSE 0 END), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0) AS stack_tower_net,
+             (SELECT COALESCE(SUM(stb.amount), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0 AND stb.status = 2) AS stack_tower_loss,
+             (SELECT COUNT(*) FROM bet_results WHERE game_id IN (1, 2, 3, 4)) AS wingo_games,
+             (SELECT COUNT(*) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4)) AS wingo_bets,
+             (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4)) AS wingo_net,
+             (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4) AND b.status IN ('2', 2)) AS wingo_loss,
+             (SELECT COUNT(*) FROM races) AS horse_racing_games,
+             (SELECT COUNT(*) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11)) AS horse_racing_bets,
+             (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('WON', '1', 1) THEN COALESCE(b.payout_amount, b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11)) AS horse_racing_net,
+             (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.status IN ('LOST', '2', 2)) AS horse_racing_loss,
              (SELECT COUNT(*) FROM feedbacks WHERE created_at >= ? AND created_at < ?) AS current_feedbacks,
              (SELECT COUNT(*) FROM feedbacks WHERE created_at >= ? AND created_at < ?) AS previous_feedbacks,
              (SELECT COALESCE(SUM(commission), 0) FROM users WHERE account_type = 0 AND created_at >= ? AND created_at < ?) AS current_commission,
@@ -1371,8 +1475,26 @@ class AdminService {
              (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS current_aviator_net,
              (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_net,
              (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2 AND ab.created_at >= ? AND ab.created_at < ?) AS current_aviator_loss,
-             (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_loss`,
+             (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2 AND ab.created_at >= ? AND ab.created_at < ?) AS previous_aviator_loss,
+             (SELECT COALESCE(SUM(stb.amount) - SUM(CASE WHEN stb.status = 1 THEN stb.win_amount ELSE 0 END), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0 AND stb.created_at >= ? AND stb.created_at < ?) AS current_stack_tower_net,
+             (SELECT COALESCE(SUM(stb.amount) - SUM(CASE WHEN stb.status = 1 THEN stb.win_amount ELSE 0 END), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0 AND stb.created_at >= ? AND stb.created_at < ?) AS previous_stack_tower_net,
+             (SELECT COALESCE(SUM(stb.amount), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0 AND stb.status = 2 AND stb.created_at >= ? AND stb.created_at < ?) AS current_stack_tower_loss,
+             (SELECT COALESCE(SUM(stb.amount), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0 AND stb.status = 2 AND stb.created_at >= ? AND stb.created_at < ?) AS previous_stack_tower_loss,
+             (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4) AND b.created_at >= ? AND b.created_at < ?) AS current_wingo_net,
+             (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4) AND b.created_at >= ? AND b.created_at < ?) AS previous_wingo_net,
+             (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4) AND b.status IN ('2', 2) AND b.created_at >= ? AND b.created_at < ?) AS current_wingo_loss,
+             (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4) AND b.status IN ('2', 2) AND b.created_at >= ? AND b.created_at < ?) AS previous_wingo_loss,
+             (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('WON', '1', 1) THEN COALESCE(b.payout_amount, b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.created_at >= ? AND b.created_at < ?) AS current_horse_racing_net,
+             (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('WON', '1', 1) THEN COALESCE(b.payout_amount, b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.created_at >= ? AND b.created_at < ?) AS previous_horse_racing_net,
+             (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.status IN ('LOST', '2', 2) AND b.created_at >= ? AND b.created_at < ?) AS current_horse_racing_loss,
+             (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.status IN ('LOST', '2', 2) AND b.created_at >= ? AND b.created_at < ?) AS previous_horse_racing_loss`,
           [
+            startDate, endDate, previousStartDate, previousEndDate,
+            startDate, endDate, previousStartDate, previousEndDate,
+            startDate, endDate, previousStartDate, previousEndDate,
+            startDate, endDate, previousStartDate, previousEndDate,
+            startDate, endDate, previousStartDate, previousEndDate,
+            startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
@@ -1385,11 +1507,13 @@ class AdminService {
         pool.execute(
           `SELECT DATE(b.created_at) AS day, COALESCE(SUM(b.amount), 0) AS value
            FROM (
-             SELECT b.userid AS uid, b.amount, b.created_at FROM bets b
+             SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
              UNION ALL
              SELECT cb.user_id AS uid, cb.amount, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
              UNION ALL
-             SELECT ab.uid AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+             SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+             UNION ALL
+             SELECT stb.user_id AS uid, stb.amount, stb.created_at FROM stack_tower_bets stb
            ) b
            INNER JOIN users u ON u.id = b.uid
            WHERE u.account_type = 0 AND b.created_at >= ? AND b.created_at < ?
@@ -1433,6 +1557,24 @@ class AdminService {
     const aviatorLossNow = number(extra.current_aviator_loss);
     const aviatorLossThen = number(extra.previous_aviator_loss);
     const counts = buildCounts({ user, bet, deposit, withdrawal, extra });
+
+    const stackTowerNet = number(extra.stack_tower_net);
+    const stackTowerProfit = Math.max(stackTowerNet, 0);
+    const stackTowerLoss = extra.stack_tower_loss !== undefined && extra.stack_tower_loss !== null && number(extra.stack_tower_loss) > 0 ? number(extra.stack_tower_loss) : Math.abs(Math.min(stackTowerNet, 0));
+    const stackTowerGames = number(extra.stack_tower_games);
+
+    const wingoNet = number(extra.wingo_net);
+    const wingoProfit = Math.max(wingoNet, 0);
+    const wingoLoss = extra.wingo_loss !== undefined && extra.wingo_loss !== null && number(extra.wingo_loss) > 0 ? number(extra.wingo_loss) : Math.abs(Math.min(wingoNet, 0));
+    const wingoGames = number(extra.wingo_games);
+    const wingoBets = number(extra.wingo_bets);
+
+    const horseRacingNet = number(extra.horse_racing_net);
+    const horseRacingProfit = Math.max(horseRacingNet, 0);
+    const horseRacingLoss = extra.horse_racing_loss !== undefined && extra.horse_racing_loss !== null && number(extra.horse_racing_loss) > 0 ? number(extra.horse_racing_loss) : Math.abs(Math.min(horseRacingNet, 0));
+    const horseRacingGames = number(extra.horse_racing_games);
+    const horseRacingBets = number(extra.horse_racing_bets);
+
     const metrics = {
       totalRevenue: metric(bet.total_revenue, bet.current_revenue, bet.previous_revenue),
       totalPlayer: metric(user.total_players, user.current_players, user.previous_players),
@@ -1453,8 +1595,40 @@ class AdminService {
       pendingWithdrawal: metric(withdrawal.pending_withdrawal, withdrawal.current_pending_withdrawal, withdrawal.previous_pending_withdrawal),
       chickenRoadAdminProfit: metric(Math.max(chickenNet, 0), Math.max(chickenNow, 0), Math.max(chickenThen, 0)),
       chickenRoadAdminLoss: metric(Math.abs(Math.min(chickenNet, 0)), Math.abs(Math.min(chickenNow, 0)), Math.abs(Math.min(chickenThen, 0))),
+      chickenRoadGames: metric(extra.chicken_games || 0, 0, 0),
+
       aviatorAdminProfit: metric(Math.max(aviatorNet, 0), Math.max(aviatorNow, 0), Math.max(aviatorThen, 0)),
       aviatorAdminLoss: metric(aviatorLoss, aviatorLossNow, aviatorLossThen),
+      aviatorGames: metric(extra.aviator_games || 0, 0, 0),
+
+      stackTowerGames: metric(stackTowerGames, number(extra.current_stack_tower_games), number(extra.previous_stack_tower_games)),
+      stackTowerAdminProfit: metric(stackTowerProfit, Math.max(number(extra.current_stack_tower_net), 0), Math.max(number(extra.previous_stack_tower_net), 0)),
+      stackTowerAdminLoss: metric(stackTowerLoss, number(extra.current_stack_tower_loss), number(extra.previous_stack_tower_loss)),
+
+      wingoGames: metric(wingoGames, number(extra.current_wingo_games), number(extra.previous_wingo_games)),
+      wingoBets: metric(wingoBets || wingoGames, number(extra.current_wingo_bets), number(extra.previous_wingo_bets)),
+      wingoAdminProfit: metric(wingoProfit, Math.max(number(extra.current_wingo_net), 0), Math.max(number(extra.previous_wingo_net), 0)),
+      wingoAdminLoss: metric(wingoLoss, number(extra.current_wingo_loss), number(extra.previous_wingo_loss)),
+
+      horseRacingGames: metric(horseRacingGames, number(extra.current_horse_racing_games), number(extra.previous_horse_racing_games)),
+      horseRacingBets: metric(horseRacingBets || horseRacingGames, number(extra.current_horse_racing_bets), number(extra.previous_horse_racing_bets)),
+      horseRacingAdminProfit: metric(horseRacingProfit, Math.max(number(extra.current_horse_racing_net), 0), Math.max(number(extra.previous_horse_racing_net), 0)),
+      horseRacingAdminLoss: metric(horseRacingLoss, number(extra.current_horse_racing_loss), number(extra.previous_horse_racing_loss)),
+
+      stack_tower_games: metric(stackTowerGames, number(extra.current_stack_tower_games), number(extra.previous_stack_tower_games)),
+      stack_tower_admin_profit: metric(stackTowerProfit, Math.max(number(extra.current_stack_tower_net), 0), Math.max(number(extra.previous_stack_tower_net), 0)),
+      stack_tower_admin_loss: metric(stackTowerLoss, number(extra.current_stack_tower_loss), number(extra.previous_stack_tower_loss)),
+
+      wingo_games: metric(wingoGames, number(extra.current_wingo_games), number(extra.previous_wingo_games)),
+      wingo_bets: metric(wingoBets || wingoGames, number(extra.current_wingo_bets), number(extra.previous_wingo_bets)),
+      wingo_admin_profit: metric(wingoProfit, Math.max(number(extra.current_wingo_net), 0), Math.max(number(extra.previous_wingo_net), 0)),
+      wingo_admin_loss: metric(wingoLoss, number(extra.current_wingo_loss), number(extra.previous_wingo_loss)),
+
+      horse_racing_games: metric(horseRacingGames, number(extra.current_horse_racing_games), number(extra.previous_horse_racing_games)),
+      horse_racing_bets: metric(horseRacingBets || horseRacingGames, number(extra.current_horse_racing_bets), number(extra.previous_horse_racing_bets)),
+      horse_racing_admin_profit: metric(horseRacingProfit, Math.max(number(extra.current_horse_racing_net), 0), Math.max(number(extra.previous_horse_racing_net), 0)),
+      horse_racing_admin_loss: metric(horseRacingLoss, number(extra.current_horse_racing_loss), number(extra.previous_horse_racing_loss)),
+
       otpPack: metric(extra.otp_pack, 0, 0),
       otpPackBalance: metric(extra.otp_pack, 0, 0),
     };
@@ -1464,6 +1638,8 @@ class AdminService {
       counts,
       ...counts,
       metrics,
+      game_breakdown: counts.game_breakdown,
+      gameBreakdown: counts.gameBreakdown,
       charts: {
         turnoverOverview: dateSeries(startDate, days, turnoverRows[0]),
         depositVsWithdrawal: {
@@ -1497,11 +1673,13 @@ class AdminService {
            COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS today_turnover,
            COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS yesterday_turnover
          FROM (
-           SELECT b.userid AS uid, b.amount, b.created_at FROM bets b
+           SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
            UNION ALL
            SELECT cb.user_id AS uid, cb.amount, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
            UNION ALL
-           SELECT ab.uid AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+           SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+           UNION ALL
+           SELECT stb.user_id AS uid, stb.amount, stb.created_at FROM stack_tower_bets stb
          ) b
          INNER JOIN users u ON u.id = b.uid
          WHERE u.account_type = 0`,
@@ -1539,7 +1717,20 @@ class AdminService {
            (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
            (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_net,
            (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2) AS aviator_loss,
-           (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack`,
+           (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack,
+           (SELECT COUNT(*) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_games,
+           (SELECT COUNT(*) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_games,
+           (SELECT COUNT(*) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0) AS stack_tower_games,
+           (SELECT COALESCE(SUM(stb.amount) - SUM(CASE WHEN stb.status = 1 THEN stb.win_amount ELSE 0 END), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0) AS stack_tower_net,
+           (SELECT COALESCE(SUM(stb.amount), 0) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0 AND stb.status = 2) AS stack_tower_loss,
+           (SELECT COUNT(*) FROM bet_results WHERE game_id IN (1, 2, 3, 4)) AS wingo_games,
+           (SELECT COUNT(*) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4)) AS wingo_bets,
+           (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4)) AS wingo_net,
+           (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND b.game_id IN (1, 2, 3, 4) AND b.status IN ('2', 2)) AS wingo_loss,
+           (SELECT COUNT(*) FROM races) AS horse_racing_games,
+           (SELECT COUNT(*) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11)) AS horse_racing_bets,
+           (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('WON', '1', 1) THEN COALESCE(b.payout_amount, b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11)) AS horse_racing_net,
+           (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.status IN ('LOST', '2', 2)) AS horse_racing_loss`,
       ),
     ]);
 

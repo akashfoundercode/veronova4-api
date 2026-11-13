@@ -82,6 +82,31 @@ function createPool() {
           previous_aviator_net: 2,
           current_aviator_loss: 9,
           previous_aviator_loss: 5,
+          chicken_games: 35,
+          aviator_games: 45,
+          stack_tower_games: 50,
+          stack_tower_net: 1200,
+          stack_tower_loss: 300,
+          current_stack_tower_net: 500,
+          previous_stack_tower_net: 200,
+          current_stack_tower_loss: 100,
+          previous_stack_tower_loss: 50,
+          wingo_games: 120,
+          wingo_bets: 450,
+          wingo_net: 3200,
+          wingo_loss: 800,
+          current_wingo_net: 1100,
+          previous_wingo_net: 600,
+          current_wingo_loss: 250,
+          previous_wingo_loss: 100,
+          horse_racing_games: 40,
+          horse_racing_bets: 180,
+          horse_racing_net: 2100,
+          horse_racing_loss: 400,
+          current_horse_racing_net: 700,
+          previous_horse_racing_net: 300,
+          current_horse_racing_loss: 120,
+          previous_horse_racing_loss: 80,
         }], []];
       }
       if (sql.includes("DATE(b.created_at)")) {
@@ -147,6 +172,42 @@ test("admin dashboard returns all cards and daily chart series for the selected 
   assert.equal(result.counts.chicken_road_admin_loss, 15);
   assert.equal(result.counts.aviator_admin_profit, 8);
   assert.equal(result.counts.aviator_admin_loss, 24);
+  assert.equal(result.counts.stack_tower_games, 50);
+  assert.equal(result.counts.stack_tower_admin_profit, 1200);
+  assert.equal(result.counts.stack_tower_admin_loss, 300);
+  assert.equal(result.counts.wingo_games, 120);
+  assert.equal(result.counts.wingo_bets, 450);
+  assert.equal(result.counts.wingo_admin_profit, 3200);
+  assert.equal(result.counts.wingo_admin_loss, 800);
+  assert.equal(result.counts.horse_racing_games, 40);
+  assert.equal(result.counts.horse_racing_bets, 180);
+  assert.equal(result.counts.horse_racing_admin_profit, 2100);
+  assert.equal(result.counts.horse_racing_admin_loss, 400);
+
+  assert.equal(result.metrics.stackTowerGames.value, 50);
+  assert.equal(result.metrics.stackTowerAdminProfit.value, 1200);
+  assert.equal(result.metrics.stackTowerAdminProfit.currentPeriod, 500);
+  assert.equal(result.metrics.stackTowerAdminProfit.previousPeriod, 200);
+  assert.equal(result.metrics.wingoGames.value, 120);
+  assert.equal(result.metrics.wingoAdminProfit.value, 3200);
+  assert.equal(result.metrics.wingoAdminProfit.currentPeriod, 1100);
+  assert.equal(result.metrics.wingoAdminProfit.previousPeriod, 600);
+  assert.equal(result.metrics.horseRacingGames.value, 40);
+  assert.equal(result.metrics.horseRacingAdminProfit.value, 2100);
+  assert.equal(result.metrics.horseRacingAdminProfit.currentPeriod, 700);
+  assert.equal(result.metrics.horseRacingAdminProfit.previousPeriod, 300);
+
+  assert.equal(result.gameBreakdown.stackTower.games, 50);
+  assert.equal(result.gameBreakdown.stackTower.adminProfit, 1200);
+  assert.equal(result.gameBreakdown.stackTower.adminLoss, 300);
+  assert.equal(result.gameBreakdown.wingo.games, 120);
+  assert.equal(result.gameBreakdown.wingo.bets, 450);
+  assert.equal(result.gameBreakdown.wingo.adminProfit, 3200);
+  assert.equal(result.gameBreakdown.wingo.adminLoss, 800);
+  assert.equal(result.gameBreakdown.horseRacing.games, 40);
+  assert.equal(result.gameBreakdown.horseRacing.bets, 180);
+  assert.equal(result.gameBreakdown.horseRacing.adminProfit, 2100);
+  assert.equal(result.gameBreakdown.horseRacing.adminLoss, 400);
   const depositQuery = pool.calls.find(({ sql }) => sql.includes("AS today_deposit"));
   const withdrawalQuery = pool.calls.find(({ sql }) => sql.includes("AS today_withdrawal"));
   assert.match(depositQuery.sql, /p\.status = 2 AND p\.updated_at >=/);
@@ -207,6 +268,31 @@ test("admin getDashboardCounts returns standalone dashboard counts", async () =>
   assert.equal(counts.aviatorAdminProfit, 8);
   assert.equal(counts.aviator_admin_loss, 24);
   assert.equal(counts.aviatorAdminLoss, 24);
+  assert.equal(counts.stack_tower_games, 50);
+  assert.equal(counts.stackTowerGames, 50);
+  assert.equal(counts.stack_tower_admin_profit, 1200);
+  assert.equal(counts.stackTowerAdminProfit, 1200);
+  assert.equal(counts.stack_tower_admin_loss, 300);
+  assert.equal(counts.stackTowerAdminLoss, 300);
+  assert.equal(counts.wingo_games, 120);
+  assert.equal(counts.wingoGames, 120);
+  assert.equal(counts.wingo_bets, 450);
+  assert.equal(counts.wingoBets, 450);
+  assert.equal(counts.wingo_admin_profit, 3200);
+  assert.equal(counts.wingoAdminProfit, 3200);
+  assert.equal(counts.wingo_admin_loss, 800);
+  assert.equal(counts.wingoAdminLoss, 800);
+  assert.equal(counts.horse_racing_games, 40);
+  assert.equal(counts.horseRacingGames, 40);
+  assert.equal(counts.horse_racing_bets, 180);
+  assert.equal(counts.horseRacingBets, 180);
+  assert.equal(counts.horse_racing_admin_profit, 2100);
+  assert.equal(counts.horseRacingAdminProfit, 2100);
+  assert.equal(counts.horse_racing_admin_loss, 400);
+  assert.equal(counts.horseRacingAdminLoss, 400);
+  assert.equal(counts.gameBreakdown.stackTower.games, 50);
+  assert.equal(counts.gameBreakdown.wingo.games, 120);
+  assert.equal(counts.gameBreakdown.horseRacing.games, 40);
   assert.equal(counts.active_player, 60);
   assert.equal(counts.activePlayer, 60);
   assert.equal(counts.today_user, 2);
