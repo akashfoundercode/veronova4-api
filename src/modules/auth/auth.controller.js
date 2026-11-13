@@ -280,6 +280,15 @@ async function profile(req, res) {
     return res.status(404).json({ status: 400, message: "No data found" });
   }
 
+  let lastLoginTime = user.last_login_time ?? null;
+  try {
+    const [rows] = await getPool().execute(
+      "SELECT MAX(login_time) AS last_login_time FROM ip_address WHERE user_id = ?",
+      [user.id],
+    );
+    if (rows?.[0]?.last_login_time) lastLoginTime = rows[0].last_login_time;
+  } catch (_) {}
+
   const wallet = Number(user.wallet ?? 0);
   const winningWallet = Number(user.winning_wallet ?? 0);
   const thirdPartyWallet = Number(user.third_party_wallet ?? 0);
@@ -306,6 +315,7 @@ async function profile(req, res) {
       email: user.email,
       username: user.username,
       userimage: normalizeProfileImageUrl(user.userimage),
+      last_login_time: lastLoginTime,
       recharge: Number(user.recharge ?? 0),
       u_id: user.u_id,
       login_token: user.login_token,
