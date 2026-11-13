@@ -9,10 +9,11 @@ const service = new AuthService();
 function normalizeProfileImageUrl(imageUrl) {
   if (typeof imageUrl !== "string" || !imageUrl.trim()) return imageUrl;
   const value = imageUrl.trim();
+  const publicApiBase = (process.env.PUBLIC_API_BASE_URL || "https://api.wingo4all.site").replace(/\/$/, "");
   try {
     const parsed = new URL(value, config.appUrl);
     if (parsed.hostname === "root.bdgcassino.com" || value.startsWith("/uploads/profileimage/")) {
-      return new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, config.appUrl).toString();
+      return new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, `${publicApiBase}/`).toString();
     }
   } catch (_) {}
   return imageUrl;
