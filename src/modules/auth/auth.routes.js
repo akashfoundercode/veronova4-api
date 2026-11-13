@@ -10,6 +10,8 @@ const router = express.Router();
 router.post(API_ROUTES.auth.login, controller.login);
 router.post("/admin/login", controller.login);
 router.post(API_ROUTES.auth.register, controller.register);
+router.get("/image_all", controller.imageAll);
+router.get("/uploads/profileimage/:filename", controller.proxyAvatar);
 router.get(API_ROUTES.auth.profile, authenticate.optional, controller.profile);
 router.get("/user", authenticate.optional, controller.profile);
 router.get("/me", authenticate.optional, controller.profile);

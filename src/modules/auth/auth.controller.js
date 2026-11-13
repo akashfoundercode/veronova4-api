@@ -12,11 +12,50 @@ function normalizeProfileImageUrl(imageUrl) {
   const publicApiBase = (process.env.PUBLIC_API_BASE_URL || "https://api.wingo4all.site").replace(/\/$/, "");
   try {
     const parsed = new URL(value, config.appUrl);
-    if (parsed.hostname === "root.bdgcassino.com" || value.startsWith("/uploads/profileimage/")) {
+    if (["root.bdgcassino.com", "root.veronova.co.in"].includes(parsed.hostname) || value.startsWith("/uploads/profileimage/")) {
       return new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, `${publicApiBase}/`).toString();
     }
   } catch (_) {}
   return imageUrl;
+}
+
+async function imageAll(req, res) {
+  try {
+    const response = await fetch("https://root.veronova.co.in/api/image_all", {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) throw new Error(`Avatar source returned ${response.status}`);
+    const payload = await response.json();
+    const publicApiBase = (process.env.PUBLIC_API_BASE_URL || "https://api.wingo4all.site").replace(/\/$/, "");
+    const data = (Array.isArray(payload.data) ? payload.data : []).map((item) => {
+      const source = item?.image;
+      if (typeof source !== "string") return item;
+      const path = new URL(source).pathname;
+      return { ...item, image: `${publicApiBase}${path}` };
+    });
+    return res.status(200).json({ ...payload, data });
+  } catch (error) {
+    return res.status(502).json({ status: 502, success: false, message: "Unable to load avatars right now." });
+  }
+}
+
+async function proxyAvatar(req, res) {
+  const filename = req.params.filename;
+  if (!/^\d{1,3}\.png$/.test(filename)) {
+    return res.status(404).json({ status: 404, message: "Avatar not found" });
+  }
+  try {
+    const response = await fetch(`https://root.veronova.co.in/uploads/profileimage/${encodeURIComponent(filename)}`, {
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return res.status(404).json({ status: 404, message: "Avatar not found" });
+    res.set("Content-Type", response.headers.get("content-type") || "image/png");
+    res.set("Cache-Control", "public, max-age=86400");
+    return res.status(200).send(Buffer.from(await response.arrayBuffer()));
+  } catch (_) {
+    return res.status(502).json({ status: 502, message: "Unable to load avatar right now." });
+  }
 }
 
 function invalidLogin(res, customMessage) {
@@ -492,6 +531,8 @@ async function getCountry(_req, res) {
 
 module.exports = {
   getCountry,
+  imageAll,
+  proxyAvatar,
   login,
   logout,
   mainWalletTransfer,
