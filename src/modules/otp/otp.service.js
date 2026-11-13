@@ -65,12 +65,14 @@ class OtpService {
       }
     }
 
-    const otpDigits = Number(digit) === 4 ? 4 : (Number(digit) === 6 ? 6 : (config.otp.digits || 6));
     const merchantKey = config.otp.merchantKey;
     const baseUrl = config.otp.baseUrl;
     const expiryMinutes = config.otp.expiryMinutes || 5;
     const configuredMode = (config.otp.mode || "live").trim().toLowerCase();
     const isLive = configuredMode === "live";
+    const otpDigits = configuredMode === "test"
+      ? 6
+      : (Number(digit) === 4 ? 4 : (Number(digit) === 6 ? 6 : (config.otp.digits || 6)));
 
     if (!merchantKey) {
       throw new AppError(500, "CONFIG_ERROR", "OTP merchant key is not configured in .env");
@@ -114,8 +116,8 @@ class OtpService {
             generatedOtp = generateRandomOtp(otpDigits);
           }
         } else {
-          // TEST MODE: allow static test OTP
-          generatedOtp = providerOtp || (otpDigits === 4 ? "1111" : "111111");
+          // Test mode always uses the six-digit fixed code requested for QA.
+          generatedOtp = "111111";
         }
       } else {
         const errorMsg = providerResponse.msg || providerResponse.message || "Failed to send OTP.";
@@ -129,7 +131,7 @@ class OtpService {
       if (isLive || providerError) {
         throw new AppError(503, "OTP_PROVIDER_UNAVAILABLE", "Could not send OTP. Please try again later.");
       } else {
-        generatedOtp = otpDigits === 4 ? "1111" : "111111";
+        generatedOtp = "111111";
       }
     }
 
@@ -197,7 +199,7 @@ class OtpService {
         digit: otpDigits,
         mode: configuredMode,
         expires_in_seconds: expiryMinutes * 60,
-        ...(process.env.NODE_ENV === "test" ? { debug_otp: generatedOtp } : {}),
+        ...(!isLive ? { debug_otp: generatedOtp } : {}),
       },
     };
   }
