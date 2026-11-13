@@ -100,6 +100,34 @@ function assertStandardGameId(gameId) {
   }
 }
 
+function normalizeWingoBetNumber(value) {
+  const text = String(value).trim().toLowerCase();
+  const aliases = {
+    green: "10",
+    red: "30",
+    violet: "20",
+    voilet: "20",
+    small: "50",
+    big: "40",
+  };
+  return aliases[text] ?? text;
+}
+
+function fallbackWingoVirtualGames(number, gameId) {
+  if (!WINGO_GAME_IDS.includes(Number(gameId))) return [];
+  const selected = Number(number);
+  if (!Number.isInteger(selected)) return [];
+  if (selected >= 0 && selected <= 9) return [{ actual_number: selected, multiplier: 9 }];
+  const actualNumbers = {
+    10: [1, 3, 5, 7, 9],
+    20: [0, 5],
+    30: [0, 2, 4, 6, 8],
+    40: [5, 6, 7, 8, 9],
+    50: [0, 1, 2, 3, 4],
+  }[selected];
+  return actualNumbers ? actualNumbers.map((actual_number) => ({ actual_number, multiplier: 1 })) : [];
+}
+
 function formatPeriod(date, gameId) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -165,6 +193,9 @@ class WingoService {
 
   async placeBet({ userid, game_id, number, amount, games_no }) {
     assertStandardGameId(game_id);
+    const betNumber = WINGO_GAME_IDS.includes(Number(game_id))
+      ? normalizeWingoBetNumber(number)
+      : String(number);
     const pool = this.poolProvider();
     const connection = await pool.getConnection();
     let transactionStarted = false;
@@ -238,9 +269,12 @@ class WingoService {
 
       const [virtualGames] = await connection.execute(
         "SELECT multiplier, actual_number FROM virtual_games WHERE number = ? AND game_id = ?",
-        [number, game_id],
+        [betNumber, game_id],
       );
-      if (virtualGames.length === 0) {
+      const validVirtualGames = virtualGames.length > 0
+        ? virtualGames
+        : fallbackWingoVirtualGames(betNumber, game_id);
+      if (validVirtualGames.length === 0) {
         throw new AppError(
           400,
           "INVALID_BET_NUMBER",
@@ -257,7 +291,7 @@ class WingoService {
           amount,
           commission,
           tradeAmount,
-          number,
+          betNumber,
           period,
           game_id,
           userid,
@@ -265,7 +299,7 @@ class WingoService {
         ],
       );
 
-      for (const game of virtualGames) {
+      for (const game of validVirtualGames) {
         await connection.execute(
           "UPDATE betlogs SET amount = amount + ? WHERE game_id = ? AND number = ?",
           [tradeAmount, game_id, game.actual_number],
