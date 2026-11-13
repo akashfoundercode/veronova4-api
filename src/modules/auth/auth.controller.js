@@ -6,6 +6,18 @@ const { AuthService } = require("./auth.service");
 
 const service = new AuthService();
 
+function normalizeProfileImageUrl(imageUrl) {
+  if (typeof imageUrl !== "string" || !imageUrl.trim()) return imageUrl;
+  const value = imageUrl.trim();
+  try {
+    const parsed = new URL(value, config.appUrl);
+    if (parsed.hostname === "root.bdgcassino.com" || value.startsWith("/uploads/profileimage/")) {
+      return new URL(`${parsed.pathname}${parsed.search}${parsed.hash}`, config.appUrl).toString();
+    }
+  } catch (_) {}
+  return imageUrl;
+}
+
 function invalidLogin(res, customMessage) {
   return res.status(401).json({
     message: customMessage || "Invalid credentials. Please verify your mobile and password.",
@@ -292,7 +304,7 @@ async function profile(req, res) {
       mobile: user.mobile,
       email: user.email,
       username: user.username,
-      userimage: user.userimage,
+      userimage: normalizeProfileImageUrl(user.userimage),
       recharge: Number(user.recharge ?? 0),
       u_id: user.u_id,
       login_token: user.login_token,
