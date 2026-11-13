@@ -20,4 +20,7 @@ module.exports = {
   giftRedeemList: (req, res) => run(res, () => service.giftRedeemList(req.query.userid ?? req.query.user_id)),
   applyGift: (req, res) => run(res, () => service.applyGift(req.body ?? {})),
   totalBetDetails: (req, res) => run(res, () => service.totalBetDetails(req.query)),
+  beginnerGuide: (_req, res) => run(res, () => service.beginnerGuide()),
+  aboutUs: (req, res) => run(res, () => service.aboutUs(req.query.type)),
+  announcements: (_req, res) => run(res, () => service.announcements()),
 };

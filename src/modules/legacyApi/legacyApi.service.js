@@ -112,6 +112,36 @@ class LegacyApiService {
     }
     return { status: 200, message: "All bet details fetched successfully", grand_total: data.reduce((total, item) => total + item.total_bet_amount, 0), data };
   }
+
+  async beginnerGuide() {
+    const [rows] = await this.poolProvider().execute(
+      "SELECT name, description, image FROM settings WHERE type BETWEEN 11 AND 21 ORDER BY type ASC",
+    );
+    const data = rows.map((row) => ({
+      ...row,
+      image: row.image
+        ? (/^https?:\/\//i.test(row.image) ? row.image : new URL(String(row.image).replace(/^\/+/, ""), "https://root.veronova.co.in/").toString())
+        : null,
+    }));
+    return { status: 200, message: "Beginner guide data fetched successfully", data };
+  }
+
+  async aboutUs(type) {
+    const value = Number(type);
+    if (!Number.isInteger(value)) throw new AppError(400, "VALIDATION_ERROR", "The type field is required and must be numeric.");
+    const [data] = await this.poolProvider().execute(
+      "SELECT name, description FROM settings WHERE type = ?",
+      [value],
+    );
+    return { message: data.length ? "Successfully" : "No record found", status: data.length ? 200 : 400, data };
+  }
+
+  async announcements() {
+    const [data] = await this.poolProvider().execute("SELECT * FROM announcement ORDER BY id ASC");
+    return data.length
+      ? { status: 200, data }
+      : { status: 400, message: "No announcement found", data: [] };
+  }
 }
 
 module.exports = { LegacyApiService };
