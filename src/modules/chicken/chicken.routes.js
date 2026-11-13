@@ -12,6 +12,7 @@ const router = express.Router();
 router.post(API_ROUTES.chicken.bet, authenticate.optional, controller.bet);
 router.get(API_ROUTES.chicken.values, controller.values);
 router.get(API_ROUTES.chicken.history, authenticate.optional, controller.history);
+router.post(API_ROUTES.chicken.history, authenticate.optional, controller.history);
 router.post(API_ROUTES.chicken.cashout, authenticate.optional, controller.cashout);
 router.get(API_ROUTES.chicken.multiplier, authenticate.optional, controller.multiplier);
 router.get(API_ROUTES.chicken.rules, controller.rules);
@@ -28,15 +29,39 @@ router.post("/updateBetValues", authenticate, requireAdmin, controller.updateBet
 
 // Admin & Legacy Bet History APIs
 router.get(API_ROUTES.chicken.bet, authenticate.optional, controller.adminHistory);
-router.get("/betHistory", authenticate.optional, controller.adminHistory);
-router.get("/bet-history", authenticate.optional, controller.adminHistory);
+router.get("/betHistory", authenticate.optional, controller.history);
+router.post("/betHistory", authenticate.optional, controller.history);
+router.get("/bet_history", authenticate.optional, controller.history);
+router.post("/bet_history", authenticate.optional, controller.history);
+router.get("/bet-history", authenticate.optional, controller.history);
+router.post("/bet-history", authenticate.optional, controller.history);
 router.get("/admin/chicken/history", authenticate.optional, controller.adminHistory);
+router.post("/admin/chicken/history", authenticate.optional, controller.adminHistory);
 router.get("/admin/chicken/bets", authenticate.optional, controller.adminHistory);
+router.post("/admin/chicken/bets", authenticate.optional, controller.adminHistory);
 router.get("/admin/chicken-bets", authenticate.optional, controller.adminHistory);
+router.post("/admin/chicken-bets", authenticate.optional, controller.adminHistory);
 router.get("/admin/chicken", authenticate.optional, controller.adminHistory);
-router.get("/chicken/history", authenticate.optional, controller.adminHistory);
-router.get("/chicken/bets", authenticate.optional, controller.adminHistory);
+router.post("/admin/chicken", authenticate.optional, controller.adminHistory);
+router.get("/chicken/history", authenticate.optional, controller.history);
+router.post("/chicken/history", authenticate.optional, controller.history);
+router.get("/chicken/bets", authenticate.optional, controller.history);
+router.post("/chicken/bets", authenticate.optional, controller.history);
+router.get("/chicken/bet_history", authenticate.optional, controller.history);
+router.post("/chicken/bet_history", authenticate.optional, controller.history);
+router.get("/chicken/betHistory", authenticate.optional, controller.history);
+router.post("/chicken/betHistory", authenticate.optional, controller.history);
 router.get("/chicken_bets", authenticate.optional, controller.adminHistory);
+router.post("/chicken_bets", authenticate.optional, controller.adminHistory);
 router.get("/chicken_bets_history", authenticate.optional, controller.adminHistory);
+router.post("/chicken_bets_history", authenticate.optional, controller.adminHistory);
+
+// User All Details / Activity History
+router.get("/user-all-details/:id", authenticate.optional, controller.userAllDetails);
+router.post("/user-all-details/:id", authenticate.optional, controller.userAllDetails);
+router.get("/all_details/:id", authenticate.optional, controller.userAllDetails);
+router.post("/all_details/:id", authenticate.optional, controller.userAllDetails);
+router.get("/all_bet_history/:id", authenticate.optional, controller.userAllDetails);
+router.post("/all_bet_history/:id", authenticate.optional, controller.userAllDetails);
 
 module.exports = router;

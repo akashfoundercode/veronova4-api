@@ -339,8 +339,8 @@ class ChickenService {
     const where = [];
     const params = [];
 
-    const rawUserId = q.user_id ?? q.userid ?? q.player_id;
-    if (rawUserId !== undefined && rawUserId !== null && rawUserId !== "") {
+    const rawUserId = q.user_id ?? q.userid ?? q.player_id ?? q.uid ?? q.userId;
+    if (rawUserId !== undefined && rawUserId !== null && rawUserId !== "" && !Number.isNaN(Number(rawUserId))) {
       where.push("cb.user_id = ?");
       params.push(Number(rawUserId));
     }
@@ -356,8 +356,13 @@ class ChickenService {
     }
 
     if (q.game_id !== undefined && q.game_id !== null && q.game_id !== "") {
-      where.push("cb.game_id = ?");
-      params.push(Number(q.game_id));
+      const gId = Number(q.game_id);
+      if (gId === 1 || gId === 19) {
+        where.push("cb.game_id IN (1, 19)");
+      } else {
+        where.push("cb.game_id = ?");
+        params.push(gId);
+      }
     }
 
     const fromDate = q.from_date ?? q.fromDate;
@@ -425,18 +430,40 @@ class ChickenService {
         ORDER BY cb.id DESC`;
 
       if (!isAll) {
-        rowsQuery += ` LIMIT ${safeLimit} OFFSET ${safeOffset}`;
+        rowsQuery += ` LIMIT ${Number(safeLimit)} OFFSET ${Number(safeOffset)}`;
       }
 
       const [res] = await pool.execute(rowsQuery, params);
       rows = res || [];
-    } catch (_) {}
+    } catch (err) {
+      try {
+        let fallbackQuery = `SELECT 
+            cb.id,
+            cb.user_id,
+            cb.game_id,
+            cb.amount,
+            cb.win_amount,
+            cb.multiplier,
+            cb.status,
+            cb.created_at
+          FROM chicken_bets cb
+          ${whereSql}
+          ORDER BY cb.id DESC`;
+        if (!isAll) {
+          fallbackQuery += ` LIMIT ${Number(safeLimit)} OFFSET ${Number(safeOffset)}`;
+        }
+        const [res2] = await pool.execute(fallbackQuery, params);
+        rows = res2 || [];
+      } catch (_) {
+        rows = [];
+      }
+    }
 
     const formattedRows = (rows || []).map((row, idx) => ({
       sr_no: safeOffset + idx + 1,
       id: row.id,
       user_id: row.user_id,
-      game_id: row.game_id ?? 1,
+      game_id: row.game_id ?? 19,
       user_name: row.user_name || row.username || `User_${row.user_id}`,
       username: row.username || row.user_name || `User_${row.user_id}`,
       user_mobile: row.user_mobile ?? null,
@@ -459,7 +486,8 @@ class ChickenService {
     return {
       status: 200,
       success: true,
-      message: formattedRows.length ? "Chicken bet history fetched successfully" : "No record found",
+      message: formattedRows.length ? "Data found" : "No record found",
+      msg: formattedRows.length ? "Data found" : "No record found",
       summary: {
         total_bets: totalCount,
         total_amount: Number(totalAmount.toFixed(2)),

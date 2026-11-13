@@ -74,6 +74,7 @@ test("Wingo socket emits the five legacy timers in its own namespace", async () 
   assert.equal(clientEmissions[0].event, API_ROUTES.wingo.socketEvent);
   assert.deepEqual(JSON.parse(clientEmissions[0].payload), {
     timerBetTime: 30,
+    thirtySecTimer: 30,
     oneMinTimer: 60,
     threeMinTimer: 180,
     fiveMinTimer: 300,
@@ -91,6 +92,7 @@ test("Wingo socket emits the five legacy timers in its own namespace", async () 
   assert.equal(harness.emissions.at(-1).event, API_ROUTES.wingo.socketEvent);
   assert.deepEqual(JSON.parse(harness.emissions.at(-1).payload), {
     timerBetTime: 30,
+    thirtySecTimer: 30,
     oneMinTimer: 29,
     threeMinTimer: 149,
     fiveMinTimer: 269,

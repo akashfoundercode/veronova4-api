@@ -23,6 +23,7 @@ function createWingoSocket(io, {
   const socket = io.of(API_ROUTES.wingo.socketNamespace);
   const state = {
     timerBetTime: 30,
+    thirtySecTimer: 30,
     oneMinTimer: 60,
     threeMinTimer: 180,
     fiveMinTimer: 300,
@@ -109,6 +110,7 @@ function createWingoSocket(io, {
       } else {
         state.timerBetTime -= 1;
       }
+      state.thirtySecTimer = state.timerBetTime;
 
       if (state.oneMinTimer === 0) {
         dueGameIds.push(2);

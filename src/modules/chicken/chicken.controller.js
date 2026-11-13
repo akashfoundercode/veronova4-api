@@ -76,14 +76,22 @@ module.exports = {
     return service.bet(payload);
   }),
   history: wrap(async (req) => {
-    const requestedUserId = req.query?.user_id ?? req.query?.userid ?? req.body?.user_id ?? req.get?.("user-id") ?? req.get?.("userid") ?? req.user?.id;
-    if (!req.user?.id && !requestedUserId && !req.get?.("login-token") && !req.get?.("x-login-token")) {
-      return service.adminHistory(req.query);
-    }
-    const resolvedId = requestedUserId ? await resolveLegacyUserId(req, requestedUserId) : req.user?.id;
+    const requestedUserId = req.query?.user_id ?? req.query?.userid ?? req.query?.id ?? req.body?.user_id ?? req.body?.userid ?? req.body?.id ?? req.get?.("user-id") ?? req.get?.("userid") ?? req.user?.id;
     const query = {
       ...req.query,
-      user_id: resolvedId,
+      ...req.body,
+    };
+    if (requestedUserId) {
+      query.user_id = requestedUserId;
+    }
+    return service.adminHistory(query);
+  }),
+  userAllDetails: wrap(async (req) => {
+    const requestedUserId = req.params?.id ?? req.params?.user_id ?? req.query?.user_id ?? req.query?.id ?? req.body?.user_id ?? req.body?.id;
+    const query = {
+      ...req.query,
+      ...req.body,
+      user_id: requestedUserId,
     };
     return service.adminHistory(query);
   }),

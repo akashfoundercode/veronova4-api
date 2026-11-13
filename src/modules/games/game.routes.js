@@ -13,6 +13,7 @@ const router = express.Router();
 
 router.post(API_ROUTES.games.bet, authenticate, controller.bet);
 router.post(API_ROUTES.games.betHistory, authenticate.optional, controller.betHistory);
+router.get(API_ROUTES.games.betHistory, authenticate.optional, controller.betHistory);
 router.post(API_ROUTES.dragonTiger.batchBet, authenticate, (req, res, next) => {
   if (Number(req.body?.game_id) === 13) {
     return andarBaharController.placeBatchBet(req, res, next);

@@ -106,3 +106,34 @@ test("GET /api/history without user_id serves chicken bet history", async () => 
   assert.equal(res.body.status, 200);
   assert.ok(Array.isArray(res.body.data));
 });
+
+test("GET and POST /api/history with user_id serves chicken bet history smoothly", async () => {
+  const resGet = await testRoute("GET", "/api/history?user_id=1");
+  assert.equal(resGet.statusCode, 200);
+  assert.equal(resGet.body.status, 200);
+  assert.ok(Array.isArray(resGet.body.data));
+
+  const resPost = await testRoute("POST", "/api/history", {}, { user_id: 1 });
+  assert.equal(resPost.statusCode, 200);
+  assert.equal(resPost.body.status, 200);
+  assert.ok(Array.isArray(resPost.body.data));
+});
+
+test("POST and GET /api/bet_history routes game_id: 19 to chicken bet history", async () => {
+  const resPost = await testRoute("POST", "/api/bet_history", {}, { game_id: 19, user_id: 1 });
+  assert.equal(resPost.statusCode, 200);
+  assert.equal(resPost.body.status, 200);
+  assert.ok(Array.isArray(resPost.body.data));
+
+  const resGet = await testRoute("GET", "/api/bet_history?game_id=19&user_id=1");
+  assert.equal(resGet.statusCode, 200);
+  assert.equal(resGet.body.status, 200);
+  assert.ok(Array.isArray(resGet.body.data));
+});
+
+test("GET /api/user-all-details/:id returns chicken bet history", async () => {
+  const res = await testRoute("GET", "/api/user-all-details/1?status=2");
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.body.status, 200);
+  assert.ok(Array.isArray(res.body.data));
+});
