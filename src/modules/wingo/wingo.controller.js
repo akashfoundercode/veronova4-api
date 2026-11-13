@@ -122,7 +122,7 @@ async function winAmount(req, res) {
         message: "The userid does not match the authenticated account.",
       });
     }
-    const game_id = validateGameId(req.query.game_id);
+    const game_id = validateGameId(req.query.game_id ?? req.query.gameid ?? 1);
     const games_no = requiredInteger(req.query.games_no, "games_no");
     const result = await serviceForGame(game_id).getWinAmount({ userid, game_id, games_no });
     if (!result) {
