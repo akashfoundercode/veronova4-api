@@ -82,6 +82,18 @@ async function getPlayerById(req, res) {
   }
 }
 
+async function updatePlayer(req, res) {
+  try {
+    const data = await service.updatePlayer(req.params.id, req.body ?? {});
+    return res.status(200).json({ status: 200, message: "Player updated successfully", data });
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({ status: error.statusCode, message: error.message });
+    }
+    throw error;
+  }
+}
+
 async function updatePlayerStatus(req, res) {
   try {
     const targetId = req.params?.id ?? req.body?.id ?? req.body?.player_id;
@@ -1046,6 +1058,7 @@ module.exports = {
   getPendingDeposits,
   getPendingWithdrawals,
   getPlayerById,
+  updatePlayer,
   getPlayers,
   getRejectDeposits,
   getRejectWithdrawals,

@@ -1760,6 +1760,62 @@ class AdminService {
     return formatPlayer(rows[0]);
   }
 
+  async updatePlayer(id, data = {}) {
+    const targetId = Number(id);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      throw new AppError(400, "INVALID_PLAYER_ID", "Invalid player ID");
+    }
+    if (targetId === 1) {
+      throw new AppError(403, "FORBIDDEN", "Cannot modify super administrator");
+    }
+
+    // Confirm existence separately because MySQL reports zero affected rows when values are unchanged.
+    await this.getPlayerById(targetId);
+    data = { ...data, ...(data.contact_and_kyc || {}) };
+
+    const fields = [];
+    const values = [];
+    const add = (column, value) => { fields.push(`${column} = ?`); values.push(value); };
+    for (const field of ["username", "mobile", "email", "country_code", "userimage"]) {
+      if (data[field] !== undefined) {
+        if (data[field] !== null && typeof data[field] !== "string") {
+          throw new AppError(400, "VALIDATION_ERROR", `${field} must be a string or null`);
+        }
+        add(field, data[field] === null ? null : data[field].trim());
+      }
+    }
+
+    if (data.verification !== undefined || data.kyc_status !== undefined) {
+      let verification;
+      const raw = data.verification ?? data.kyc_status;
+      if (typeof raw === "string") {
+        const normalized = raw.trim().toLowerCase();
+        const states = { unverified: 0, rejected: 0, pending: 1, verified: 2, approved: 2 };
+        verification = Object.hasOwn(states, normalized) ? states[normalized] : Number(raw);
+      } else {
+        verification = Number(raw);
+      }
+      if (![0, 1, 2].includes(verification)) {
+        throw new AppError(400, "VALIDATION_ERROR", "KYC status must be Unverified, Pending, or Verified (0, 1, or 2)");
+      }
+      add("verification", verification);
+    }
+
+    if (data.status !== undefined) {
+      const status = Number(data.status);
+      if (![0, 1].includes(status)) throw new AppError(400, "VALIDATION_ERROR", "Player status must be 0 or 1");
+      add("status", status);
+    }
+    if (fields.length === 0) throw new AppError(400, "VALIDATION_ERROR", "No supported player fields were provided");
+
+    values.push(targetId);
+    await this.poolProvider().execute(
+      `UPDATE users SET ${fields.join(", ")}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND account_type = 0`,
+      values,
+    );
+    return this.getPlayerById(targetId);
+  }
+
   async setPlayerStatus(id, newStatus) {
     const targetId = Number(id);
     if (!Number.isInteger(targetId) || targetId <= 0) {

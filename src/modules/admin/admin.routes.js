@@ -20,6 +20,7 @@ router.get(API_ROUTES.admin.dashboardCounts, authenticate, requireAdmin, control
 router.get(API_ROUTES.admin.players, authenticate, requireAdmin, controller.getPlayers);
 router.post(API_ROUTES.admin.players, authenticate, requireAdmin, controller.addPlayer);
 router.get(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.getPlayerById);
+router.put(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.updatePlayer);
 router.post(API_ROUTES.admin.playerStatus, authenticate, requireAdmin, controller.updatePlayerStatus);
 
 // Common / Legacy aliases for Users & User details
