@@ -1312,10 +1312,10 @@ class AdminService {
         pool.execute(
           `SELECT
              COALESCE(SUM(CASE WHEN p.status = 2 THEN p.cash ELSE 0 END), 0) AS total_deposit,
-             COALESCE(SUM(CASE WHEN p.status = 2 AND p.created_at >= ? AND p.created_at < ? THEN p.cash ELSE 0 END), 0) AS current_deposit,
-             COALESCE(SUM(CASE WHEN p.status = 2 AND p.created_at >= ? AND p.created_at < ? THEN p.cash ELSE 0 END), 0) AS previous_deposit,
-             COALESCE(SUM(CASE WHEN p.status = 2 AND p.created_at >= ? AND p.created_at < ? THEN p.cash ELSE 0 END), 0) AS today_deposit,
-             COALESCE(SUM(CASE WHEN p.status = 2 AND p.created_at >= ? AND p.created_at < ? THEN p.cash ELSE 0 END), 0) AS yesterday_deposit,
+             COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS current_deposit,
+             COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS previous_deposit,
+             COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS today_deposit,
+             COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS yesterday_deposit,
              (SELECT COUNT(*) FROM payins WHERE status = 1) AS pending_deposit,
              SUM(CASE WHEN p.status = 1 AND p.created_at >= ? AND p.created_at < ? THEN 1 ELSE 0 END) AS current_pending_deposit,
              SUM(CASE WHEN p.status = 1 AND p.created_at >= ? AND p.created_at < ? THEN 1 ELSE 0 END) AS previous_pending_deposit
@@ -1331,10 +1331,10 @@ class AdminService {
         pool.execute(
           `SELECT
              COALESCE(SUM(CASE WHEN w.status = 2 THEN w.amount ELSE 0 END), 0) AS total_withdrawal,
-             COALESCE(SUM(CASE WHEN w.status = 2 AND w.created_at >= ? AND w.created_at < ? THEN w.amount ELSE 0 END), 0) AS current_withdrawal,
-             COALESCE(SUM(CASE WHEN w.status = 2 AND w.created_at >= ? AND w.created_at < ? THEN w.amount ELSE 0 END), 0) AS previous_withdrawal,
-             COALESCE(SUM(CASE WHEN w.status = 2 AND w.created_at >= ? AND w.created_at < ? THEN w.amount ELSE 0 END), 0) AS today_withdrawal,
-             COALESCE(SUM(CASE WHEN w.status = 2 AND w.created_at >= ? AND w.created_at < ? THEN w.amount ELSE 0 END), 0) AS yesterday_withdrawal,
+             COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS current_withdrawal,
+             COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS previous_withdrawal,
+             COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS today_withdrawal,
+             COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS yesterday_withdrawal,
              (SELECT COUNT(*) FROM withdraw_histories WHERE status = 1) AS pending_withdrawal,
              SUM(CASE WHEN w.status = 1 AND w.created_at >= ? AND w.created_at < ? THEN 1 ELSE 0 END) AS current_pending_withdrawal,
              SUM(CASE WHEN w.status = 1 AND w.created_at >= ? AND w.created_at < ? THEN 1 ELSE 0 END) AS previous_pending_withdrawal
@@ -1397,17 +1397,17 @@ class AdminService {
           [startDate, endDate],
         ),
         pool.execute(
-          `SELECT DATE(p.created_at) AS day, COALESCE(SUM(p.cash), 0) AS value
+          `SELECT DATE(p.updated_at) AS day, COALESCE(SUM(p.cash), 0) AS value
            FROM payins p INNER JOIN users u ON u.id = p.user_id
-           WHERE u.account_type = 0 AND p.status = 2 AND p.created_at >= ? AND p.created_at < ?
-           GROUP BY DATE(p.created_at) ORDER BY day`,
+           WHERE u.account_type = 0 AND p.status = 2 AND p.updated_at >= ? AND p.updated_at < ?
+           GROUP BY DATE(p.updated_at) ORDER BY day`,
           [startDate, endDate],
         ),
         pool.execute(
-          `SELECT DATE(w.created_at) AS day, COALESCE(SUM(w.amount), 0) AS value
+          `SELECT DATE(w.updated_at) AS day, COALESCE(SUM(w.amount), 0) AS value
            FROM withdraw_histories w INNER JOIN users u ON u.id = w.user_id
-           WHERE u.account_type = 0 AND w.status = 2 AND w.created_at >= ? AND w.created_at < ?
-           GROUP BY DATE(w.created_at) ORDER BY day`,
+           WHERE u.account_type = 0 AND w.status = 2 AND w.updated_at >= ? AND w.updated_at < ?
+           GROUP BY DATE(w.updated_at) ORDER BY day`,
           [startDate, endDate],
         ),
         pool.execute(
@@ -1510,8 +1510,8 @@ class AdminService {
       pool.execute(
         `SELECT
            COALESCE(SUM(CASE WHEN p.status = 2 THEN p.cash ELSE 0 END), 0) AS total_deposit,
-           COALESCE(SUM(CASE WHEN p.status = 2 AND p.created_at >= ? AND p.created_at < ? THEN p.cash ELSE 0 END), 0) AS today_deposit,
-           COALESCE(SUM(CASE WHEN p.status = 2 AND p.created_at >= ? AND p.created_at < ? THEN p.cash ELSE 0 END), 0) AS yesterday_deposit,
+           COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS today_deposit,
+           COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS yesterday_deposit,
            (SELECT COUNT(*) FROM payins WHERE status = 1) AS pending_deposit
          FROM payins p
          INNER JOIN users u ON u.id = p.user_id
@@ -1521,8 +1521,8 @@ class AdminService {
       pool.execute(
         `SELECT
            COALESCE(SUM(CASE WHEN w.status = 2 THEN w.amount ELSE 0 END), 0) AS total_withdrawal,
-           COALESCE(SUM(CASE WHEN w.status = 2 AND w.created_at >= ? AND w.created_at < ? THEN w.amount ELSE 0 END), 0) AS today_withdrawal,
-           COALESCE(SUM(CASE WHEN w.status = 2 AND w.created_at >= ? AND w.created_at < ? THEN w.amount ELSE 0 END), 0) AS yesterday_withdrawal,
+           COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS today_withdrawal,
+           COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS yesterday_withdrawal,
            (SELECT COUNT(*) FROM withdraw_histories WHERE status = 1) AS pending_withdrawal
          FROM withdraw_histories w
          INNER JOIN users u ON u.id = w.user_id

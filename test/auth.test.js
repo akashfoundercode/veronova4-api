@@ -106,6 +106,30 @@ test("login rejects an invalid password without issuing or storing a token", asy
   );
 });
 
+test("login rejects an unknown user without creating an account", async () => {
+  const connection = createConnection(() => []);
+  const service = new AuthService(() => ({
+    getConnection: async () => connection,
+  }));
+
+  const login = await service.login({
+    identity: "new-player@example.test",
+    password: "new-password",
+  });
+
+  assert.equal(login, null);
+  assert.equal(connection.committed, false);
+  assert.equal(connection.rolledBack, true);
+  assert.equal(connection.released, true);
+  assert.equal(
+    connection.calls.some(({ sql }) =>
+      sql.startsWith("INSERT INTO users") ||
+      sql.startsWith("INSERT INTO personal_access_tokens"),
+    ),
+    false,
+  );
+});
+
 test("registration creates a shared user and Sanctum token in one transaction", async () => {
   const connection = createConnection((sql) => {
     if (sql.startsWith("SELECT id FROM users WHERE mobile = ?")) {

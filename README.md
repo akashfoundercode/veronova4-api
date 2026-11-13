@@ -194,8 +194,9 @@ requires the existing administrator identity (`users.id = 1`, `role_id = 1`,
 minus paid winnings (`bets`, `chicken_bets`, and `aviator_bet`). Deposit
 metrics remain based on approved `payins`. `aviatorAdminLoss` reports the
 amount staked on losing Aviator bets (`status = 2`), separately from net
-`aviatorAdminProfit`. Chart series contain one zero-filled record per day in
-the selected range.
+`aviatorAdminProfit`. Today’s successful deposits and withdrawals are grouped
+by their status update time. Chart series contain one zero-filled record per
+day in the selected range.
 
 Dragon Tiger uses game ID 10 and the existing `virtual_games`, `cards`,
 `betlogs`, `bets`, `bet_results`, `admin_winner_results`, and `users` tables.

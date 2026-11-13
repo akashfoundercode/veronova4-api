@@ -91,45 +91,11 @@ class AuthService {
          LIMIT 1 FOR UPDATE`,
         [...candidates, ...candidates, ...candidates, ...candidates],
       );
-      let user = users[0];
-
-      // Auto-register fallback: if user does not exist in DB yet, auto-create account directly
+      const user = users[0];
       if (!user) {
-        try {
-          const userIdCode = await findAvailableUserId(connection);
-          const username = `User_${randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 5)}`;
-          const newReferralCode = await findAvailableReferralCode(connection);
-          const userImage = new URL("/image/download.png", config.appUrl).toString();
-          const passwordHash = await bcrypt.hash(password, 10);
-          const mobileToSave = last10Digits || cleanIdentity;
-          const [insertResult] = await connection.execute(
-            `INSERT INTO users
-              (username, u_id, mobile, email, password, userimage, status, referral_code,
-               wallet, country_code, referral_user_id, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, ?, 0, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [
-              username,
-              userIdCode,
-              mobileToSave,
-              rawIdentity.includes("@") ? rawIdentity : null,
-              passwordHash,
-              userImage,
-              newReferralCode,
-              cleanCountry,
-            ],
-          );
-          user = {
-            id: insertResult.insertId,
-            password: passwordHash,
-            status: 1,
-            login_token: null,
-          };
-        } catch (createErr) {
-          console.warn("[AuthService] Auto-create user error:", createErr.message);
-          await connection.rollback();
-          transactionStarted = false;
-          return null;
-        }
+        await connection.rollback();
+        transactionStarted = false;
+        return null;
       }
 
       if (user && Number(user.status) !== 1) {

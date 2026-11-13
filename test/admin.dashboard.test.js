@@ -87,10 +87,10 @@ function createPool() {
       if (sql.includes("DATE(b.created_at)")) {
         return [[{ day: new Date("2026-10-10T00:00:00.000Z"), value: 50 }], []];
       }
-      if (sql.includes("DATE(p.created_at)")) {
+      if (sql.includes("DATE(p.updated_at)")) {
         return [[{ day: "2026-10-10", value: 100 }], []];
       }
-      if (sql.includes("DATE(w.created_at)")) {
+      if (sql.includes("DATE(w.updated_at)")) {
         return [[{ day: "2026-10-10", value: 40 }], []];
       }
       if (sql.includes("DATE(created_at) AS day")) {
@@ -147,6 +147,10 @@ test("admin dashboard returns all cards and daily chart series for the selected 
   assert.equal(result.counts.chicken_road_admin_loss, 15);
   assert.equal(result.counts.aviator_admin_profit, 8);
   assert.equal(result.counts.aviator_admin_loss, 24);
+  const depositQuery = pool.calls.find(({ sql }) => sql.includes("AS today_deposit"));
+  const withdrawalQuery = pool.calls.find(({ sql }) => sql.includes("AS today_withdrawal"));
+  assert.match(depositQuery.sql, /p\.status = 2 AND p\.updated_at >=/);
+  assert.match(withdrawalQuery.sql, /w\.status = 2 AND w\.updated_at >=/);
   assert.equal(result.counts.active_player, 60);
   assert.equal(result.counts.today_user, 2);
   assert.equal(result.counts.today_turnover, 50);
