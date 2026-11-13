@@ -98,11 +98,10 @@ class AuthService {
         return null;
       }
 
-      if (user && Number(user.status) !== 1) {
-        try {
-          await connection.execute("UPDATE users SET status = 1 WHERE id = ?", [user.id]);
-          user.status = 1;
-        } catch (_) {}
+      if (Number(user.status) !== 1) {
+        await connection.rollback();
+        transactionStarted = false;
+        return null;
       }
 
       if (!matchesPassword(user.password, password)) {

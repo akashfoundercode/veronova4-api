@@ -46,6 +46,25 @@ class OtpService {
       throw new AppError(400, "VALIDATION_ERROR", "Please provide a valid 10-digit mobile number.");
     }
 
+    const otpType = String(type || "verification").trim().toLowerCase();
+    if (otpType === "login") {
+      const conn = await this.getDbConnection();
+      if (!conn) {
+        throw new AppError(503, "SERVICE_UNAVAILABLE", "Unable to verify the account right now. Please try again.");
+      }
+      try {
+        const [users] = await conn.execute(
+          "SELECT id FROM users WHERE (mobile = ? OR mobile = ?) AND status = 1 LIMIT 1",
+          [normalizedMobile, `+91${normalizedMobile}`],
+        );
+        if (!users || users.length === 0) {
+          throw new AppError(404, "ACCOUNT_NOT_FOUND", "This mobile number is not registered. Please register first.");
+        }
+      } finally {
+        conn.release();
+      }
+    }
+
     const otpDigits = Number(digit) === 4 ? 4 : (Number(digit) === 6 ? 6 : (config.otp.digits || 6));
     const merchantKey = config.otp.merchantKey;
     const baseUrl = config.otp.baseUrl;
@@ -93,7 +112,6 @@ class OtpService {
             generatedOtp = providerOtp;
           } else {
             generatedOtp = generateRandomOtp(otpDigits);
-            console.log(`[OtpService] 🚀 LIVE MODE: Replaced static dummy with dynamic random OTP: ${generatedOtp} for ${normalizedMobile}`);
           }
         } else {
           // TEST MODE: allow static test OTP
@@ -109,8 +127,7 @@ class OtpService {
     // 2. Fallback if provider could not be reached (offline/sandbox/network issue)
     if (!generatedOtp) {
       if (isLive || providerError) {
-        generatedOtp = generateRandomOtp(otpDigits);
-        console.log(`[OtpService] 🚀 LIVE MODE: Generated dynamic random OTP for ${normalizedMobile}: ${generatedOtp}`);
+        throw new AppError(503, "OTP_PROVIDER_UNAVAILABLE", "Could not send OTP. Please try again later.");
       } else {
         generatedOtp = otpDigits === 4 ? "1111" : "111111";
       }
@@ -138,7 +155,7 @@ class OtpService {
             normalizedMobile,
             generatedOtp,
             otpDigits,
-            type,
+            otpType,
             providerResponse ? JSON.stringify(providerResponse) : null,
             expiresAt,
           ]
@@ -165,7 +182,7 @@ class OtpService {
       mobile: normalizedMobile,
       otp: generatedOtp,
       digit: otpDigits,
-      type,
+      type: otpType,
       status: 0,
       expiresAt: expiresAt.getTime(),
       createdAt: now.getTime(),
@@ -188,7 +205,7 @@ class OtpService {
   /**
    * Verify OTP
    */
-  async verifyOtp({ mobile, mobile_no, phone, otp, code }) {
+  async verifyOtp({ mobile, mobile_no, phone, otp, code, type }) {
     const rawMobile = mobile || mobile_no || phone;
     const normalizedMobile = cleanMobile(rawMobile);
     const candidateOtp = String(otp || code || "").trim();
@@ -198,6 +215,24 @@ class OtpService {
     }
     if (!candidateOtp) {
       throw new AppError(400, "VALIDATION_ERROR", "Please enter the OTP.");
+    }
+
+    if (String(type || "").trim().toLowerCase() === "login") {
+      const accountConn = await this.getDbConnection();
+      if (!accountConn) {
+        throw new AppError(503, "SERVICE_UNAVAILABLE", "Unable to verify the account right now. Please try again.");
+      }
+      try {
+        const [users] = await accountConn.execute(
+          "SELECT id FROM users WHERE (mobile = ? OR mobile = ?) AND status = 1 LIMIT 1",
+          [normalizedMobile, `+91${normalizedMobile}`],
+        );
+        if (!users || users.length === 0) {
+          throw new AppError(404, "ACCOUNT_NOT_FOUND", "This mobile number is not registered. Please register first.");
+        }
+      } finally {
+        accountConn.release();
+      }
     }
 
     const conn = await this.getDbConnection();
