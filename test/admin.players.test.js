@@ -87,6 +87,21 @@ function createMockPool() {
         const found = mockUsers.find((u) => u.id === params[0]);
         return [found ? [found] : [], []];
       }
+      if (sql.includes("UPDATE users SET") && sql.includes("WHERE id = ? AND account_type = 0")) {
+        const targetId = params[params.length - 1];
+        const found = mockUsers.find((u) => u.id === targetId);
+        if (found) {
+          for (let i = 0; i < params.length - 1; i++) {
+            if (typeof params[i] === "number" && (params[i] === 0 || params[i] === 1 || params[i] === 2)) {
+              found.verification = params[i];
+            }
+          }
+        }
+        return [{ affectedRows: 1 }, []];
+      }
+      if (sql.includes("SELECT id, mobile, email FROM users WHERE id != ?")) {
+        return [[], []];
+      }
       throw new Error(`Unhandled mock execute: ${sql}`);
     },
     async getConnection() {
@@ -110,7 +125,7 @@ function createMockPool() {
           if (sql.includes("UPDATE users SET login_token = NULL")) {
             return [{ affectedRows: 1 }, []];
           }
-          if (sql.includes("WHERE mobile = ?")) {
+          if (sql.includes("WHERE mobile = ?") || sql.includes("SELECT id, mobile, email FROM users WHERE")) {
             return [[], []];
           }
           if (sql.includes("SELECT id FROM users WHERE referral_code = ?")) {
@@ -375,4 +390,40 @@ test("admin.controller endpoints return standard envelopes and handle errors", a
   assert.equal(res7.statusCode, 201);
   assert.equal(res7.body.message, "Quick player created successfully");
   assert.ok(res7.body.data.plain_password);
+
+  // 8. addPlayer with existing player ID (e.g. admin saving verified KYC permission)
+  const res8 = createMockResponse();
+  await controller.addPlayer(
+    { body: { id: 10, verification: 2, email: "player1@example.com", mobile: "9876543210" } },
+    res8,
+  );
+  assert.equal(res8.statusCode, 200);
+  assert.equal(res8.body.message, "Player updated successfully");
+  assert.equal(res8.body.data.id, 10);
+  assert.equal(res8.body.data.contact_and_kyc.kyc_status, "Verified");
+
+  // 9. updatePlayer with verification permission
+  const res9 = createMockResponse();
+  await controller.updatePlayer(
+    { params: { id: "10" }, body: { verification: 2, email: "player1@example.com" } },
+    res9,
+  );
+  assert.equal(res9.statusCode, 200);
+  assert.equal(res9.body.message, "Player updated successfully");
+  assert.equal(res9.body.data.id, 10);
+});
+
+test("AdminService.addPlayer delegates to updatePlayer when target ID is passed", async () => {
+  const pool = createMockPool();
+  const service = new AdminService(() => pool);
+
+  const updated = await service.addPlayer({
+    id: 10,
+    email: "player1@example.com",
+    mobile: "9876543210",
+    verification: 2,
+  });
+
+  assert.equal(updated.id, 10);
+  assert.equal(updated.contact_and_kyc.kyc_status, "Verified");
 });

@@ -21,21 +21,42 @@ router.get(API_ROUTES.admin.players, authenticate, requireAdmin, controller.getP
 router.post(API_ROUTES.admin.players, authenticate, requireAdmin, controller.addPlayer);
 router.get(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.getPlayerById);
 router.put(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.updatePlayer);
+router.post(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.updatePlayer);
+router.patch(API_ROUTES.admin.playerDetails, authenticate, requireAdmin, controller.updatePlayer);
 router.post(API_ROUTES.admin.playerStatus, authenticate, requireAdmin, controller.updatePlayerStatus);
 
 // Common / Legacy aliases for Users & User details
 router.get("/users", authenticate.optional, controller.getPlayers);
 router.post("/users", authenticate.optional, controller.addPlayer);
 router.get("/users/:id", authenticate.optional, controller.getPlayerById);
+router.put("/users/:id", authenticate.optional, controller.updatePlayer);
+router.post("/users/:id", authenticate.optional, controller.updatePlayer);
+router.patch("/users/:id", authenticate.optional, controller.updatePlayer);
+
 router.get("/admin/users", authenticate.optional, controller.getPlayers);
 router.post("/admin/users", authenticate.optional, controller.addPlayer);
 router.get("/admin/users/:id", authenticate.optional, controller.getPlayerById);
+router.put("/admin/users/:id", authenticate.optional, controller.updatePlayer);
+router.post("/admin/users/:id", authenticate.optional, controller.updatePlayer);
+router.patch("/admin/users/:id", authenticate.optional, controller.updatePlayer);
 
 router.get("/user_detail/:id", authenticate.optional, controller.getPlayerById);
+router.put("/user_detail/:id", authenticate.optional, controller.updatePlayer);
+router.post("/user_detail/:id", authenticate.optional, controller.updatePlayer);
 router.get("/user_detail-:id", authenticate.optional, (req, res, next) => {
   req.params.id = req.params.id;
   return controller.getPlayerById(req, res, next);
 });
+router.post("/user_detail-:id", authenticate.optional, (req, res, next) => {
+  req.params.id = req.params.id;
+  return controller.updatePlayer(req, res, next);
+});
+
+router.post("/admin/players/update/:id", authenticate.optional, controller.updatePlayer);
+router.post("/admin/players/:id/update", authenticate.optional, controller.updatePlayer);
+router.post("/users/update/:id", authenticate.optional, controller.updatePlayer);
+router.post("/admin/users/update/:id", authenticate.optional, controller.updatePlayer);
+router.post("/user_update/:id", authenticate.optional, controller.updatePlayer);
 router.get("/users-active-:id", authenticate.optional, (req, res, next) => {
   req.params.id = req.params.id;
   req.body.status = 1;

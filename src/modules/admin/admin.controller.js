@@ -84,7 +84,8 @@ async function getPlayerById(req, res) {
 
 async function updatePlayer(req, res) {
   try {
-    const data = await service.updatePlayer(req.params.id, req.body ?? {});
+    const targetId = req.params?.id ?? req.body?.id ?? req.body?.player_id ?? req.body?.user_id;
+    const data = await service.updatePlayer(targetId, req.body ?? {});
     return res.status(200).json({ status: 200, message: "Player updated successfully", data });
   } catch (error) {
     if (error instanceof AppError) {
@@ -163,6 +164,15 @@ async function unsuspendPlayer(req, res) {
 
 async function addPlayer(req, res) {
   try {
+    const targetId = req.params?.id ?? req.body?.id ?? req.body?.player_id ?? req.body?.user_id;
+    if (targetId) {
+      const data = await service.updatePlayer(targetId, req.body ?? {});
+      return res.status(200).json({
+        status: 200,
+        message: "Player updated successfully",
+        data,
+      });
+    }
     const data = await service.addPlayer(req.body);
     return res.status(201).json({
       status: 201,

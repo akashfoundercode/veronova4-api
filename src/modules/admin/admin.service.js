@@ -1972,7 +1972,13 @@ class AdminService {
         if (data[field] !== null && typeof data[field] !== "string") {
           throw new AppError(400, "VALIDATION_ERROR", `${field} must be a string or null`);
         }
-        add(field, data[field] === null ? null : data[field].trim());
+        if (field === "email") {
+          const raw = data[field] == null ? null : String(data[field]).trim();
+          const cleanEmail = raw && raw !== "null" && raw !== "undefined" && raw !== "" ? raw.toLowerCase() : null;
+          add("email", cleanEmail);
+        } else {
+          add(field, data[field] === null ? null : data[field].trim());
+        }
       }
     }
 
@@ -1998,6 +2004,43 @@ class AdminService {
       add("status", status);
     }
     if (fields.length === 0) throw new AppError(400, "VALIDATION_ERROR", "No supported player fields were provided");
+
+    // If mobile or email is explicitly being updated, ensure it does not conflict with ANOTHER player
+    const emailIndex = fields.indexOf("email = ?");
+    const mobileIndex = fields.indexOf("mobile = ?");
+    const updatedEmail = emailIndex !== -1 ? values[emailIndex] : null;
+    const updatedMobile = mobileIndex !== -1 ? values[mobileIndex] : null;
+
+    if (updatedEmail || updatedMobile) {
+      const duplicateConditions = [];
+      const duplicateParams = [targetId];
+      if (updatedMobile) {
+        duplicateConditions.push("mobile = ?");
+        duplicateParams.push(updatedMobile);
+      }
+      if (updatedEmail) {
+        duplicateConditions.push("LOWER(email) = ?");
+        duplicateParams.push(updatedEmail);
+      }
+      if (duplicateConditions.length > 0) {
+        const [conflict] = await this.poolProvider().execute(
+          `SELECT id, mobile, email FROM users WHERE id != ? AND (${duplicateConditions.join(" OR ")}) LIMIT 1`,
+          duplicateParams,
+        );
+        if (conflict && conflict.length > 0) {
+          const emailConflict = Boolean(
+            updatedEmail &&
+            conflict[0].email &&
+            String(conflict[0].email).trim().toLowerCase() === updatedEmail,
+          );
+          throw new AppError(
+            409,
+            "DUPLICATE_USER",
+            emailConflict ? "This email is already registered." : "This mobile number is already registered.",
+          );
+        }
+      }
+    }
 
     values.push(targetId);
     await this.poolProvider().execute(
@@ -2066,6 +2109,20 @@ class AdminService {
   }
 
   async addPlayer(data = {}) {
+    // If target player ID is provided in data, treat as player update (e.g. KYC verification, profile update)
+    const targetId = Number(
+      data.id ??
+      data.user_id ??
+      data.player_id ??
+      data.userId ??
+      data.playerId ??
+      data.target_id ??
+      data.targetId
+    );
+    if (Number.isInteger(targetId) && targetId > 0) {
+      return this.updatePlayer(targetId, data);
+    }
+
     const {
       email,
       country_code = "91",
@@ -2090,12 +2147,20 @@ class AdminService {
     }
 
     const normalizedMobile = String(mobile).trim();
-    const emailValue = email == null ? "" : String(email).trim().toLowerCase();
-    const normalizedEmail = emailValue && emailValue !== "null" ? emailValue : null;
+    const emailRaw = email == null ? "" : String(email).trim().toLowerCase();
+    const isValidEmail = Boolean(
+      emailRaw &&
+      emailRaw !== "null" &&
+      emailRaw !== "undefined" &&
+      emailRaw !== "none" &&
+      emailRaw !== "n/a" &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)
+    );
+    const normalizedEmail = isValidEmail ? emailRaw : null;
     const initialWallet = Math.max(0, number(wallet));
     const kycVerification = verification !== undefined
       ? Number(verification)
-      : (kyc_status === 2 || kyc_status === "Verified" ? 2 : 0);
+      : (kyc_status === 2 || kyc_status === "Verified" || String(kyc_status).toLowerCase() === "verified" ? 2 : 0);
 
     const pool = this.poolProvider();
     const connection = await pool.getConnection();
@@ -2118,7 +2183,17 @@ class AdminService {
         duplicateParams,
       );
       if (existing.length > 0) {
-        const emailConflict = normalizedEmail && String(existing[0].email || "").toLowerCase() === normalizedEmail;
+        // If the request specifically intends to set verification / KYC permission on an existing player, update them
+        if (verification !== undefined || kyc_status !== undefined) {
+          await connection.rollback();
+          return this.updatePlayer(existing[0].id, data);
+        }
+
+        const emailConflict = Boolean(
+          normalizedEmail &&
+          existing[0].email &&
+          String(existing[0].email).trim().toLowerCase() === normalizedEmail,
+        );
         throw new AppError(
           409,
           "DUPLICATE_USER",
