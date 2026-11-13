@@ -83,23 +83,27 @@ class OtpService {
     let providerResponse = null;
     let providerError = null;
 
-    try {
-      const res = await fetch(providerUrl, {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(10000),
-      });
-      providerResponse = await res.json();
-    } catch (err) {
-      providerError = err;
-      console.warn("[OtpService] ⚠️ Provider request warning:", err.message);
+    if (isLive) {
+      try {
+        const res = await fetch(providerUrl, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: AbortSignal.timeout(10000),
+        });
+        providerResponse = await res.json();
+      } catch (err) {
+        providerError = err;
+        console.warn("[OtpService] ⚠️ Provider request warning:", err.message);
+      }
     }
 
     let generatedOtp = null;
     let remainingSms = null;
 
     // 1. Process response from IndoPay
-    if (providerResponse) {
+    if (!isLive) {
+      generatedOtp = "111111";
+    } else if (providerResponse) {
       if (providerResponse.status === "success" || String(providerResponse.error) === "200") {
         remainingSms = providerResponse.remaining !== undefined ? providerResponse.remaining : null;
         const providerOtp = providerResponse.otp ? String(providerResponse.otp).trim() : null;
@@ -130,8 +134,6 @@ class OtpService {
     if (!generatedOtp) {
       if (isLive || providerError) {
         throw new AppError(503, "OTP_PROVIDER_UNAVAILABLE", "Could not send OTP. Please try again later.");
-      } else {
-        generatedOtp = "111111";
       }
     }
 
