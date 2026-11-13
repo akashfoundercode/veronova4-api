@@ -1049,6 +1049,66 @@ async function getAviatorDrops(req, res) {
   }
 }
 
+async function getFeedbacks(req, res) {
+  try {
+    const query = {
+      ...req.query,
+      id: req.params?.id ?? req.query?.id,
+    };
+    const result = await service.getFeedbacks(query);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
+async function updateFeedback(req, res) {
+  try {
+    const id = req.params?.id ?? req.body?.id ?? req.query?.id;
+    const result = await service.updateFeedback(id, req.body || {});
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
+async function deleteFeedback(req, res) {
+  try {
+    const id = req.params?.id ?? req.body?.id ?? req.query?.id;
+    const result = await service.deleteFeedback(id);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
 module.exports = {
   addPlayer,
   dashboard,
@@ -1059,6 +1119,9 @@ module.exports = {
   getAviatorTelemetry,
   getBanners,
   getDeposits,
+  getFeedbacks,
+  updateFeedback,
+  deleteFeedback,
   getFundTransferHistory,
   getGifts,
   getLoginHistory,

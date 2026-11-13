@@ -29,4 +29,10 @@ router.post("/country", controller.getCountry);
 router.get("/countries", controller.getCountry);
 router.post("/countries", controller.getCountry);
 
+router.post("/changePassword", authenticate.optional, controller.changePassword);
+router.post("/change_password", authenticate.optional, controller.changePassword);
+router.post("/change-password", authenticate.optional, controller.changePassword);
+router.get("/changePassword", authenticate.optional, controller.changePassword);
+router.get("/change_password", authenticate.optional, controller.changePassword);
+
 module.exports = router;

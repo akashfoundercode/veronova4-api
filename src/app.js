@@ -86,6 +86,8 @@ app.use(
   API_ROUTES.horseRace.uploads,
   express.static(path.join(process.cwd(), "uploads", "horses")),
 );
+app.use("/images", express.static(path.join(process.cwd(), "public", "images")));
+app.use(express.static(path.join(process.cwd(), "public")));
 app.use(API_PREFIX, authRoutes);
 app.use(authRoutes);
 app.use(API_PREFIX, legacyApiRoutes);

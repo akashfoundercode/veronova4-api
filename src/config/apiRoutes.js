@@ -15,6 +15,7 @@ const API_ROUTES = Object.freeze({
     logout: "/logout",
     updateProfile: "/update_profile",
     mainWalletTransfer: "/main_wallet_transfer",
+    changePassword: "/changePassword",
   }),
   admin: DASHBOARD_ROUTES,
   dashboard: DASHBOARD_ROUTES.dashboard,

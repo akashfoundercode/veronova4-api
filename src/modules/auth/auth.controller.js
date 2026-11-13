@@ -182,7 +182,6 @@ async function login(req, res) {
     message: "Login successful",
     status: "200",
     id: result.id,
-    token: result.token,
     login_token: loginToken,
     token_type: "Bearer",
     wallet: userWallet,
@@ -551,7 +550,31 @@ async function getCountry(_req, res) {
   });
 }
 
+async function changePassword(req, res) {
+  try {
+    const payload = {
+      ...req.query,
+      ...req.body,
+      userid: req.user?.id ?? req.body?.userid ?? req.body?.user_id ?? req.query?.userid ?? req.query?.user_id,
+      old_password: req.body?.old_password ?? req.body?.current_password ?? req.body?.oldPassword ?? req.body?.currentPassword ?? req.query?.old_password,
+      new_password: req.body?.new_password ?? req.body?.password ?? req.body?.newPassword ?? req.query?.new_password,
+      confirm_password: req.body?.confirm_password ?? req.body?.confirmPassword ?? req.body?.password_confirmation ?? req.query?.confirm_password,
+      mobile: req.body?.mobile ?? req.query?.mobile,
+    };
+
+    const result = await service.changePassword(payload);
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    return res.status(500).json({
+      status: 500,
+      msg: error.message || "Internal server error",
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
 module.exports = {
+  changePassword,
   getCountry,
   imageAll,
   proxyAvatar,

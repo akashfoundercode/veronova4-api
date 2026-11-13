@@ -20,7 +20,27 @@ module.exports = {
   giftRedeemList: (req, res) => run(res, () => service.giftRedeemList(req.query.userid ?? req.query.user_id)),
   applyGift: (req, res) => run(res, () => service.applyGift(req.body ?? {})),
   totalBetDetails: (req, res) => run(res, () => service.totalBetDetails(req.query)),
-  beginnerGuide: (_req, res) => run(res, () => service.beginnerGuide()),
+  beginnerGuide: (req, res) => run(res, () => {
+    let host = null;
+    try {
+      host = typeof req.get === "function" ? req.get("host") : req.headers?.host;
+    } catch (_) {}
+    let proto = "https";
+    try {
+      proto = req.protocol || "https";
+    } catch (_) {}
+    const baseUrl = host ? `${proto}://${host}` : "https://root.veronova.co.in";
+    return service.beginnerGuide({ baseUrl });
+  }),
   aboutUs: (req, res) => run(res, () => service.aboutUs(req.query.type)),
   announcements: (_req, res) => run(res, () => service.announcements()),
+  feedback: (req, res) => run(res, () => {
+    const userId = req.user?.id ?? req.body?.userid ?? req.body?.user_id ?? req.query?.userid ?? req.query?.user_id;
+    const description = req.body?.description ?? req.body?.feedback ?? req.body?.message ?? req.query?.description;
+    return service.addFeedback({ userid: userId, description });
+  }),
+  getFeedback: (req, res) => run(res, () => {
+    const userId = req.user?.id ?? req.query?.userid ?? req.query?.user_id ?? req.body?.userid ?? req.body?.user_id;
+    return service.getFeedback({ userid: userId });
+  }),
 };

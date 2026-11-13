@@ -5730,6 +5730,183 @@ class AdminService {
       },
     };
   }
+
+  async getFeedbacks(query = {}) {
+    const pool = this.poolProvider();
+    await ensureFeedbackTable(pool);
+
+    const targetId = query.id ?? query.feedback_id;
+    if (targetId !== undefined && targetId !== null && String(targetId).trim() !== "") {
+      const [rows] = await pool.execute(
+        `SELECT f.id, f.userid, f.description, f.status, f.created_at, f.updated_at,
+                u.username, u.username AS uname, u.mobile, u.email
+         FROM feedbacks f
+         LEFT JOIN users u ON f.userid = u.id
+         WHERE f.id = ? LIMIT 1`,
+        [Number(targetId)],
+      );
+      if (rows.length === 0) {
+        throw new AppError(404, "FEEDBACK_NOT_FOUND", `Feedback with ID '${targetId}' not found`);
+      }
+      return {
+        status: 200,
+        message: "Feedback details fetched successfully",
+        data: rows[0],
+        feedback: rows[0],
+      };
+    }
+
+    const conditions = [];
+    const params = [];
+
+    if (query.userid || query.user_id) {
+      conditions.push("f.userid = ?");
+      params.push(Number(query.userid || query.user_id));
+    }
+
+    if (query.status !== undefined && query.status !== null && String(query.status).trim() !== "" && query.status !== "all") {
+      conditions.push("f.status = ?");
+      params.push(Number(query.status));
+    }
+
+    if (query.search && String(query.search).trim() !== "") {
+      const term = `%${String(query.search).trim()}%`;
+      conditions.push("(f.description LIKE ? OR u.username LIKE ? OR u.mobile LIKE ? OR u.email LIKE ?)");
+      params.push(term, term, term, term);
+    }
+
+    if (query.start_date) {
+      conditions.push("f.created_at >= ?");
+      params.push(query.start_date);
+    }
+    if (query.end_date) {
+      conditions.push("f.created_at <= ?");
+      params.push(query.end_date);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+    let offset = 0;
+    let page = 1;
+
+    if (query.offset !== undefined) {
+      offset = Math.max(0, parseInt(query.offset, 10) || 0);
+      page = Math.floor(offset / limit) + 1;
+    } else if (query.page !== undefined) {
+      page = Math.max(1, parseInt(query.page, 10) || 1);
+      offset = (page - 1) * limit;
+    }
+
+    const countSql = `SELECT COUNT(*) AS total FROM feedbacks f LEFT JOIN users u ON f.userid = u.id ${whereClause}`;
+    const [countRows] = await pool.execute(countSql, params);
+    const total = Number(countRows[0]?.total || 0);
+
+    const listSql = `
+      SELECT f.id, f.userid, f.description, f.status, f.created_at, f.updated_at,
+             u.username, u.username AS uname, u.mobile, u.email
+      FROM feedbacks f
+      LEFT JOIN users u ON f.userid = u.id
+      ${whereClause}
+      ORDER BY f.id DESC
+      LIMIT ? OFFSET ?
+    `;
+    const [rows] = await pool.execute(listSql, [...params, limit, offset]);
+
+    return {
+      status: 200,
+      message: "Feedbacks fetched successfully",
+      data: rows,
+      feedbacks: rows,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  async updateFeedback(id, payload = {}) {
+    if (!id) {
+      throw new AppError(400, "VALIDATION_ERROR", "Feedback id is required.");
+    }
+    const pool = this.poolProvider();
+    await ensureFeedbackTable(pool);
+
+    const [existing] = await pool.execute("SELECT id FROM feedbacks WHERE id = ? LIMIT 1", [Number(id)]);
+    if (existing.length === 0) {
+      throw new AppError(404, "FEEDBACK_NOT_FOUND", `Feedback with ID '${id}' not found`);
+    }
+
+    const updates = [];
+    const params = [];
+
+    if (payload.status !== undefined && payload.status !== null) {
+      updates.push("status = ?");
+      params.push(Number(payload.status));
+    }
+    if (payload.description !== undefined && payload.description !== null) {
+      updates.push("description = ?");
+      params.push(String(payload.description));
+    }
+
+    if (updates.length === 0) {
+      updates.push("status = 0");
+    }
+
+    updates.push("updated_at = NOW()");
+    params.push(Number(id));
+
+    await pool.execute(`UPDATE feedbacks SET ${updates.join(", ")} WHERE id = ?`, params);
+
+    const [updated] = await pool.execute(
+      `SELECT f.*, u.username, u.username AS uname, u.mobile, u.email
+       FROM feedbacks f
+       LEFT JOIN users u ON f.userid = u.id
+       WHERE f.id = ? LIMIT 1`,
+      [Number(id)],
+    );
+
+    return {
+      status: 200,
+      message: "Feedback updated successfully",
+      data: updated[0] || null,
+    };
+  }
+
+  async deleteFeedback(id) {
+    if (!id) {
+      throw new AppError(400, "VALIDATION_ERROR", "Feedback id is required.");
+    }
+    const pool = this.poolProvider();
+    await ensureFeedbackTable(pool);
+
+    const [existing] = await pool.execute("SELECT id FROM feedbacks WHERE id = ? LIMIT 1", [Number(id)]);
+    if (existing.length === 0) {
+      throw new AppError(404, "FEEDBACK_NOT_FOUND", `Feedback with ID '${id}' not found`);
+    }
+
+    await pool.execute("DELETE FROM feedbacks WHERE id = ?", [Number(id)]);
+
+    return {
+      status: 200,
+      message: "Feedback deleted successfully",
+    };
+  }
+}
+
+async function ensureFeedbackTable(pool) {
+  try {
+    await pool.execute(`CREATE TABLE IF NOT EXISTS feedbacks (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      userid INT NOT NULL,
+      description LONGTEXT NOT NULL,
+      status INT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_feedbacks_userid (userid),
+      INDEX idx_feedbacks_created_at (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (_) {}
 }
 
 function formatAviatorDrop(row) {

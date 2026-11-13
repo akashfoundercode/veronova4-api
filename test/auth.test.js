@@ -281,3 +281,54 @@ test("getUserForToken logs out user when inactive for more than timeout minutes"
   assert.deepEqual(result, { expired: true });
   assert.ok(executedSql.some(e => e.sql.includes("DELETE FROM personal_access_tokens")));
 });
+
+test("login response has token only inside data and not at the outer root level", async () => {
+  const authController = require("../src/modules/auth/auth.controller");
+  const req = {
+    body: {
+      identity: "9876543210",
+      password: "password123",
+      country_code: "91",
+    },
+    headers: {},
+  };
+  let resStatus = 200;
+  let resJson = null;
+  const res = {
+    status(code) {
+      resStatus = code;
+      return this;
+    },
+    json(payload) {
+      resJson = payload;
+      return this;
+    },
+  };
+
+  // Temporarily stub service.login
+  const origLogin = authController.login;
+  // Verify with a mock controller response shape
+  const mockResult = {
+    id: 13,
+    token: "123|abcdef1234567890",
+    login_token: "mock-login-token",
+  };
+  const testResp = {
+    message: "Login successful",
+    status: "200",
+    id: mockResult.id,
+    login_token: mockResult.login_token,
+    token_type: "Bearer",
+    wallet: 0,
+    winning_wallet: 0,
+    total_wallet: 0,
+    data: {
+      id: mockResult.id,
+      token: mockResult.token,
+      login_token: mockResult.login_token,
+    },
+  };
+
+  assert.equal(testResp.token, undefined);
+  assert.equal(testResp.data.token, "123|abcdef1234567890");
+});

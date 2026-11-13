@@ -351,6 +351,99 @@ class AuthService {
     return result.affectedRows > 0;
   }
 
+  async changePassword(payload = {}) {
+    const rawUserId = payload.userid ?? payload.user_id;
+    const rawMobile = payload.mobile ?? payload.phone;
+    const oldPass = payload.old_password ?? payload.current_password ?? payload.oldPassword ?? payload.currentPassword;
+    const newPass = payload.new_password ?? payload.password ?? payload.newPassword;
+    const confirmPass = payload.confirm_password ?? payload.confirmPassword ?? payload.password_confirmation;
+
+    if (!rawUserId && !rawMobile) {
+      return {
+        status: 400,
+        msg: "The userid field is required.",
+        message: "The userid field is required.",
+      };
+    }
+
+    if (oldPass === undefined || oldPass === null || String(oldPass).trim() === "") {
+      return {
+        status: 400,
+        msg: "The old password field is required.",
+        message: "The old password field is required.",
+      };
+    }
+
+    if (newPass === undefined || newPass === null || String(newPass).trim() === "") {
+      return {
+        status: 400,
+        msg: "The new password field is required.",
+        message: "The new password field is required.",
+      };
+    }
+
+    if (confirmPass === undefined || confirmPass === null || String(confirmPass).trim() === "") {
+      return {
+        status: 400,
+        msg: "The confirm password field is required.",
+        message: "The confirm password field is required.",
+      };
+    }
+
+    if (String(newPass) !== String(confirmPass)) {
+      return {
+        status: 400,
+        msg: "The confirm password and new password must match.",
+        message: "The confirm password and new password must match.",
+      };
+    }
+
+    const pool = this.poolProvider();
+    let user = null;
+    if (rawUserId) {
+      const userId = Number(rawUserId);
+      const [rows] = await pool.execute(
+        "SELECT id, password, status FROM users WHERE id = ? LIMIT 1",
+        [userId],
+      );
+      user = rows[0];
+    } else if (rawMobile) {
+      const [rows] = await pool.execute(
+        "SELECT id, password, status FROM users WHERE mobile = ? LIMIT 1",
+        [String(rawMobile).trim()],
+      );
+      user = rows[0];
+    }
+
+    if (!user) {
+      return {
+        status: 404,
+        msg: "User not found",
+        message: "User not found",
+      };
+    }
+
+    if (!matchesPassword(user.password, String(oldPass))) {
+      return {
+        status: 400,
+        msg: "Incorrect old password",
+        message: "Incorrect old password",
+      };
+    }
+
+    const cleanNewPass = String(newPass).trim();
+    await pool.execute(
+      "UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [cleanNewPass, user.id],
+    );
+
+    return {
+      status: 200,
+      msg: "Password changed successfully!",
+      message: "Password changed successfully!",
+    };
+  }
+
   async revokeToken(tokenId) {
     await this.poolProvider().execute(
       "DELETE FROM personal_access_tokens WHERE id = ? AND tokenable_type = ?",

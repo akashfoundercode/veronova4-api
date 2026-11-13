@@ -262,4 +262,26 @@ router.get("/stack-tower/active-bets", authenticate.optional, stackTowerControll
 router.get("/stack-tower/live", authenticate.optional, stackTowerController.activeBets);
 router.get("/stack-tower/active", authenticate.optional, stackTowerController.activeBets);
 
+// Feedbacks Admin Management
+router.get("/admin/feedbacks", authenticate.optional, controller.getFeedbacks);
+router.get("/admin/feedbacks/:id", authenticate.optional, controller.getFeedbacks);
+router.get("/admin/feedback", authenticate.optional, controller.getFeedbacks);
+router.get("/admin/feedback/:id", authenticate.optional, controller.getFeedbacks);
+router.put("/admin/feedbacks/:id", authenticate.optional, controller.updateFeedback);
+router.post("/admin/feedbacks/:id", authenticate.optional, controller.updateFeedback);
+router.patch("/admin/feedbacks/:id", authenticate.optional, controller.updateFeedback);
+router.put("/admin/feedback/:id", authenticate.optional, controller.updateFeedback);
+router.post("/admin/feedback/:id", authenticate.optional, controller.updateFeedback);
+router.patch("/admin/feedback/:id", authenticate.optional, controller.updateFeedback);
+router.post("/admin/feedback/update/:id", authenticate.optional, controller.updateFeedback);
+router.post("/admin/feedback/:id/update", authenticate.optional, controller.updateFeedback);
+router.post("/feedback-update-:id", authenticate.optional, controller.updateFeedback);
+router.post("/feedback-update/:id", authenticate.optional, controller.updateFeedback);
+router.delete("/admin/feedback/:id", authenticate.optional, controller.deleteFeedback);
+router.delete("/admin/feedbacks/:id", authenticate.optional, controller.deleteFeedback);
+router.get("/feedback-delete-:id", authenticate.optional, controller.deleteFeedback);
+router.post("/feedback-delete-:id", authenticate.optional, controller.deleteFeedback);
+router.get("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
+router.post("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
+
 module.exports = router;
