@@ -1285,20 +1285,26 @@ class AdminService {
         pool.execute(
           `SELECT
              COALESCE(SUM(b.amount), 0) AS total_turnover,
+             COALESCE(SUM(b.amount - CASE WHEN b.status = 1 THEN b.win_amount ELSE 0 END), 0) AS total_revenue,
+             COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ?
+               THEN b.amount - CASE WHEN b.status = 1 THEN b.win_amount ELSE 0 END ELSE 0 END), 0) AS current_revenue,
+             COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ?
+               THEN b.amount - CASE WHEN b.status = 1 THEN b.win_amount ELSE 0 END ELSE 0 END), 0) AS previous_revenue,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS current_turnover,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS previous_turnover,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS today_turnover,
              COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS yesterday_turnover
            FROM (
-             SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
+             SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.win_amount, b.status, b.created_at FROM bets b
              UNION ALL
-             SELECT cb.user_id AS uid, cb.amount, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
+             SELECT cb.user_id AS uid, cb.amount, cb.win_amount, cb.status, cb.created_at FROM chicken_bets cb WHERE COALESCE(cb.account_type, 0) = 0
              UNION ALL
-             SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.created_at FROM aviator_bet ab
+             SELECT COALESCE(ab.uid, ab.user_id) AS uid, ab.amount, ab.win AS win_amount, ab.status, ab.created_at FROM aviator_bet ab
            ) b
            INNER JOIN users u ON u.id = b.uid
            WHERE u.account_type = 0`,
           [
+            startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
             today, todayEndDate, yesterday, today,
           ],
@@ -1421,7 +1427,7 @@ class AdminService {
     const aviatorThen = number(extra.previous_aviator_net);
     const counts = buildCounts({ user, bet, deposit, withdrawal, extra });
     const metrics = {
-      totalRevenue: metric(deposit.total_deposit, deposit.current_deposit, deposit.previous_deposit),
+      totalRevenue: metric(bet.total_revenue, bet.current_revenue, bet.previous_revenue),
       totalPlayer: metric(user.total_players, user.current_players, user.previous_players),
       activePlayer: metric(user.active_players, user.current_active_players, user.previous_active_players),
       todayUser: metric(user.today_players, user.today_players, user.yesterday_players),

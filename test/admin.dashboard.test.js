@@ -28,6 +28,9 @@ function createPool() {
       if (sql.includes("AS total_turnover")) {
         return [[{
           total_turnover: 1200,
+          total_revenue: 650,
+          current_revenue: 100,
+          previous_revenue: 50,
           current_turnover: 300,
           previous_turnover: 200,
           today_turnover: 50,
@@ -110,9 +113,14 @@ test("admin dashboard returns all cards and daily chart series for the selected 
     startDate: "2026-10-04",
     endDate: "2026-10-10",
   });
-  assert.equal(result.metrics.totalRevenue.value, 1500);
+  assert.equal(result.metrics.totalRevenue.value, 650);
+  assert.equal(result.metrics.totalRevenue.currentPeriod, 100);
+  assert.equal(result.metrics.totalRevenue.previousPeriod, 50);
   assert.equal(result.metrics.totalRevenue.changePercent, 100);
   assert.equal(result.metrics.totalRevenue.trend, "up");
+  const revenueQuery = pool.calls.find(({ sql }) => sql.includes("AS total_revenue"));
+  assert.match(revenueQuery.sql, /b\.amount - CASE WHEN b\.status = 1 THEN b\.win_amount/);
+  assert.match(revenueQuery.sql, /ab\.win AS win_amount/);
   assert.equal(result.metrics.totalPlayer.value, 80);
   assert.equal(result.metrics.todayTurnover.value, 50);
   assert.equal(result.metrics.pendingDeposit.value, 3);

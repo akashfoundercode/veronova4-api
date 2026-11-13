@@ -189,11 +189,11 @@ requires the existing administrator identity (`users.id = 1`, `role_id = 1`,
 `aviator_admin_profit`, `aviator_admin_loss`, `active_player`, `today_user`, `today_turnover`,
 `today_deposit`, `today_withdrawal`, `pending_withdrawal`, `pending_deposit`, `illegal_betters`, and `demo_users`
 (both snake_case and camelCase forms are provided). Each entry in `data.metrics` includes `value`,
-`currentPeriod`, `previousPeriod`, `changePercent`, and `trend`. The Laravel
-dashboard page does not define a separate revenue calculation, so
-`totalRevenue` uses the approved deposit total, matching the displayed deposit
-metric. Chart series contain one zero-filled record per day in the selected
-range.
+`currentPeriod`, `previousPeriod`, `changePercent`, and `trend`. The API's
+`totalRevenue` metric is calculated from real-player game bets as wager amounts
+minus paid winnings (`bets`, `chicken_bets`, and `aviator_bet`). Deposit
+metrics remain based on approved `payins`. Chart series contain one zero-filled
+record per day in the selected range.
 
 Dragon Tiger uses game ID 10 and the existing `virtual_games`, `cards`,
 `betlogs`, `bets`, `bet_results`, `admin_winner_results`, and `users` tables.
