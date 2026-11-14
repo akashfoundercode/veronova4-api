@@ -76,6 +76,31 @@ module.exports = {
     return service.bet(payload);
   }),
   history: wrap(async (req) => {
+    const rawGameId = req.query?.game_id ?? req.body?.game_id ?? req.query?.gameid ?? req.body?.gameid;
+    if (rawGameId !== undefined && rawGameId !== null && rawGameId !== "" && Number(rawGameId) !== 19) {
+      const { WingoService } = require("../wingo/wingo.service");
+      const wingoService = new WingoService(getPool);
+      const requestedUserId = req.query?.user_id ?? req.query?.userid ?? req.query?.id ?? req.body?.user_id ?? req.body?.userid ?? req.body?.id ?? req.user?.id;
+      const game_id = Number(rawGameId);
+      const limit = Number(req.query?.limit ?? req.body?.limit ?? 10);
+      const offset = Number(req.query?.offset ?? req.body?.offset ?? 0);
+      const from_date = req.query?.from_date ?? req.body?.from_date;
+      const to_date = req.query?.to_date ?? req.body?.to_date;
+      const { rows, totalBets } = await wingoService.getBetHistory({
+        userid: requestedUserId,
+        game_id,
+        limit,
+        offset,
+        from_date,
+        to_date,
+      });
+      return {
+        status: 200,
+        message: rows.length ? "Data found" : "No Data found",
+        total_bets: totalBets,
+        data: rows,
+      };
+    }
     const requestedUserId = req.query?.user_id ?? req.query?.userid ?? req.query?.id ?? req.body?.user_id ?? req.body?.userid ?? req.body?.id ?? req.get?.("user-id") ?? req.get?.("userid") ?? req.user?.id;
     const query = {
       ...req.query,

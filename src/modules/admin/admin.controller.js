@@ -987,12 +987,33 @@ async function getSupportSettings(req, res) {
       ...req.query,
       id: req.params?.id ?? req.query?.id ?? req.query?.Id ?? req.query?.ID,
     };
-    const data = await service.getSupportSettings(query);
+    const result = await service.getSupportSettings(query);
     const message = query.id ? "Support setting fetched successfully" : "Support settings fetched successfully";
+
+    if (query.id) {
+      const single = result.support_setting || result.data || {};
+      single.support_setting = single;
+      return res.status(200).json({
+        status: 200,
+        message,
+        data: single,
+        support_setting: single,
+      });
+    }
+
+    const list = Array.isArray(result.data) ? result.data : (result.support_settings || []);
+    list.support_settings = list;
+    list.summary = result.summary;
+    list.pagination = result.pagination;
+
     return res.status(200).json({
       status: 200,
       message,
-      data,
+      data: list,
+      total: result.pagination?.total ?? list.length,
+      support_settings: list,
+      pagination: result.pagination,
+      summary: result.summary,
     });
   } catch (error) {
     if (error instanceof AppError) {

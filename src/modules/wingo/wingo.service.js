@@ -488,7 +488,7 @@ class WingoService {
       const [adminResults] =
         forcedResult === undefined
           ? await connection.execute(
-              "SELECT number FROM admin_winner_results WHERE gamesno = ? AND gameId = ? ORDER BY id DESC LIMIT 1",
+              "SELECT number FROM admin_winner_results WHERE gamesno = ? AND gameId = ? AND (status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
               [gameNo, gameId],
             )
           : [[]];
@@ -735,6 +735,17 @@ class WingoService {
         "UPDATE betlogs SET amount = 0, games_no = ? WHERE game_id = ?",
         [nextGameNo, gameId],
       );
+
+      // Consume the admin winner result so it applies ONLY ONCE for this round and NEVER continues
+      if (adminResults.length > 0) {
+        try {
+          await connection.execute(
+            "UPDATE admin_winner_results SET status = '0' WHERE gamesno = ? AND gameId = ?",
+            [gameNo, gameId],
+          );
+        } catch (_) {}
+      }
+
       await connection.commit();
       transactionStarted = false;
 
@@ -813,8 +824,7 @@ class WingoService {
       values,
     );
     const [rows] = await this.poolProvider().execute(
-      `SELECT id, game_id, games_no, number, json, status, created_at
-       FROM bet_results WHERE ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT * FROM bet_results WHERE ${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
       [...values, limit, offset],
     );
     return { total_result: Number(counts[0].total_result), data: rows };

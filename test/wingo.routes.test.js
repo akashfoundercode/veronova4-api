@@ -179,3 +179,39 @@ test("WingoService.addAdminResult handles normal insert, forced update, and ER_D
   assert.equal(res2, true);
   assert.ok(executedSql.some((e) => e.sql.includes("UPDATE admin_winner_results SET number = ?") && e.params[0] === "3"));
 });
+
+test("POST /results and GET /game_history return game results without crashing or repeating single item", async () => {
+  const wingoController = require("../src/modules/wingo/wingo.controller");
+  const origPoolProvider = wingoController.service.poolProvider;
+  const mockResults = [
+    { id: 2, game_id: 1, games_no: "20261114002", number: 7, status: 1, json: '["Green"]', created_at: new Date() },
+    { id: 1, game_id: 1, games_no: "20261114001", number: 3, status: 1, json: '["Green"]', created_at: new Date() },
+  ];
+  wingoController.service.poolProvider = () => ({
+    async execute(sql) {
+      if (sql.includes("COUNT(*) AS total_result")) {
+        return [[{ total_result: mockResults.length }], []];
+      }
+      if (sql.includes("FROM bet_results")) {
+        return [mockResults, []];
+      }
+      return [[], []];
+    },
+  });
+
+  try {
+    const res1 = await testRoute("POST", "/results", {}, { game_id: 1, limit: 10 });
+    assert.equal(res1.statusCode, 200);
+    assert.equal(res1.body.status, 200);
+    assert.ok(Array.isArray(res1.body.data));
+    assert.equal(res1.body.data.length, 2);
+
+    const res2 = await testRoute("GET", "/game_history?game_id=1&limit=5");
+    assert.equal(res2.statusCode, 200);
+    assert.equal(res2.body.status, 200);
+    assert.ok(Array.isArray(res2.body.data));
+    assert.equal(res2.body.data.length, 2);
+  } finally {
+    wingoController.service.poolProvider = origPoolProvider;
+  }
+});

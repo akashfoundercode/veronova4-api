@@ -16,8 +16,40 @@ router.get(API_ROUTES.admin.wingoLiveGame, authenticate, requireAdmin, controlle
 router.get(API_ROUTES.wingo.fetchAdminSetResults, authenticate, requireAdmin, controller.fetchAdminSetResults);
 router.get(API_ROUTES.wingo.winAmount, authenticate.optional, controller.winAmount);
 router.get(API_ROUTES.wingo.results, controller.results);
+router.post(API_ROUTES.wingo.results, controller.results);
+router.get("/results", controller.results);
+router.post("/results", controller.results);
+router.get("/api/results", controller.results);
+router.post("/api/results", controller.results);
+
+router.get("/game_history", controller.results);
+router.post("/game_history", controller.results);
+router.get("/api/game_history", controller.results);
+router.post("/api/game_history", controller.results);
+
+router.get("/gamehistory", controller.results);
+router.post("/gamehistory", controller.results);
+router.get("/api/gamehistory", controller.results);
+router.post("/api/gamehistory", controller.results);
+
 router.get(API_ROUTES.wingo.lastFiveResult, controller.lastFiveResults);
+router.post(API_ROUTES.wingo.lastFiveResult, controller.lastFiveResults);
+router.get("/last_five_result", controller.lastFiveResults);
+router.post("/last_five_result", controller.lastFiveResults);
+router.get("/api/last_five_result", controller.lastFiveResults);
+router.post("/api/last_five_result", controller.lastFiveResults);
+
 router.get(API_ROUTES.wingo.lastResult, controller.lastResult);
+router.post(API_ROUTES.wingo.lastResult, controller.lastResult);
+router.get("/last_result", controller.lastResult);
+router.post("/last_result", controller.lastResult);
+router.get("/api/last_result", controller.lastResult);
+router.post("/api/last_result", controller.lastResult);
+
+router.post("/bet_history", authenticate.optional, controller.betHistory);
+router.get("/bet_history", authenticate.optional, controller.betHistory);
+router.post("/api/bet_history", authenticate.optional, controller.betHistory);
+router.get("/api/bet_history", authenticate.optional, controller.betHistory);
 router.get(API_ROUTES.wingo.getResults, controller.getResults);
 router.get(API_ROUTES.wingo.providerResult, controller.getResults);
 router.get(API_ROUTES.wingo.cron, controller.cron);

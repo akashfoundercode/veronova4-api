@@ -149,22 +149,26 @@ async function winAmount(req, res) {
 
 async function results(req, res) {
   try {
-    const game_id = validateGameId(req.query.game_id);
-    const limit = requiredInteger(req.query.limit, "limit");
-    const offset = req.query.offset === undefined ? 0 : requiredInteger(req.query.offset, "offset", { minimum: 0 });
-    if (!validDate(req.query.from_date) || !validDate(req.query.to_date)) {
-      return responseError(res, 400, "The from_date and to_date must be valid dates.");
+    const params = { ...(req.query || {}), ...(req.body || {}) };
+    const rawGameId = params.game_id ?? params.gameid ?? params.id ?? 1;
+    const game_id = validateGameId(rawGameId);
+    const limit = params.limit === undefined || params.limit === "" ? 10 : Number(params.limit);
+    const offset = params.offset === undefined || params.offset === "" ? 0 : Number(params.offset);
+    if (params.from_date && params.to_date) {
+      if (!validDate(params.from_date) || !validDate(params.to_date)) {
+        return responseError(res, 400, "The from_date and to_date must be valid dates.");
+      }
     }
-    if (req.query.status !== undefined && !Number.isInteger(Number(req.query.status))) {
+    if (params.status !== undefined && params.status !== "" && !Number.isInteger(Number(params.status))) {
       return responseError(res, 400, "The status must be an integer.");
     }
     const result = await serviceForGame(game_id).getResults({
       game_id,
       limit,
       offset,
-      from_date: req.query.from_date,
-      to_date: req.query.to_date,
-      status: req.query.status,
+      from_date: params.from_date,
+      to_date: params.to_date,
+      status: params.status,
     });
     return res.status(200).json({
       status: 200,
@@ -183,18 +187,22 @@ async function results(req, res) {
 
 async function lastFiveResults(req, res) {
   try {
-    const game_id = validateGameId(req.query.game_id);
-    const limit = requiredInteger(req.query.limit, "limit", { minimum: 0 });
-    const offset = req.query.offset === undefined ? 0 : requiredInteger(req.query.offset, "offset", { minimum: 0 });
-    if (!validDate(req.query.from_date) || !validDate(req.query.to_date)) {
-      return responseError(res, 400, "The from_date and to_date must be valid dates.");
+    const params = { ...(req.query || {}), ...(req.body || {}) };
+    const rawGameId = params.game_id ?? params.gameid ?? params.id ?? 1;
+    const game_id = validateGameId(rawGameId);
+    const limit = params.limit === undefined || params.limit === "" ? 5 : Number(params.limit);
+    const offset = params.offset === undefined || params.offset === "" ? 0 : Number(params.offset);
+    if (params.from_date && params.to_date) {
+      if (!validDate(params.from_date) || !validDate(params.to_date)) {
+        return responseError(res, 400, "The from_date and to_date must be valid dates.");
+      }
     }
     const data = await serviceForGame(game_id).getResults({
       game_id,
       limit,
       offset,
-      from_date: req.query.from_date,
-      to_date: req.query.to_date,
+      from_date: params.from_date,
+      to_date: params.to_date,
       includeAll: true,
     });
     return res.status(200).json({ status: 200, message: "Data found", data });
@@ -208,7 +216,9 @@ async function lastFiveResults(req, res) {
 
 async function lastResult(req, res) {
   try {
-    const game_id = validateGameId(req.query.game_id);
+    const params = { ...(req.query || {}), ...(req.body || {}) };
+    const rawGameId = params.game_id ?? params.gameid ?? params.id ?? 1;
+    const game_id = validateGameId(rawGameId);
     const data = await serviceForGame(game_id).getLastResult(game_id);
     return res.status(200).json({ status: 200, message: "Data found", data });
   } catch (error) {
@@ -221,8 +231,15 @@ async function lastResult(req, res) {
 
 async function betHistory(req, res) {
   try {
-    const body = req.body ?? {};
-    const rawUserId = body.userid !== undefined && body.userid !== "" ? body.userid : req.user?.id;
+    const body = { ...(req.query || {}), ...(req.body || {}) };
+    if (body.game_id && Number(body.game_id) === 19) {
+      const chickenController = require("../chicken/chicken.controller");
+      return chickenController.history(req, res);
+    }
+    const rawUserId = body.userid !== undefined && body.userid !== "" ? body.userid : (body.user_id !== undefined && body.user_id !== "" ? body.user_id : req.user?.id);
+    if (!rawUserId) {
+      return adminBetHistory(req, res);
+    }
     const userid = requiredInteger(rawUserId, "userid");
     const isAdmin = req.user && Number(req.user.id) === 1;
     if (req.user && !isAdmin && userid !== Number(req.user.id)) {
@@ -231,11 +248,14 @@ async function betHistory(req, res) {
         message: "The userid does not match the authenticated account.",
       });
     }
-    const game_id = validateGameId(body.game_id);
-    const limit = body.limit === undefined || body.limit === "" ? 10000 : requiredInteger(body.limit, "limit", { minimum: 0 });
-    const offset = body.offset === undefined || body.offset === "" ? 0 : requiredInteger(body.offset, "offset", { minimum: 0 });
-    if (!validDate(body.from_date) || !validDate(body.to_date)) {
-      return responseError(res, 400, "The from_date and to_date must be valid dates.");
+    const rawGameId = body.game_id ?? body.gameid ?? 1;
+    const game_id = validateGameId(rawGameId);
+    const limit = body.limit === undefined || body.limit === "" ? 10000 : Number(body.limit);
+    const offset = body.offset === undefined || body.offset === "" ? 0 : Number(body.offset);
+    if (body.from_date && body.to_date) {
+      if (!validDate(body.from_date) || !validDate(body.to_date)) {
+        return responseError(res, 400, "The from_date and to_date must be valid dates.");
+      }
     }
     const { rows, totalBets } = await serviceForGame(game_id).getBetHistory({
       userid,
@@ -311,7 +331,7 @@ async function autoWingoResultInsert(req, res) {
     const body = { ...(req.query || {}), ...(req.body || {}) };
     const rawGameId = body.gameid ?? body.game_id ?? body.gameId ?? body.id;
     const gameId = Number(rawGameId);
-    const period = String(body.period_num ?? body.game_no ?? body.gamesno ?? body.period ?? "").trim();
+    let period = String(body.period_num ?? body.game_no ?? body.gamesno ?? body.period ?? "").trim();
     const rawNumber = body.card_number ?? body.number ?? body.result ?? body.win_number;
     const resultNumber = Number(rawNumber);
     const isDragonTiger = gameId === DRAGON_TIGER_GAME_ID;
@@ -324,6 +344,19 @@ async function autoWingoResultInsert(req, res) {
       (isDragonTiger || isSevenUpDown || isRedBlack
         ? resultNumber <= (isRedBlack ? 7 : 3)
         : !WINGO_GAME_IDS.includes(gameId) || resultNumber <= 9);
+
+    if (!period && validStandardGame) {
+      try {
+        const [rows] = await service.poolProvider().execute(
+          "SELECT games_no FROM betlogs WHERE game_id = ? ORDER BY id DESC LIMIT 1",
+          [gameId],
+        );
+        if (rows.length > 0 && rows[0]?.games_no) {
+          period = String(rows[0].games_no);
+        }
+      } catch (_) {}
+    }
+
     if (
       !period ||
       !validStandardGame ||
@@ -453,9 +486,21 @@ async function colourPredictionStore(req, res) {
     const body = { ...(req.query || {}), ...(req.body || {}) };
     const rawGameId = body.game_id ?? body.gameid ?? body.gameId ?? body.id;
     const gameId = Number(rawGameId);
-    const gamesno = String(body.game_no ?? body.gamesno ?? body.period_num ?? body.period ?? "").trim();
+    let gamesno = String(body.game_no ?? body.gamesno ?? body.period_num ?? body.period ?? "").trim();
     const rawNumber = body.number ?? body.card_number ?? body.result ?? body.win_number;
     const number = Number(rawNumber);
+
+    if (!gamesno && STANDARD_GAME_IDS.includes(gameId)) {
+      try {
+        const [rows] = await service.poolProvider().execute(
+          "SELECT games_no FROM betlogs WHERE game_id = ? ORDER BY id DESC LIMIT 1",
+          [gameId],
+        );
+        if (rows.length > 0 && rows[0]?.games_no) {
+          gamesno = String(rows[0].games_no);
+        }
+      } catch (_) {}
+    }
 
     if (
       !gamesno ||
@@ -506,5 +551,6 @@ module.exports = {
   livePools,
   adminBetHistory,
   results,
+  service,
   winAmount,
 };
