@@ -137,6 +137,40 @@ router.post(API_ROUTES.admin.giftItem, authenticate, requireAdmin, controller.sa
 router.delete(API_ROUTES.admin.giftItem, authenticate, requireAdmin, controller.saveGift);
 router.get(API_ROUTES.admin.giftHistory, authenticate, requireAdmin, controller.getGifts);
 
+// Gift Legacy Aliases (Laravel /gift-index, /gift-store, /giftredeemed, etc.)
+router.get("/admin/gift-redeemed", authenticate.optional, controller.getGiftRedeemedList);
+router.get("/giftredeemed", authenticate.optional, controller.getGiftRedeemedList);
+router.get("/gift_redeemed", authenticate.optional, controller.getGiftRedeemedList);
+router.get("/gift-redeemed", authenticate.optional, controller.getGiftRedeemedList);
+router.get("/gift-index", authenticate.optional, controller.getGifts);
+router.get("/gift_index", authenticate.optional, controller.getGifts);
+router.post("/gift-store", authenticate.optional, controller.saveGift);
+router.post("/gift_store", authenticate.optional, controller.saveGift);
+router.get("/delete-gift/:id", authenticate.optional, (req, res, next) => {
+  req.body = { ...req.body, id: req.params.id, action: "delete" };
+  return controller.saveGift(req, res, next);
+});
+router.post("/delete-gift/:id", authenticate.optional, (req, res, next) => {
+  req.body = { ...req.body, id: req.params.id, action: "delete" };
+  return controller.saveGift(req, res, next);
+});
+router.get("/delete-gift-:id", authenticate.optional, (req, res, next) => {
+  req.body = { ...req.body, id: req.params.id, action: "delete" };
+  return controller.saveGift(req, res, next);
+});
+router.post("/gift.update/:id", authenticate.optional, (req, res, next) => {
+  req.body = { ...req.body, id: req.params.id };
+  return controller.saveGift(req, res, next);
+});
+router.post("/gift-update-:id", authenticate.optional, (req, res, next) => {
+  req.body = { ...req.body, id: req.params.id };
+  return controller.saveGift(req, res, next);
+});
+router.post("/gift/update/:id", authenticate.optional, (req, res, next) => {
+  req.body = { ...req.body, id: req.params.id };
+  return controller.saveGift(req, res, next);
+});
+
 // Activity & Banner Management (Unified GET for List & Single, POST/PUT/PATCH for Add & Edit, DELETE for Delete)
 router.get(API_ROUTES.admin.banners, authenticate, requireAdmin, controller.getBanners);
 router.post(API_ROUTES.admin.banners, authenticate, requireAdmin, uploadBannerImage, controller.saveBanner);

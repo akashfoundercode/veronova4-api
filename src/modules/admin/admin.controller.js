@@ -563,6 +563,29 @@ async function saveGift(req, res) {
   }
 }
 
+async function getGiftRedeemedList(req, res) {
+  try {
+    const query = {
+      ...req.query,
+      userid: req.query?.userid ?? req.query?.user_id,
+      code: req.query?.code ?? req.query?.gift_code,
+    };
+    const result = await service.getGiftRedeemedList(query);
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
 function getBaseUrl(req) {
   const fallback = process.env.BASE_URL || "https://api.wingo4all.site";
   if (!req) return fallback;
@@ -1219,6 +1242,7 @@ module.exports = {
   deleteFeedback,
   getFundTransferHistory,
   getGifts,
+  getGiftRedeemedList,
   getLoginHistory,
   getMlmLevels,
   getOffers,

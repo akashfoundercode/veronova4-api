@@ -17,8 +17,19 @@ async function run(res, action) {
 }
 
 module.exports = {
-  giftRedeemList: (req, res) => run(res, () => service.giftRedeemList(req.query.userid ?? req.query.user_id)),
-  applyGift: (req, res) => run(res, () => service.applyGift(req.body ?? {})),
+  giftRedeemList: (req, res) => run(res, () => {
+    const userId = req.user?.id ?? req.query?.userid ?? req.query?.user_id ?? req.body?.userid ?? req.body?.user_id;
+    return service.giftRedeemList(userId);
+  }),
+  applyGift: (req, res) => run(res, () => {
+    const payload = {
+      ...req.query,
+      ...req.body,
+      userid: req.user?.id ?? req.body?.userid ?? req.body?.user_id ?? req.query?.userid ?? req.query?.user_id,
+      code: req.body?.code ?? req.body?.gift_code ?? req.query?.code ?? req.query?.gift_code,
+    };
+    return service.applyGift(payload);
+  }),
   totalBetDetails: (req, res) => run(res, () => service.totalBetDetails(req.query)),
   beginnerGuide: (req, res) => run(res, () => {
     let host = null;
@@ -43,4 +54,5 @@ module.exports = {
     const userId = req.user?.id ?? req.query?.userid ?? req.query?.user_id ?? req.body?.userid ?? req.body?.user_id;
     return service.getFeedback({ userid: userId });
   }),
+  service,
 };

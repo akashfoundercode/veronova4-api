@@ -626,6 +626,19 @@ async function ensureGiftCartTable(pool) {
         datetime TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await pool.execute(`
+      CREATE TABLE IF NOT EXISTS gift_claim (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        userid BIGINT UNSIGNED NOT NULL,
+        gift_code VARCHAR(111) NOT NULL,
+        amount DECIMAL(20, 4) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        datetime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_gift_claim_user (userid),
+        INDEX idx_gift_claim_code (gift_code),
+        INDEX idx_gift_claim_created (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
     try {
       await pool.execute("ALTER TABLE gift_cart ADD COLUMN campaign_tag VARCHAR(100) DEFAULT NULL");
     } catch {
@@ -4544,6 +4557,71 @@ class AdminService {
       success: true,
       message: "Gift added successfully",
       data: formatGift(newRow[0]),
+    };
+  }
+
+  async getGiftRedeemedList(query = {}) {
+    const pool = this.poolProvider();
+    await ensureGiftCartTable(pool);
+
+    const conditions = [];
+    const params = [];
+
+    if (query.userid || query.user_id) {
+      conditions.push("gc.userid = ?");
+      params.push(Number(query.userid || query.user_id));
+    }
+
+    if (query.code || query.gift_code) {
+      conditions.push("gc.gift_code = ?");
+      params.push(String(query.code || query.gift_code).trim());
+    }
+
+    if (query.search && String(query.search).trim() !== "") {
+      const term = `%${String(query.search).trim()}%`;
+      conditions.push("(gc.gift_code LIKE ? OR u.username LIKE ? OR u.mobile LIKE ?)");
+      params.push(term, term, term);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+    let offset = 0;
+    let page = 1;
+
+    if (query.offset !== undefined) {
+      offset = Math.max(0, parseInt(query.offset, 10) || 0);
+      page = Math.floor(offset / limit) + 1;
+    } else if (query.page !== undefined) {
+      page = Math.max(1, parseInt(query.page, 10) || 1);
+      offset = (page - 1) * limit;
+    }
+
+    const [countRows] = await pool.execute(
+      `SELECT COUNT(*) AS total FROM gift_claim gc LEFT JOIN users u ON gc.userid = u.id ${whereClause}`,
+      params,
+    );
+    const total = Number(countRows[0]?.total || 0);
+
+    const [rows] = await pool.execute(
+      `SELECT gc.*, u.username, u.username AS uname, u.mobile, u.u_id
+       FROM gift_claim gc
+       LEFT JOIN users u ON gc.userid = u.id
+       ${whereClause}
+       ORDER BY gc.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+
+    return {
+      status: 200,
+      message: "Redeemed gifts fetched successfully",
+      data: rows,
+      gifts: rows,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
     };
   }
 

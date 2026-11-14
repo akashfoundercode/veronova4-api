@@ -44,8 +44,26 @@ function createMockPool() {
     async execute(sql, params) {
       calls.push({ sql, params });
 
-      if (sql.includes("CREATE TABLE IF NOT EXISTS gift_cart") || sql.includes("ALTER TABLE gift_cart")) {
+      if (sql.includes("CREATE TABLE IF NOT EXISTS gift_cart") || sql.includes("ALTER TABLE gift_cart") || sql.includes("CREATE TABLE IF NOT EXISTS gift_claim") || sql.includes("ALTER TABLE gift_claim")) {
         return [{ affectedRows: 0 }, []];
+      }
+
+      if (sql.includes("COUNT(*) AS total FROM gift_claim")) {
+        return [[{ total: 1 }], []];
+      }
+
+      if (sql.includes("FROM gift_claim gc")) {
+        return [[{
+          id: 1,
+          userid: 10,
+          gift_code: "112776372300489",
+          amount: 200,
+          created_at: new Date("2026-10-15T09:00:00.000Z"),
+          username: "Player1",
+          uname: "Player1",
+          mobile: "9876543210",
+          u_id: "UID1001",
+        }], []];
       }
 
       if (sql.includes("COUNT(*) AS total_gifts")) {
@@ -323,5 +341,14 @@ test("Controller getGifts and saveGift handle requests with standard envelopes",
   assert.equal(resStatus, 200);
   assert.equal(resJson.status, 200);
   assert.equal(resJson.message, "Gift deleted successfully");
+
+  // 5. GET redeemed list
+  await controller.getGiftRedeemedList({ query: { limit: 10 } }, mockRes);
+  assert.equal(resStatus, 200);
+  assert.equal(resJson.status, 200);
+  assert.equal(resJson.message, "Redeemed gifts fetched successfully");
+  assert.equal(resJson.total, 1);
+  assert.equal(resJson.data[0].gift_code, "112776372300489");
+  assert.equal(resJson.data[0].username, "Player1");
 });
 
