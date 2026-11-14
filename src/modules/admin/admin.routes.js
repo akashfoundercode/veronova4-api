@@ -119,6 +119,16 @@ router.post(API_ROUTES.admin.offerItem, authenticate, requireAdmin, controller.s
 router.delete(API_ROUTES.admin.offerItem, authenticate, requireAdmin, controller.saveOffer);
 router.delete(API_ROUTES.admin.offers, authenticate, requireAdmin, controller.saveOffer);
 
+// Offer Legacy Aliases (Laravel /offer, /offer/edit, /offer/update)
+router.get("/admin/offer", authenticate.optional, controller.getOffers);
+router.post("/admin/offer", authenticate.optional, controller.saveOffer);
+router.get("/offer", authenticate.optional, controller.getOffers);
+router.post("/offer", authenticate.optional, controller.saveOffer);
+router.get("/offer/edit/:id", authenticate.optional, controller.getOffers);
+router.put("/offer/update/:id", authenticate.optional, controller.saveOffer);
+router.post("/offer/update/:id", authenticate.optional, controller.saveOffer);
+router.post("/offer-update-:id", authenticate.optional, controller.saveOffer);
+
 // Gift History & Management (Unified GET for List & Single, POST for Add, Edit/Update & Delete)
 router.get(API_ROUTES.admin.gifts, authenticate, requireAdmin, controller.getGifts);
 router.post(API_ROUTES.admin.gifts, authenticate, requireAdmin, controller.saveGift);
