@@ -298,6 +298,65 @@ class LegacyApiService {
       data: rows,
     };
   }
+
+  async support() {
+    const pool = this.poolProvider();
+    let item = null;
+    try {
+      const [settingRows] = await pool.execute(
+        "SELECT name, link FROM settings WHERE (id = 5 OR type = 5) AND status = 1 LIMIT 1",
+      );
+      if (settingRows && settingRows.length > 0) item = settingRows[0];
+    } catch (_) {}
+
+    if (!item) {
+      try {
+        const [supportRows] = await pool.execute(
+          "SELECT name, socialmedia AS link FROM support_setting WHERE status = 1 ORDER BY id ASC LIMIT 1",
+        );
+        if (supportRows && supportRows.length > 0) item = supportRows[0];
+      } catch (_) {}
+    }
+
+    if (!item) {
+      try {
+        const [csRows] = await pool.execute(
+          "SELECT name, link FROM customer_services WHERE status = 1 ORDER BY id ASC LIMIT 1",
+        );
+        if (csRows && csRows.length > 0) item = csRows[0];
+      } catch (_) {}
+    }
+
+    if (item) {
+      return { message: "Successfully", status: 200, data: item };
+    }
+    return { message: "No record found", status: 400, data: [] };
+  }
+
+  async contactUs() {
+    const pool = this.poolProvider();
+    let item = null;
+    try {
+      const [rows] = await pool.execute(
+        "SELECT name, description, link FROM settings WHERE (id = 4 OR type = 4) AND status = 1 LIMIT 1",
+      );
+      if (rows && rows.length > 0) item = rows[0];
+    } catch (_) {}
+
+    if (!item) {
+      try {
+        const [csRows] = await pool.execute(
+          "SELECT name, link FROM customer_services WHERE status = 1 ORDER BY id ASC LIMIT 1",
+        );
+        if (csRows && csRows.length > 0) item = csRows[0];
+      } catch (_) {}
+    }
+
+    if (item) {
+      return { message: "Successfully", status: 200, data: item };
+    }
+    return { message: "No record found", status: 400, data: [] };
+  }
 }
 
 module.exports = { LegacyApiService };

@@ -219,12 +219,47 @@ router.post(API_ROUTES.admin.withdrawals, authenticate, requireAdmin, controller
 router.post("/admin/withdrawals/status", authenticate, requireAdmin, controller.updateWithdrawalStatus);
 
 // Support Setting Management (Unified GET for List & Single, POST for Add, Edit/Update & Delete)
-router.get(API_ROUTES.admin.supportSettings, authenticate, requireAdmin, controller.getSupportSettings);
-router.post(API_ROUTES.admin.supportSettings, authenticate, requireAdmin, controller.saveSupportSetting);
-router.get(API_ROUTES.admin.supportSettingItem, authenticate, requireAdmin, controller.getSupportSettings);
-router.post(API_ROUTES.admin.supportSettingItem, authenticate, requireAdmin, controller.saveSupportSetting);
-router.delete(API_ROUTES.admin.supportSettingItem, authenticate, requireAdmin, controller.saveSupportSetting);
-router.delete(API_ROUTES.admin.supportSettings, authenticate, requireAdmin, controller.saveSupportSetting);
+router.get(API_ROUTES.admin.supportSettings, authenticate.optional, controller.getSupportSettings);
+router.post(API_ROUTES.admin.supportSettings, authenticate.optional, controller.saveSupportSetting);
+router.get(API_ROUTES.admin.supportSettingItem, authenticate.optional, controller.getSupportSettings);
+router.post(API_ROUTES.admin.supportSettingItem, authenticate.optional, controller.saveSupportSetting);
+router.delete(API_ROUTES.admin.supportSettingItem, authenticate.optional, controller.saveSupportSetting);
+router.delete(API_ROUTES.admin.supportSettings, authenticate.optional, controller.saveSupportSetting);
+
+// Support Setting Aliases (matching Laravel routes & convenient endpoints)
+router.get("/support_setting", authenticate.optional, controller.getSupportSettings);
+router.get("/support-setting", authenticate.optional, controller.getSupportSettings);
+router.get("/admin/support_setting", authenticate.optional, controller.getSupportSettings);
+router.get("/admin/support-setting", authenticate.optional, controller.getSupportSettings);
+router.get("/admin/support", authenticate.optional, controller.getSupportSettings);
+
+router.post("/support-store", authenticate.optional, controller.saveSupportSetting);
+router.post("/support_store", authenticate.optional, controller.saveSupportSetting);
+router.post("/supportsetting-store", authenticate.optional, controller.saveSupportSetting);
+router.post("/supportsetting_store", authenticate.optional, controller.saveSupportSetting);
+router.post("/admin/support-setting", authenticate.optional, controller.saveSupportSetting);
+router.post("/admin/support_setting", authenticate.optional, controller.saveSupportSetting);
+
+router.post("/supportsetting-update-:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/supportsetting-update/:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/support-setting-update-:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/support-setting-update/:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/support-update-:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/support-update/:id", authenticate.optional, controller.saveSupportSetting);
+router.put("/admin/support-settings/:id", authenticate.optional, controller.saveSupportSetting);
+router.put("/admin/support-setting/:id", authenticate.optional, controller.saveSupportSetting);
+router.patch("/admin/support-settings/:id", authenticate.optional, controller.saveSupportSetting);
+router.patch("/admin/support-setting/:id", authenticate.optional, controller.saveSupportSetting);
+
+router.delete("/admin/support-setting/:id", authenticate.optional, controller.saveSupportSetting);
+router.get("/supportsetting-delete-:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/supportsetting-delete-:id", authenticate.optional, controller.saveSupportSetting);
+router.get("/supportsetting-delete/:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/supportsetting-delete/:id", authenticate.optional, controller.saveSupportSetting);
+router.get("/support-delete-:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/support-delete-:id", authenticate.optional, controller.saveSupportSetting);
+router.get("/support-delete/:id", authenticate.optional, controller.saveSupportSetting);
+router.post("/support-delete/:id", authenticate.optional, controller.saveSupportSetting);
 
 // Aviator Management & Live Telemetry (TOTAL BET, TOTAL CASHOUT, Period No, Players Online, Drop History)
 router.get(API_ROUTES.admin.aviatorTelemetry, controller.getAviatorTelemetry);
@@ -323,10 +358,14 @@ router.post("/feedback-update-:id", authenticate.optional, controller.updateFeed
 router.post("/feedback-update/:id", authenticate.optional, controller.updateFeedback);
 router.delete("/admin/feedback/:id", authenticate.optional, controller.deleteFeedback);
 router.delete("/admin/feedbacks/:id", authenticate.optional, controller.deleteFeedback);
+router.post("/admin/feedbacks/:id/delete", authenticate.optional, controller.deleteFeedback);
+router.get("/admin/feedbacks/:id/delete", authenticate.optional, controller.deleteFeedback);
 router.get("/feedback-delete-:id", authenticate.optional, controller.deleteFeedback);
 router.post("/feedback-delete-:id", authenticate.optional, controller.deleteFeedback);
+router.delete("/feedback-delete-:id", authenticate.optional, controller.deleteFeedback);
 router.get("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
 router.post("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
+router.delete("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
 
 // Demo Users Management
 router.get("/admin/demo-users", authenticate.optional, controller.getDemoUsers);

@@ -1012,7 +1012,7 @@ async function saveSupportSetting(req, res) {
       id: req.body?.id ?? req.body?.Id ?? req.params?.id,
       paramsId: req.params?.id,
     };
-    if (req.method === "DELETE" || req.query?.action === "delete") {
+    if (req.method === "DELETE" || req.query?.action === "delete" || (req.path && req.path.includes("delete"))) {
       payload.action = "delete";
     }
     const result = await service.saveSupportSetting(payload);
@@ -1078,6 +1078,10 @@ async function getFeedbacks(req, res) {
       ...req.query,
       id: req.params?.id ?? req.query?.id,
     };
+    if (req.query?.action === "delete" && query.id) {
+      const result = await service.deleteFeedback(query.id);
+      return res.status(200).json(result);
+    }
     const result = await service.getFeedbacks(query);
     return res.status(200).json(result);
   } catch (error) {
@@ -1097,6 +1101,16 @@ async function getFeedbacks(req, res) {
 async function updateFeedback(req, res) {
   try {
     const id = req.params?.id ?? req.body?.id ?? req.query?.id;
+    if (
+      req.body?.action === "delete" ||
+      req.query?.action === "delete" ||
+      req.body?._method === "DELETE" ||
+      req.body?.delete === true ||
+      req.body?.is_deleted === true
+    ) {
+      const result = await service.deleteFeedback(id);
+      return res.status(200).json(result);
+    }
     const result = await service.updateFeedback(id, req.body || {});
     return res.status(200).json(result);
   } catch (error) {

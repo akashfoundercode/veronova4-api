@@ -54,5 +54,7 @@ module.exports = {
     const userId = req.user?.id ?? req.query?.userid ?? req.query?.user_id ?? req.body?.userid ?? req.body?.user_id;
     return service.getFeedback({ userid: userId });
   }),
+  support: (_req, res) => run(res, () => service.support()),
+  contactUs: (_req, res) => run(res, () => service.contactUs()),
   service,
 };

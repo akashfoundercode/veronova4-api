@@ -5880,6 +5880,10 @@ class AdminService {
         [targetId],
       );
 
+      try {
+        await pool.execute("UPDATE customer_services SET status = 0 WHERE id = ?", [targetId]);
+      } catch (_) {}
+
       return {
         success: true,
         message: "Support setting deleted successfully",
@@ -5917,6 +5921,13 @@ class AdminService {
         [name, socialMedia, status, targetId],
       );
 
+      try {
+        await pool.execute(
+          "UPDATE customer_services SET name = ?, link = ?, status = ? WHERE id = ?",
+          [name, socialMedia, status, targetId],
+        );
+      } catch (_) {}
+
       const [updatedRows] = await pool.execute(
         "SELECT * FROM support_setting WHERE id = ? LIMIT 1",
         [targetId],
@@ -5950,6 +5961,13 @@ class AdminService {
        ) VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
       [name, socialMedia, status],
     );
+
+    try {
+      await pool.execute(
+        "INSERT INTO customer_services (name, link, status, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())",
+        [name, socialMedia, status],
+      );
+    } catch (_) {}
 
     const [newRow] = await pool.execute(
       "SELECT * FROM support_setting WHERE id = ? LIMIT 1",

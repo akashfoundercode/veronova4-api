@@ -24,5 +24,8 @@ router.get("/about_us", controller.aboutUs);
 router.get("/announcement", controller.announcements);
 router.post("/feedback", controller.feedback);
 router.get("/feedback", controller.getFeedback);
+router.get("/support", controller.support);
+router.get("/contact_us", controller.contactUs);
+router.get("/contact-us", controller.contactUs);
 
 module.exports = router;

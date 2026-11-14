@@ -10,6 +10,8 @@ const router = express.Router();
 
 // 1. GET /api/customer_service (public contact options)
 router.get("/customer_service", controller.customerServices);
+router.get("/customer-service", controller.customerServices);
+router.get("/customer_services", controller.customerServices);
 
 // User support requests - require authenticated session
 // 2. POST /api/ifsc_modification
