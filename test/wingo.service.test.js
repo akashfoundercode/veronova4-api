@@ -483,3 +483,22 @@ test("wingo strictly increments round number from last bet_results entry (e.g. .
   );
   assert.equal(updateBetlogs.params[0], "20250822213539");
 });
+
+test("chooseWinningNumber for Wingo with single or 0-only logNumbers spans 0 to 9", () => {
+  const resultLow = chooseWinningNumber(
+    { logNumbers: [0], totalBet: 0, amountRows: [], gameId: 1 },
+    () => 0,
+  );
+  const resultMid = chooseWinningNumber(
+    { logNumbers: [0], totalBet: 0, amountRows: [], gameId: 1 },
+    () => 0.5,
+  );
+  const resultHigh = chooseWinningNumber(
+    { logNumbers: [0], totalBet: 0, amountRows: [], gameId: 1 },
+    () => 0.99,
+  );
+
+  assert.equal(resultLow, 0);
+  assert.equal(resultMid, 5);
+  assert.equal(resultHigh, 9);
+});

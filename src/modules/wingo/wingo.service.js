@@ -32,16 +32,27 @@ function randomInteger(min, max, random = Math.random) {
 }
 
 function chooseWinningNumber(
-  { logNumbers, totalBet, amountRows },
+  { logNumbers = [], totalBet = 0, amountRows = [], gameId },
   random = Math.random,
 ) {
-  if (logNumbers.length === 0) {
-    throw new AppError(409, "ROUND_NOT_FOUND", "No current game number found");
+  const isWingo = WINGO_GAME_IDS.includes(Number(gameId));
+  let candidateNumbers = logNumbers.map(Number);
+  if (
+    candidateNumbers.length === 0 ||
+    (isWingo && candidateNumbers.length < 10) ||
+    (candidateNumbers.length === 1 && candidateNumbers[0] === 0)
+  ) {
+    candidateNumbers =
+      isWingo || candidateNumbers.length === 0
+        ? [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        : candidateNumbers;
   }
 
-  if (Number(totalBet) === 0) {
-    const numbers = logNumbers.map(Number);
-    return randomInteger(Math.min(...numbers), Math.max(...numbers), random);
+  const min = Math.min(...candidateNumbers);
+  const max = Math.max(...candidateNumbers);
+
+  if (Number(totalBet) === 0 || amountRows.length === 0) {
+    return randomInteger(min, max, random);
   }
 
   const amounts = new Map(
@@ -50,10 +61,8 @@ function chooseWinningNumber(
       Number(total_amt),
     ]),
   );
-  const min = Math.min(...logNumbers.map(Number));
-  const max = Math.max(...logNumbers.map(Number));
-  const noBetNumbers = [];
 
+  const noBetNumbers = [];
   for (let number = min; number <= max; number += 1) {
     if (!amounts.has(number) || amounts.get(number) === 0) {
       noBetNumbers.push(number);
@@ -65,11 +74,7 @@ function chooseWinningNumber(
   }
 
   if (amounts.size === 0) {
-    throw new AppError(
-      409,
-      "ROUND_BETS_NOT_FOUND",
-      "Bet totals were not found for the current round",
-    );
+    return randomInteger(min, max, random);
   }
 
   const minAmount = Math.min(...amounts.values());
@@ -453,6 +458,27 @@ class WingoService {
         );
         logs = seeded;
       }
+
+      if (WINGO_GAME_IDS.includes(Number(gameId)) && logs.length < 10) {
+        const existingNumbers = new Set(logs.map((l) => Number(l.number)));
+        const currentGameNo = logs[0]?.games_no || formatPeriod(new Date(), gameId);
+        for (let num = 0; num <= 9; num += 1) {
+          if (!existingNumbers.has(num)) {
+            try {
+              await connection.execute(
+                "INSERT INTO betlogs (game_id, games_no, number, amount) VALUES (?, ?, ?, 0.00)",
+                [gameId, currentGameNo, String(num)],
+              );
+            } catch (_) {}
+          }
+        }
+        const [reloaded] = await connection.execute(
+          "SELECT id, games_no, number, amount FROM betlogs WHERE game_id = ? ORDER BY id FOR UPDATE",
+          [gameId],
+        );
+        logs = reloaded;
+      }
+
       if (logs.length === 0) {
         throw new AppError(
           409,
@@ -511,6 +537,7 @@ class WingoService {
             logNumbers: logs.map(({ number }) => number),
             totalBet: totalAmount,
             amountRows,
+            gameId,
           },
         );
       }
@@ -737,14 +764,12 @@ class WingoService {
       );
 
       // Consume the admin winner result so it applies ONLY ONCE for this round and NEVER continues
-      if (adminResults.length > 0) {
-        try {
-          await connection.execute(
-            "UPDATE admin_winner_results SET status = '0' WHERE gamesno = ? AND gameId = ?",
-            [gameNo, gameId],
-          );
-        } catch (_) {}
-      }
+      try {
+        await connection.execute(
+          "UPDATE admin_winner_results SET status = '0' WHERE gameId = ? AND (status = '1' OR status = 1) AND (gamesno = ? OR gamesno <= ?)",
+          [gameId, gameNo, gameNo],
+        );
+      } catch (_) {}
 
       await connection.commit();
       transactionStarted = false;
