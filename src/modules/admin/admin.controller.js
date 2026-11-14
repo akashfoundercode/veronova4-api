@@ -1109,8 +1109,103 @@ async function deleteFeedback(req, res) {
   }
 }
 
+async function createDemoUser(req, res) {
+  try {
+    const payload = {
+      ...req.query,
+      ...req.body,
+    };
+    const result = await service.createDemoUser(payload);
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
+async function getDemoUsers(req, res) {
+  try {
+    const query = {
+      ...req.query,
+      id: req.params?.id ?? req.query?.id,
+    };
+    const result = await service.getDemoUsers(query);
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
+async function updateDemoUserWallet(req, res) {
+  try {
+    const id = req.params?.id ?? req.body?.id ?? req.query?.id;
+    const payload = {
+      ...req.query,
+      ...req.body,
+    };
+    // Infer action from route URL if not explicitly specified
+    if (!payload.action) {
+      if (req.originalUrl?.includes("subtract")) payload.action = "subtract";
+      else payload.action = "add";
+    }
+    const result = await service.updateDemoUserWallet(id, payload);
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
+async function updateDemoUser(req, res) {
+  try {
+    const id = req.params?.id ?? req.body?.id ?? req.query?.id;
+    const result = await service.updateDemoUser(id, req.body || {});
+    return res.status(result.status || 200).json(result);
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.statusCode,
+        message: error.message,
+      });
+    }
+    return res.status(500).json({
+      status: 500,
+      message: error.message || "Internal server error",
+    });
+  }
+}
+
 module.exports = {
   addPlayer,
+  createDemoUser,
+  getDemoUsers,
+  updateDemoUserWallet,
+  updateDemoUser,
   dashboard,
   dashboardCounts,
   getAttendance,

@@ -284,4 +284,36 @@ router.post("/feedback-delete-:id", authenticate.optional, controller.deleteFeed
 router.get("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
 router.post("/feedback-delete/:id", authenticate.optional, controller.deleteFeedback);
 
+// Demo Users Management
+router.get("/admin/demo-users", authenticate.optional, controller.getDemoUsers);
+router.post("/admin/demo-users", authenticate.optional, controller.createDemoUser);
+router.get("/admin/demo-users/:id", authenticate.optional, controller.getDemoUsers);
+router.put("/admin/demo-users/:id", authenticate.optional, controller.updateDemoUser);
+router.post("/admin/demo-users/:id", authenticate.optional, controller.updateDemoUser);
+router.patch("/admin/demo-users/:id", authenticate.optional, controller.updateDemoUser);
+
+// Demo user aliases & legacy routes (matching Laravel /system_user etc.)
+router.get("/admin/demo_users", authenticate.optional, controller.getDemoUsers);
+router.post("/admin/demo_users", authenticate.optional, controller.createDemoUser);
+router.get("/admin/demo_user", authenticate.optional, controller.getDemoUsers);
+router.post("/admin/demo_user", authenticate.optional, controller.createDemoUser);
+router.get("/system_user", authenticate.optional, controller.getDemoUsers);
+router.post("/system_user", authenticate.optional, controller.createDemoUser);
+router.post("/demo-user/create", authenticate.optional, controller.createDemoUser);
+router.get("/demo-users", authenticate.optional, controller.getDemoUsers);
+router.post("/demo-users", authenticate.optional, controller.createDemoUser);
+router.get("/demo_users", authenticate.optional, controller.getDemoUsers);
+router.post("/demo_users", authenticate.optional, controller.createDemoUser);
+router.post("/demo_user", authenticate.optional, controller.createDemoUser);
+router.get("/demo_user", authenticate.optional, controller.getDemoUsers);
+
+// Demo user wallet management (Add & Subtract funds)
+router.post("/admin/demo-users/:id/wallet", authenticate.optional, controller.updateDemoUserWallet);
+router.post("/admin/demo-users/:id/wallet/add", authenticate.optional, controller.updateDemoUserWallet);
+router.post("/admin/demo-users/:id/wallet/subtract", authenticate.optional, controller.updateDemoUserWallet);
+router.post("/wallet/store/:id", authenticate.optional, controller.updateDemoUserWallet);
+router.post("/wallet-store-:id", authenticate.optional, controller.updateDemoUserWallet);
+router.post("/wallet/subtract/:id", authenticate.optional, controller.updateDemoUserWallet);
+router.post("/wallet-subtract-:id", authenticate.optional, controller.updateDemoUserWallet);
+
 module.exports = router;

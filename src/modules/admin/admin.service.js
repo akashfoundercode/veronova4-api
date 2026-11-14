@@ -2316,6 +2316,332 @@ class AdminService {
     return this.addPlayer(data);
   }
 
+  async createDemoUser(data = {}) {
+    let mobile = data.mobile ?? data.mobile_no ?? data.phone;
+    let email = data.email;
+    let password = data.password;
+    let username = data.username;
+    const initialWallet = Math.max(0, Number(data.wallet ?? data.amount ?? 0));
+    const country_code = String(data.country_code ?? "91").trim();
+
+    if (!mobile || String(mobile).trim() === "") {
+      const randomDigits = `${Math.floor(100000000 + Math.random() * 900000000)}`;
+      mobile = `9${randomDigits.slice(1)}`;
+    }
+    if (!password || String(password).trim() === "") {
+      password = `Pass${Math.floor(1000 + Math.random() * 9000)}`;
+    } else if (String(password).trim().length < 6) {
+      throw new AppError(400, "VALIDATION_ERROR", "Password must be at least 6 characters.");
+    }
+
+    const normalizedMobile = String(mobile).trim();
+    const normalizedEmail = email && String(email).trim() !== ""
+      ? String(email).trim().toLowerCase()
+      : `demo_${normalizedMobile.slice(-6)}@veronova.com`;
+
+    const pool = this.poolProvider();
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const [existingUsers] = await connection.execute(
+        "SELECT id, mobile, email FROM users WHERE mobile = ? OR (email IS NOT NULL AND email = ?) LIMIT 1",
+        [normalizedMobile, normalizedEmail],
+      );
+
+      if (existingUsers.length > 0) {
+        const emailConflict = existingUsers[0].email === normalizedEmail;
+        throw new AppError(
+          409,
+          "DUPLICATE_USER",
+          emailConflict ? "This email is already registered." : "This mobile number is already registered.",
+        );
+      }
+
+      let referralUserId = 1;
+      if (data.referral_code) {
+        const [referrers] = await connection.execute(
+          "SELECT id FROM users WHERE referral_code = ? LIMIT 1",
+          [data.referral_code],
+        );
+        if (referrers.length > 0) {
+          referralUserId = referrers[0].id;
+        }
+      }
+
+      const userIdCode = await findAvailableUserId(connection);
+      const demoUsername = username && String(username).trim() !== ""
+        ? String(username).trim()
+        : `User_${randomCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 5)}`;
+      const newReferralCode = await findAvailableReferralCode(connection);
+      const userImage = new URL("/uploads/profileimage/1.png", config.appUrl).toString();
+
+      let passwordToStore = password;
+      try {
+        passwordToStore = await bcrypt.hash(password, 10);
+      } catch (_) {}
+
+      const [insertResult] = await connection.execute(
+        `INSERT INTO users
+          (username, u_id, mobile, email, password, userimage, status, referral_code,
+           wallet, winning_wallet, turnover, today_turnover, country_code,
+           referral_user_id, account_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0, 0, 0, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          demoUsername,
+          userIdCode,
+          normalizedMobile,
+          normalizedEmail,
+          passwordToStore,
+          userImage,
+          newReferralCode,
+          initialWallet,
+          country_code,
+          referralUserId,
+        ],
+      );
+
+      const createdId = insertResult.insertId;
+
+      let bearerToken = null;
+      try {
+        const plainToken = crypto.randomBytes(40).toString("hex");
+        const tokenHash = crypto.createHash("sha256").update(plainToken).digest("hex");
+        const [tokenResult] = await connection.execute(
+          `INSERT INTO personal_access_tokens
+            (tokenable_type, tokenable_id, name, token, abilities, created_at, updated_at)
+           VALUES ('App\\\\Models\\\\User', ?, 'DemoApp', ?, '["*"]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [createdId, tokenHash],
+        );
+        bearerToken = tokenResult?.insertId ? `${tokenResult.insertId}|${plainToken}` : undefined;
+      } catch (_) {}
+
+      await connection.commit();
+
+      return {
+        status: 200,
+        message: "Demo user created successfully!",
+        data: {
+          id: createdId,
+          username: demoUsername,
+          u_id: userIdCode,
+          mobile: normalizedMobile,
+          email: normalizedEmail,
+          password,
+          wallet: initialWallet,
+          winning_wallet: 0,
+          account_type: 1,
+          account_type_label: "Demo",
+          status: 1,
+          status_label: "Active",
+          referral_code: newReferralCode,
+          token: bearerToken,
+          token_type: "Bearer",
+        },
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async getDemoUsers(query = {}) {
+    const pool = this.poolProvider();
+
+    if (query.id || query.user_id) {
+      const targetId = Number(query.id || query.user_id);
+      const [rows] = await pool.execute(
+        "SELECT * FROM users WHERE id = ? AND account_type = 1 LIMIT 1",
+        [targetId],
+      );
+      if (rows.length === 0) {
+        throw new AppError(404, "DEMO_USER_NOT_FOUND", `Demo user with ID '${targetId}' not found.`);
+      }
+      return {
+        status: 200,
+        message: "Demo user details fetched successfully",
+        data: rows[0],
+      };
+    }
+
+    const conditions = ["account_type = 1"];
+    const params = [];
+
+    if (query.status !== undefined && query.status !== "" && query.status !== "all") {
+      conditions.push("status = ?");
+      params.push(Number(query.status));
+    }
+
+    if (query.search && String(query.search).trim() !== "") {
+      const term = `%${String(query.search).trim()}%`;
+      conditions.push("(username LIKE ? OR mobile LIKE ? OR email LIKE ? OR u_id LIKE ?)");
+      params.push(term, term, term, term);
+    }
+
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
+
+    const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+    let offset = 0;
+    let page = 1;
+
+    if (query.offset !== undefined) {
+      offset = Math.max(0, parseInt(query.offset, 10) || 0);
+      page = Math.floor(offset / limit) + 1;
+    } else if (query.page !== undefined) {
+      page = Math.max(1, parseInt(query.page, 10) || 1);
+      offset = (page - 1) * limit;
+    }
+
+    const [countRows] = await pool.execute(`SELECT COUNT(*) AS total FROM users ${whereClause}`, params);
+    const total = Number(countRows[0]?.total || 0);
+
+    const [rows] = await pool.execute(
+      `SELECT id, username, u_id, mobile, email, password, wallet, winning_wallet,
+              status, referral_code, account_type, created_at, updated_at
+       FROM users
+       ${whereClause}
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+
+    return {
+      status: 200,
+      message: "Demo users fetched successfully",
+      data: rows,
+      demo_users: rows,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
+    };
+  }
+
+  async updateDemoUserWallet(id, data = {}) {
+    const userId = Number(id);
+    if (!Number.isInteger(userId) || userId < 1) {
+      throw new AppError(400, "VALIDATION_ERROR", "Valid user ID is required.");
+    }
+
+    const rawAmount = data.wallet ?? data.amount;
+    if (rawAmount === undefined || rawAmount === null || isNaN(Number(rawAmount)) || Number(rawAmount) <= 0) {
+      throw new AppError(400, "VALIDATION_ERROR", "A positive wallet amount is required.");
+    }
+    const amount = Number(rawAmount);
+    const action = String(data.action || "add").toLowerCase();
+
+    const pool = this.poolProvider();
+    const [users] = await pool.execute(
+      "SELECT id, wallet, account_type FROM users WHERE id = ? AND account_type = 1 LIMIT 1",
+      [userId],
+    );
+    if (users.length === 0) {
+      throw new AppError(404, "DEMO_USER_NOT_FOUND", `Demo user with ID '${userId}' not found.`);
+    }
+
+    if (action === "subtract") {
+      const currentWallet = Number(users[0].wallet || 0);
+      const newWallet = Math.max(0, currentWallet - amount);
+      await pool.execute(
+        "UPDATE users SET wallet = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [newWallet, userId],
+      );
+      return {
+        status: 200,
+        message: "Wallet funds deducted successfully",
+        data: {
+          id: userId,
+          wallet: newWallet,
+          deducted_amount: amount,
+        },
+      };
+    } else {
+      await pool.execute(
+        "UPDATE users SET wallet = wallet + ?, deposit_balance = deposit_balance + ?, total_payin = total_payin + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [amount, amount, amount, userId],
+      );
+      try {
+        await pool.execute(
+          "INSERT INTO payins (user_id, cash, order_id, type, status, created_at) VALUES (?, ?, 'via Admin', 2, 2, NOW())",
+          [userId, amount],
+        );
+      } catch (_) {}
+
+      const [updated] = await pool.execute("SELECT id, wallet FROM users WHERE id = ? LIMIT 1", [userId]);
+      return {
+        status: 200,
+        message: "Wallet funds added successfully",
+        data: {
+          id: userId,
+          wallet: Number(updated[0]?.wallet || 0),
+          added_amount: amount,
+        },
+      };
+    }
+  }
+
+  async updateDemoUser(id, data = {}) {
+    const userId = Number(id);
+    if (!Number.isInteger(userId) || userId < 1) {
+      throw new AppError(400, "VALIDATION_ERROR", "Valid user ID is required.");
+    }
+
+    const pool = this.poolProvider();
+    const [users] = await pool.execute(
+      "SELECT id FROM users WHERE id = ? AND account_type = 1 LIMIT 1",
+      [userId],
+    );
+    if (users.length === 0) {
+      throw new AppError(404, "DEMO_USER_NOT_FOUND", `Demo user with ID '${userId}' not found.`);
+    }
+
+    const fields = [];
+    const values = [];
+
+    if (data.password !== undefined && String(data.password).trim() !== "") {
+      const cleanPass = String(data.password).trim();
+      let passToStore = cleanPass;
+      try {
+        passToStore = await bcrypt.hash(cleanPass, 10);
+      } catch (_) {}
+      fields.push("password = ?");
+      values.push(passToStore);
+    }
+
+    if (data.status !== undefined && data.status !== null) {
+      fields.push("status = ?");
+      values.push(Number(data.status));
+    }
+
+    if (data.username !== undefined && String(data.username).trim() !== "") {
+      fields.push("username = ?");
+      values.push(String(data.username).trim());
+    }
+
+    if (fields.length === 0) {
+      return { status: 200, message: "No changes requested", data: users[0] };
+    }
+
+    fields.push("updated_at = CURRENT_TIMESTAMP");
+    values.push(userId);
+
+    await pool.execute(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, values);
+
+    const [updated] = await pool.execute(
+      "SELECT id, username, u_id, mobile, email, wallet, status, account_type, updated_at FROM users WHERE id = ? LIMIT 1",
+      [userId],
+    );
+
+    return {
+      status: 200,
+      message: "Demo user updated successfully",
+      data: updated[0],
+    };
+  }
+
   async getAttendance(query = {}) {
     const pool = this.poolProvider();
     await ensureAttendanceTable(pool);
