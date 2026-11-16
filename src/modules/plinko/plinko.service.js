@@ -115,12 +115,21 @@ class PlinkoService {
       ? settings.slot_multipliers
       : [...DEFAULT_SLOT_MULTS];
 
-    // 1. FORCED MODE: Admin set specific multiplier, slot, or OUT
-    if (settings.control_mode === "forced" && settings.forced_target !== null && settings.forced_target !== undefined) {
+    // 1. FORCED / CEILING / RANGE MODE:
+    // Admin sets max multiplier or slot cap (e.g. "2x", "1.40x", "out", "#4"):
+    // - Outcome will NEVER exceed this multiplier (slotMult <= targetMultVal).
+    // - Ball can either go OUT (based on out_rate_percent), or land on ANY slot where slotMult <= targetMultVal.
+    // - If target is OUT or 0x, it is 100% OUT.
+    // - If target is prefixed with "exact:" or "only:", it lands strictly on that multiplier.
+    if (
+      (settings.control_mode === "forced" || settings.control_mode === "cap" || settings.control_mode === "max") &&
+      settings.forced_target !== null &&
+      settings.forced_target !== undefined
+    ) {
       const rawTarget = String(settings.forced_target).trim().toLowerCase();
       const targetStr = rawTarget.replace(/x$/i, "").trim();
 
-      // Check OUT / LOSS (e.g., "out", "loss", "0", "0.0", "0.00", "0x")
+      // Check 100% OUT / LOSS (e.g., "out", "loss", "0", "0.0", "0.00", "0x")
       if (
         targetStr === "out" ||
         targetStr === "loss" ||
@@ -139,47 +148,69 @@ class PlinkoService {
         };
       }
 
-      // Check Center Slot / Break-even keywords (e.g. "center", "break-even", "breakeven", "center slot #4", "#4", "slot_4")
+      const isExact = rawTarget.startsWith("exact:") || rawTarget.startsWith("only:");
+      const cleanTarget = targetStr.replace(/^(?:exact|only)[:_\s\-]?/i, "").trim();
+
+      // Determine the target multiplier limit
+      let targetMultVal = null;
+
+      // Check center slot / break-even keywords (or slot 4)
       if (
-        rawTarget.includes("center") ||
-        rawTarget.includes("break-even") ||
-        rawTarget.includes("breakeven") ||
-        rawTarget === "slot 4" ||
-        rawTarget === "slot:4" ||
-        rawTarget === "slot_4" ||
-        rawTarget === "#4"
+        targetMultVal === null &&
+        (cleanTarget.includes("center") ||
+          cleanTarget.includes("break-even") ||
+          cleanTarget.includes("breakeven") ||
+          cleanTarget === "4" ||
+          cleanTarget === "#4" ||
+          cleanTarget === "slot 4" ||
+          cleanTarget === "slot_4" ||
+          cleanTarget === "slot:4")
       ) {
-        const slotMult = Number(mults[4] ?? 1.0);
-        const payout = Number((betAmount * slotMult).toFixed(2));
-        return {
-          is_out: false,
-          target_slot: 4,
-          target_mult: slotMult,
-          expected_payout: payout,
-        };
+        targetMultVal = Number(mults[4] ?? 1.0);
       }
 
-      // Check explicit slot prefix: e.g. "slot:4", "slot_4", "slot 4", "index_4"
-      const slotMatch = rawTarget.match(/^(?:slot|index|#)[:_\s\-]?(\d+)$/i);
-      if (slotMatch) {
-        const slotIdx = Number(slotMatch[1]);
-        if (Number.isInteger(slotIdx) && slotIdx >= 0 && slotIdx < mults.length) {
-          const slotMult = Number(mults[slotIdx]);
-          const payout = Number((betAmount * slotMult).toFixed(2));
-          return {
-            is_out: false,
-            target_slot: slotIdx,
-            target_mult: slotMult,
-            expected_payout: payout,
-          };
+      // Check if target is a slot reference: e.g. "slot:2", "slot 2", "slot_2", "#2"
+      const slotMatch = cleanTarget.match(/^(?:slot|index|#)[:_\s\-]?(\d+)$/i);
+      if (targetMultVal === null && slotMatch) {
+        const num = Number(slotMatch[1]);
+        const sIdx = num >= 0 && num < mults.length ? num : (num >= 1 && num <= mults.length ? num - 1 : 0);
+        targetMultVal = Number(mults[sIdx]);
+      }
+
+      // Check numeric multiplier (e.g. "2", "2.00", "1.4", "3.4", etc.)
+      if (targetMultVal === null) {
+        const floatVal = Number.parseFloat(cleanTarget);
+        if (!Number.isNaN(floatVal) && floatVal > 0) {
+          targetMultVal = floatVal;
         }
       }
 
-      // Check if target matches multiplier value (e.g., 1.00, 1x, 1, 1.40, 1.70, 1.20)
-      // Multipliers MUST take precedence over bare slot numbers (so 1x or 1 lands on Center Slot 4 with 1.0x!)
-      const targetFloat = Number.parseFloat(targetStr);
-      if (!Number.isNaN(targetFloat)) {
-        if (targetFloat === 0) {
+      if (targetMultVal !== null && targetMultVal > 0) {
+        if (isExact) {
+          // Exact mode: only slots with exact multiplier
+          const exactSlots = [];
+          mults.forEach((m, idx) => {
+            if (Math.abs(Number(m) - targetMultVal) < 0.05) exactSlots.push(idx);
+          });
+          if (exactSlots.length > 0) {
+            const chosenSlot = exactSlots[Math.floor(Math.random() * exactSlots.length)];
+            const slotMult = Number(mults[chosenSlot]);
+            return {
+              is_out: false,
+              target_slot: chosenSlot,
+              target_mult: slotMult,
+              expected_payout: Number((betAmount * slotMult).toFixed(2)),
+            };
+          }
+        }
+
+        // Cap / Ceiling Mode:
+        // Outcome will NEVER exceed targetMultVal (slotMult <= targetMultVal).
+        // It can also drop OUT if out_rate_percent is configured (> 0).
+        const outRate = settings.out_rate_percent !== undefined
+          ? Math.min(100, Math.max(0, Number(settings.out_rate_percent)))
+          : 0;
+        if (outRate > 0 && Math.random() * 100 < outRate) {
           return {
             is_out: true,
             target_slot: null,
@@ -188,44 +219,36 @@ class PlinkoService {
           };
         }
 
-        const matchingIndices = [];
-        mults.forEach((m, idx) => {
-          if (Math.abs(Number(m) - targetFloat) < 0.05) {
-            matchingIndices.push(idx);
+        // Filter all slots whose multiplier is <= targetMultVal
+        const eligibleSlots = [];
+        for (let i = 0; i < mults.length; i++) {
+          if (Number(mults[i]) <= targetMultVal + 0.05) {
+            eligibleSlots.push(i);
           }
-        });
+        }
 
-        if (matchingIndices.length > 0) {
-          // If 1.00x / 1x, guarantee Center Slot #4
-          let chosenSlot;
-          if (Math.abs(targetFloat - 1.0) < 0.05 && matchingIndices.includes(4)) {
-            chosenSlot = 4;
-          } else {
-            chosenSlot = matchingIndices[Math.floor(Math.random() * matchingIndices.length)];
+        if (eligibleSlots.length > 0) {
+          // Weighted random selection among eligible slots
+          const totalWeight = eligibleSlots.reduce((sum, idx) => sum + (SLOT_WEIGHTS[idx] || 10), 0);
+          let rnd = Math.random() * totalWeight;
+          let chosenSlot = eligibleSlots[0];
+          for (const idx of eligibleSlots) {
+            const w = SLOT_WEIGHTS[idx] || 10;
+            if (rnd < w) {
+              chosenSlot = idx;
+              break;
+            }
+            rnd -= w;
           }
+
           const slotMult = Number(mults[chosenSlot]);
-          const payout = Number((betAmount * slotMult).toFixed(2));
           return {
             is_out: false,
             target_slot: chosenSlot,
             target_mult: slotMult,
-            expected_payout: payout,
+            expected_payout: Number((betAmount * slotMult).toFixed(2)),
           };
         }
-      }
-
-      // Fallback: If target didn't match any multiplier (and wasn't 0 or 1), check if it's a bare slot index 0..8
-      // (e.g., target = "4" maps to slot 4)
-      const slotNum = Number(targetStr);
-      if (Number.isInteger(slotNum) && slotNum >= 0 && slotNum < mults.length) {
-        const slotMult = Number(mults[slotNum]);
-        const payout = Number((betAmount * slotMult).toFixed(2));
-        return {
-          is_out: false,
-          target_slot: slotNum,
-          target_mult: slotMult,
-          expected_payout: payout,
-        };
       }
     }
 
@@ -1262,11 +1285,33 @@ class PlinkoService {
     const pool = this.poolProvider();
     const current = await this.getActiveSettings(pool);
 
-    const slotMultipliers = Array.isArray(input.slot_multipliers) && input.slot_multipliers.length === 9
-      ? input.slot_multipliers.map((m) => Math.max(0, Number(m)))
-      : (Array.isArray(input.slotMultipliers) && input.slotMultipliers.length === 9
-        ? input.slotMultipliers.map((m) => Math.max(0, Number(m)))
-        : current.slot_multipliers);
+    let slotMultipliers = current.slot_multipliers;
+    const rawMults = input.slot_multipliers ?? input.slotMultipliers ?? input.multipliers ?? input.slots;
+
+    if (rawMults !== undefined && rawMults !== null) {
+      if (typeof rawMults === "string") {
+        const parsed = rawMults
+          .split(",")
+          .map((s) => s.trim().toLowerCase().replace(/x$/i, ""))
+          .filter((s) => s.length > 0)
+          .map((s) => Number(s));
+
+        if (parsed.length !== 9 || parsed.some((n) => !Number.isFinite(n) || n < 0)) {
+          throw new AppError(400, "VALIDATION_ERROR", "slot_multipliers requires exactly 9 numbers (e.g. '2.0x, 1.50x, 1.20x, 1.20x, 1x, 1.20x, 1.20x, 1.50x, 2.0x')");
+        }
+        slotMultipliers = parsed;
+      } else if (Array.isArray(rawMults)) {
+        const parsed = rawMults.map((m) => {
+          const clean = typeof m === "string" ? m.trim().toLowerCase().replace(/x$/i, "") : m;
+          return Number(clean);
+        });
+
+        if (parsed.length !== 9 || parsed.some((n) => !Number.isFinite(n) || n < 0)) {
+          throw new AppError(400, "VALIDATION_ERROR", "slot_multipliers array requires exactly 9 numbers (e.g. [2.0, 1.5, 1.2, 1.2, 1.0, 1.2, 1.2, 1.5, 2.0])");
+        }
+        slotMultipliers = parsed;
+      }
+    }
 
     const chips = Array.isArray(input.chips) && input.chips.length > 0
       ? input.chips.map((c) => Math.max(1, Number(c)))
@@ -1306,7 +1351,14 @@ class PlinkoService {
     return {
       status: 200,
       message: "Settings updated successfully",
-      data: updated,
+      data: {
+        slot_multipliers: updated.slot_multipliers,
+        chips: updated.chips,
+        out_rate_percent: updated.out_rate_percent,
+        min_bet: updated.min_bet,
+        max_bet: updated.max_bet,
+        is_active: updated.is_active ? 1 : 0,
+      },
     };
   }
 

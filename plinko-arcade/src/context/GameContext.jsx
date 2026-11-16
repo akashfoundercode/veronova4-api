@@ -31,6 +31,7 @@ import {
   spGain,
 } from '../config/gameConfig';
 import { setSoundEnabled } from '../utils/sound';
+import { api } from '../services/api';
 
 const GameContext = createContext(null);
 
@@ -235,6 +236,19 @@ let toastId = 0;
 export function GameProvider({ children }) {
   const [state, dispatch] = useReducer(reducer, null, loadState);
   const [toasts, setToasts] = useState([]);
+  const [serverConfig, setServerConfig] = useState(null);
+
+  // Fetch live server config (slot multipliers, chips, etc.)
+  useEffect(() => {
+    api
+      .getConfig()
+      .then((res) => {
+        if (res?.data?.slot_multipliers && Array.isArray(res.data.slot_multipliers)) {
+          setServerConfig(res.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Mirror of state for synchronous checks (e.g. two drops in the same tick).
   const live = useRef(state);
@@ -255,8 +269,11 @@ export function GameProvider({ children }) {
   const derived = useMemo(() => {
     const own = (id) => state.investments.includes(id);
     const slotBoost = own('slot-boost') ? 0.25 : 0;
-    const slotMults = SLOT_BASE.map((base, i) => {
-      let m = base + SLOT_STEP * state.slotLevels[i] + slotBoost;
+    const baseMults = Array.isArray(serverConfig?.slot_multipliers) && serverConfig.slot_multipliers.length === 9
+      ? serverConfig.slot_multipliers
+      : SLOT_BASE;
+    const slotMults = baseMults.map((base, i) => {
+      let m = Number(base) + SLOT_STEP * state.slotLevels[i] + slotBoost;
       if (own('jackpot') && i === 2) m *= 3;
       return Math.round(m * 100) / 100;
     });
@@ -286,7 +303,7 @@ export function GameProvider({ children }) {
       perHitValue: own('combo') ? 1 : 0,
       spOnCashout: spGain(state.coins),
     };
-  }, [state.investments, state.slotLevels, state.unify, state.ascensions, state.coins]);
+  }, [state.investments, state.slotLevels, state.unify, state.ascensions, state.coins, serverConfig]);
 
   const notify = useCallback((text, kind = 'info') => {
     const id = ++toastId;

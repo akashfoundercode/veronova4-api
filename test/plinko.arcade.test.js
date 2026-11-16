@@ -531,7 +531,7 @@ test("Plinko Arcade: dropBall lands on admin forced multiplier when set", async 
         slot_multipliers: JSON.stringify([1.7, 1.4, 1.2, 1.2, 1.0, 1.2, 1.2, 1.4, 1.7]),
         chips: JSON.stringify([5, 10, 20, 50, 100, 200, 500, 1000]),
         control_mode: "forced",
-        forced_target: "1.40", // Force 1.40x
+        forced_target: "exact:1.40", // Force exact 1.40x
         forced_rounds_left: 1,
       }];
     }
@@ -549,6 +549,43 @@ test("Plinko Arcade: dropBall lands on admin forced multiplier when set", async 
   assert.equal(res.data.target_mult, 1.4);
   assert.ok(res.data.target_slot === 1 || res.data.target_slot === 7); // slot 1 or 7 has 1.40x
   assert.equal(res.data.expected_payout, 28); // 20 * 1.4 = 28
+});
+
+test("Plinko Arcade: dropBall enforces max multiplier cap (e.g. 2.0x) and never exceeds target", async () => {
+  const customMults = [1.0, 1.2, 1.4, 2.0, 2.2, 2.4, 3.0, 3.2, 3.4];
+  for (let i = 0; i < 20; i++) {
+    const pool = createMockPool((sql) => {
+      if (sql.startsWith("SELECT id, wallet, winning_wallet FROM users")) {
+        return [{ id: 10, wallet: "1000.00", winning_wallet: "500.00" }];
+      }
+      if (sql.startsWith("SELECT * FROM plinko_settings")) {
+        return [{
+          id: 1,
+          slot_multipliers: JSON.stringify(customMults),
+          control_mode: "forced",
+          forced_target: "2.0x", // Cap at 2.0x
+          out_rate_percent: 20,
+          forced_rounds_left: 0,
+        }];
+      }
+      if (sql.startsWith("INSERT INTO plinko_bets")) {
+        return { insertId: 1000 + i };
+      }
+      return [];
+    });
+
+    const service = new PlinkoService(() => pool);
+    const res = await service.dropBall({ userId: 10, amount: 50 });
+
+    assert.equal(res.status, 200);
+    if (!res.data.is_out) {
+      assert.ok(res.data.target_mult <= 2.0, `Multiplier ${res.data.target_mult} must not exceed 2.0x cap!`);
+      assert.ok([1.0, 1.2, 1.4, 2.0].includes(res.data.target_mult));
+      assert.ok(res.data.target_slot <= 3, `Slot index ${res.data.target_slot} must be <= 3`);
+    } else {
+      assert.equal(res.data.target_mult, 0);
+    }
+  }
 });
 
 test("Plinko Arcade: dropBall lands on OUT when admin forces OUT", async () => {
@@ -593,6 +630,7 @@ test("Plinko Arcade: dropBall lands on Center Slot #4 when admin forces 1.00x, 1
           slot_multipliers: JSON.stringify([1.7, 1.4, 1.2, 1.2, 1.0, 1.2, 1.2, 1.4, 1.7]),
           control_mode: "forced",
           forced_target: target,
+          out_rate_percent: 0,
           forced_rounds_left: 0,
         }];
       }
@@ -625,6 +663,7 @@ test("Plinko Arcade: dropBall lands on OUT when admin forces 0x or 0", async () 
           slot_multipliers: JSON.stringify([1.7, 1.4, 1.2, 1.2, 1.0, 1.2, 1.2, 1.4, 1.7]),
           control_mode: "forced",
           forced_target: target,
+          out_rate_percent: 0,
           forced_rounds_left: 0,
         }];
       }
