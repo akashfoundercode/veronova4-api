@@ -175,6 +175,82 @@ test("Plinko Arcade: settleBet credits winning wallet and updates game stats on 
   assert.deepEqual(userUpdate.params, [507, 207, 10]);
 });
 
+test("Plinko Arcade: 500 Rs bet calculates exact payouts (1.20x = 600, 1.40x = 700) without tier inflation", async () => {
+  // Test 1: 500 Rs bet on 1.20x with tier 1 -> must be exactly 600 Rs
+  {
+    const pool = createMockPool((sql) => {
+      if (sql.startsWith("SELECT * FROM plinko_bets WHERE id = ?")) {
+        return [{
+          id: 88,
+          orderid: "ORD500_1",
+          amount: "500.00",
+          userid: 10,
+          status: 0,
+          tier: 1,
+        }];
+      }
+      if (sql.startsWith("SELECT id, username, wallet, winning_wallet FROM users")) {
+        return [{ id: 10, username: "Vikram", wallet: "1000.00", winning_wallet: "500.00" }];
+      }
+      if (sql.startsWith("SELECT id, stats FROM plinko_game_state")) {
+        return [{ id: 1, stats: JSON.stringify({ drops: 0, totalEarned: 0, bestWin: 0 }) }];
+      }
+      return [];
+    });
+
+    const service = new PlinkoService(() => pool);
+    const res = await service.settleBet({
+      userId: 10,
+      dropId: 88,
+      slot: 2,
+      mult: 1.2,
+      tier: 1,
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.data.payout, 600.0, "500 bet on 1.20x must be exactly 600 rupees");
+    assert.equal(res.data.wallet, 1600.0);
+    assert.equal(res.data.winning_wallet, 1100.0);
+  }
+
+  // Test 2: 500 Rs bet on 1.40x with tier 2 -> must be exactly 700 Rs, NOT 70,000!
+  {
+    const pool = createMockPool((sql) => {
+      if (sql.startsWith("SELECT * FROM plinko_bets WHERE id = ?")) {
+        return [{
+          id: 89,
+          orderid: "ORD500_2",
+          amount: "500.00",
+          userid: 10,
+          status: 0,
+          tier: 2,
+        }];
+      }
+      if (sql.startsWith("SELECT id, username, wallet, winning_wallet FROM users")) {
+        return [{ id: 10, username: "Vikram", wallet: "1000.00", winning_wallet: "500.00" }];
+      }
+      if (sql.startsWith("SELECT id, stats FROM plinko_game_state")) {
+        return [{ id: 1, stats: JSON.stringify({ drops: 0, totalEarned: 0, bestWin: 0 }) }];
+      }
+      return [];
+    });
+
+    const service = new PlinkoService(() => pool);
+    const res = await service.settleBet({
+      userId: 10,
+      dropId: 89,
+      slot: 1,
+      mult: 1.4,
+      tier: 2,
+    });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.data.payout, 700.0, "500 bet on 1.40x must be exactly 700 rupees, NOT 70,000");
+    assert.equal(res.data.wallet, 1700.0);
+    assert.equal(res.data.winning_wallet, 1200.0);
+  }
+});
+
 test("Plinko Arcade: settleBet handles OUT outcome with 0 payout and status 2", async () => {
   const pool = createMockPool((sql) => {
     if (sql.startsWith("SELECT * FROM plinko_bets WHERE id = ?")) {
@@ -502,6 +578,69 @@ test("Plinko Arcade: dropBall lands on OUT when admin forces OUT", async () => {
   assert.equal(res.data.is_out, true);
   assert.equal(res.data.target_mult, 0);
   assert.equal(res.data.expected_payout, 0);
+});
+
+test("Plinko Arcade: dropBall lands on Center Slot #4 when admin forces 1.00x, 1x or 1", async () => {
+  // Test both "1.00x", "1", "1x", and "4"
+  for (const target of ["1.00x", "1.00", "1x", "1", "4", "Center Slot #4"]) {
+    const pool = createMockPool((sql) => {
+      if (sql.startsWith("SELECT id, wallet, winning_wallet FROM users")) {
+        return [{ id: 10, wallet: "500.00", winning_wallet: "200.00" }];
+      }
+      if (sql.startsWith("SELECT * FROM plinko_settings")) {
+        return [{
+          id: 1,
+          slot_multipliers: JSON.stringify([1.7, 1.4, 1.2, 1.2, 1.0, 1.2, 1.2, 1.4, 1.7]),
+          control_mode: "forced",
+          forced_target: target,
+          forced_rounds_left: 0,
+        }];
+      }
+      if (sql.startsWith("INSERT INTO plinko_bets")) {
+        return { insertId: 101 };
+      }
+      return [];
+    });
+
+    const service = new PlinkoService(() => pool);
+    const res = await service.dropBall({ userId: 10, amount: 10 });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.data.is_out, false);
+    assert.equal(res.data.target_slot, 4, `Target [${target}] must land on center slot 4, not slot 1`);
+    assert.equal(res.data.target_mult, 1.0, `Target [${target}] must have 1.0x multiplier`);
+    assert.equal(res.data.expected_payout, 10);
+  }
+});
+
+test("Plinko Arcade: dropBall lands on OUT when admin forces 0x or 0", async () => {
+  for (const target of ["0x", "0", "0.0", "100% Loss (0x)"]) {
+    const pool = createMockPool((sql) => {
+      if (sql.startsWith("SELECT id, wallet, winning_wallet FROM users")) {
+        return [{ id: 10, wallet: "500.00", winning_wallet: "200.00" }];
+      }
+      if (sql.startsWith("SELECT * FROM plinko_settings")) {
+        return [{
+          id: 1,
+          slot_multipliers: JSON.stringify([1.7, 1.4, 1.2, 1.2, 1.0, 1.2, 1.2, 1.4, 1.7]),
+          control_mode: "forced",
+          forced_target: target,
+          forced_rounds_left: 0,
+        }];
+      }
+      if (sql.startsWith("INSERT INTO plinko_bets")) {
+        return { insertId: 102 };
+      }
+      return [];
+    });
+
+    const service = new PlinkoService(() => pool);
+    const res = await service.dropBall({ userId: 10, amount: 10 });
+
+    assert.equal(res.status, 200);
+    assert.equal(res.data.is_out, true, `Target [${target}] must be OUT`);
+    assert.equal(res.data.target_mult, 0);
+  }
 });
 
 test("Plinko Arcade: admin APIs manage settings, controls and query bets", async () => {

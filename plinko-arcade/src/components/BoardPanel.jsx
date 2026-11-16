@@ -134,7 +134,7 @@ export default function BoardPanel() {
         return false;
       }
 
-      const ballValue = (free ? 5 : currentBet) * tierMult;
+      const ballValue = free ? 5 : currentBet;
       eng.drop({ value: ballValue, free, tier: chosenTier, bet: currentBet });
       setActive(eng.activeCount());
       a.recordDrop(chosenTier);

@@ -115,13 +115,22 @@ class PlinkoService {
       ? settings.slot_multipliers
       : [...DEFAULT_SLOT_MULTS];
 
-    const tierMult = tier === 1 ? 10 : (tier === 2 ? 100 : 1);
-
     // 1. FORCED MODE: Admin set specific multiplier, slot, or OUT
     if (settings.control_mode === "forced" && settings.forced_target !== null && settings.forced_target !== undefined) {
-      const targetStr = String(settings.forced_target).trim().toLowerCase().replace(/x$/i, "");
+      const rawTarget = String(settings.forced_target).trim().toLowerCase();
+      const targetStr = rawTarget.replace(/x$/i, "").trim();
 
-      if (targetStr === "out" || targetStr === "loss") {
+      // Check OUT / LOSS (e.g., "out", "loss", "0", "0.0", "0.00", "0x")
+      if (
+        targetStr === "out" ||
+        targetStr === "loss" ||
+        targetStr === "0" ||
+        targetStr === "0.0" ||
+        targetStr === "0.00" ||
+        rawTarget === "0x" ||
+        rawTarget.includes("loss") ||
+        rawTarget.includes("out")
+      ) {
         return {
           is_out: true,
           target_slot: null,
@@ -130,22 +139,55 @@ class PlinkoService {
         };
       }
 
-      // Check if target is a slot index 0..8
-      const slotNum = Number(targetStr);
-      if (Number.isInteger(slotNum) && slotNum >= 0 && slotNum < mults.length) {
-        const slotMult = Number(mults[slotNum]);
-        const payout = Number((betAmount * slotMult * tierMult).toFixed(2));
+      // Check Center Slot / Break-even keywords (e.g. "center", "break-even", "breakeven", "center slot #4", "#4", "slot_4")
+      if (
+        rawTarget.includes("center") ||
+        rawTarget.includes("break-even") ||
+        rawTarget.includes("breakeven") ||
+        rawTarget === "slot 4" ||
+        rawTarget === "slot:4" ||
+        rawTarget === "slot_4" ||
+        rawTarget === "#4"
+      ) {
+        const slotMult = Number(mults[4] ?? 1.0);
+        const payout = Number((betAmount * slotMult).toFixed(2));
         return {
           is_out: false,
-          target_slot: slotNum,
+          target_slot: 4,
           target_mult: slotMult,
           expected_payout: payout,
         };
       }
 
-      // Check if target matches multiplier value (e.g., 1.70, 1.40, 1.20, 1.00)
+      // Check explicit slot prefix: e.g. "slot:4", "slot_4", "slot 4", "index_4"
+      const slotMatch = rawTarget.match(/^(?:slot|index|#)[:_\s\-]?(\d+)$/i);
+      if (slotMatch) {
+        const slotIdx = Number(slotMatch[1]);
+        if (Number.isInteger(slotIdx) && slotIdx >= 0 && slotIdx < mults.length) {
+          const slotMult = Number(mults[slotIdx]);
+          const payout = Number((betAmount * slotMult).toFixed(2));
+          return {
+            is_out: false,
+            target_slot: slotIdx,
+            target_mult: slotMult,
+            expected_payout: payout,
+          };
+        }
+      }
+
+      // Check if target matches multiplier value (e.g., 1.00, 1x, 1, 1.40, 1.70, 1.20)
+      // Multipliers MUST take precedence over bare slot numbers (so 1x or 1 lands on Center Slot 4 with 1.0x!)
       const targetFloat = Number.parseFloat(targetStr);
       if (!Number.isNaN(targetFloat)) {
+        if (targetFloat === 0) {
+          return {
+            is_out: true,
+            target_slot: null,
+            target_mult: 0,
+            expected_payout: 0,
+          };
+        }
+
         const matchingIndices = [];
         mults.forEach((m, idx) => {
           if (Math.abs(Number(m) - targetFloat) < 0.05) {
@@ -154,9 +196,15 @@ class PlinkoService {
         });
 
         if (matchingIndices.length > 0) {
-          const chosenSlot = matchingIndices[Math.floor(Math.random() * matchingIndices.length)];
+          // If 1.00x / 1x, guarantee Center Slot #4
+          let chosenSlot;
+          if (Math.abs(targetFloat - 1.0) < 0.05 && matchingIndices.includes(4)) {
+            chosenSlot = 4;
+          } else {
+            chosenSlot = matchingIndices[Math.floor(Math.random() * matchingIndices.length)];
+          }
           const slotMult = Number(mults[chosenSlot]);
-          const payout = Number((betAmount * slotMult * tierMult).toFixed(2));
+          const payout = Number((betAmount * slotMult).toFixed(2));
           return {
             is_out: false,
             target_slot: chosenSlot,
@@ -164,6 +212,20 @@ class PlinkoService {
             expected_payout: payout,
           };
         }
+      }
+
+      // Fallback: If target didn't match any multiplier (and wasn't 0 or 1), check if it's a bare slot index 0..8
+      // (e.g., target = "4" maps to slot 4)
+      const slotNum = Number(targetStr);
+      if (Number.isInteger(slotNum) && slotNum >= 0 && slotNum < mults.length) {
+        const slotMult = Number(mults[slotNum]);
+        const payout = Number((betAmount * slotMult).toFixed(2));
+        return {
+          is_out: false,
+          target_slot: slotNum,
+          target_mult: slotMult,
+          expected_payout: payout,
+        };
       }
     }
 
@@ -193,7 +255,7 @@ class PlinkoService {
     }
 
     const slotMult = Number(mults[chosenSlot] ?? 1.0);
-    const payout = Number((betAmount * slotMult * tierMult).toFixed(2));
+    const payout = Number((betAmount * slotMult).toFixed(2));
 
     return {
       is_out: false,
@@ -796,14 +858,9 @@ class PlinkoService {
       }
 
       const betTier = tier !== undefined ? Number(tier) : Number(bet.tier || 0);
-      const tierFactor = betTier === 1 ? 10 : (betTier === 2 ? 100 : 1);
       let winAmount = 0;
-      if (!out) {
-        if (payout !== undefined && payout !== null && Number.isFinite(Number(payout))) {
-          winAmount = Math.max(0, Number(Number(payout).toFixed(2)));
-        } else {
-          winAmount = Math.max(0, Number((Number(bet.amount) * multiplierVal * tierFactor).toFixed(2)));
-        }
+      if (!out && multiplierVal > 0) {
+        winAmount = Math.max(0, Number((Number(bet.amount) * multiplierVal).toFixed(2)));
       }
       const betStatus = out ? 2 : (winAmount > 0 ? 1 : 2);
       const multStr = out ? "out" : String(multiplierVal);
