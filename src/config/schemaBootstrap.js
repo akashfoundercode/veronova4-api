@@ -442,6 +442,101 @@ async function ensureAllTables() {
     await safeExec("ALTER TABLE stack_tower_bets ADD COLUMN obstacle_type VARCHAR(50) NULL");
 
     await safeExec(`
+      CREATE TABLE IF NOT EXISTS plinko_bets (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        userid BIGINT UNSIGNED NOT NULL,
+        game_id INT NOT NULL DEFAULT 11,
+        amount DECIMAL(20, 2) NOT NULL DEFAULT 0.00,
+        tier INT NOT NULL DEFAULT 0,
+        type VARCHAR(50) NOT NULL DEFAULT 'medium',
+        indexs INT NOT NULL DEFAULT 0,
+        slot INT NULL,
+        multipler VARCHAR(50) NULL,
+        win_amount DECIMAL(20, 2) NOT NULL DEFAULT 0.00,
+        tax DECIMAL(20, 2) NOT NULL DEFAULT 0.00,
+        after_tax DECIMAL(20, 2) NOT NULL DEFAULT 0.00,
+        orderid VARCHAR(100) NULL,
+        server_seed VARCHAR(128) NULL,
+        is_out TINYINT(1) NOT NULL DEFAULT 0,
+        status TINYINT NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        settled_at TIMESTAMP NULL,
+        INDEX idx_plinko_userid (userid),
+        INDEX idx_plinko_status (status),
+        INDEX idx_plinko_orderid (orderid)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN tier INT NOT NULL DEFAULT 0");
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN slot INT NULL");
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN target_slot INT NULL");
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN target_mult VARCHAR(50) NULL");
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN server_seed VARCHAR(128) NULL");
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN is_out TINYINT(1) NOT NULL DEFAULT 0");
+    await safeExec("ALTER TABLE plinko_bets ADD COLUMN settled_at TIMESTAMP NULL");
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS plinko_game_state (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        user_id BIGINT UNSIGNED NULL,
+        userid BIGINT UNSIGNED NULL,
+        coins DECIMAL(20, 2) NOT NULL DEFAULT 1000.00,
+        sp INT NOT NULL DEFAULT 0,
+        slot_levels JSON NULL,
+        unify JSON NULL,
+        tier_balls JSON NULL,
+        selected_tier INT NOT NULL DEFAULT 0,
+        investments JSON NULL,
+        ascensions INT NOT NULL DEFAULT 0,
+        stats JSON NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_plinko_game_state_user (user_id),
+        INDEX idx_plinko_game_state_user (user_id),
+        INDEX idx_plinko_game_state_uid (userid)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec("ALTER TABLE plinko_game_state ADD COLUMN userid BIGINT UNSIGNED NULL");
+    await safeExec("UPDATE plinko_game_state SET userid = user_id WHERE userid IS NULL AND user_id IS NOT NULL");
+    await safeExec("UPDATE plinko_game_state SET user_id = userid WHERE user_id IS NULL AND userid IS NOT NULL");
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS plinko_settings (
+        id INT PRIMARY KEY DEFAULT 1,
+        slot_multipliers JSON NULL,
+        chips JSON NULL,
+        out_rate_percent DECIMAL(5, 2) NOT NULL DEFAULT 35.00,
+        control_mode VARCHAR(20) NOT NULL DEFAULT 'auto',
+        forced_target VARCHAR(20) NULL,
+        forced_rounds_left INT NOT NULL DEFAULT 0,
+        min_bet DECIMAL(10, 2) NOT NULL DEFAULT 5.00,
+        max_bet DECIMAL(10, 2) NOT NULL DEFAULT 10000.00,
+        is_active TINYINT(1) NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
+      INSERT IGNORE INTO plinko_settings
+        (id, slot_multipliers, chips, out_rate_percent, control_mode, forced_target, forced_rounds_left, min_bet, max_bet, is_active)
+      VALUES
+        (1, '[1.7, 1.4, 1.2, 1.2, 1.0, 1.2, 1.2, 1.4, 1.7]', '[5, 10, 20, 50, 100, 200, 500, 1000]', 35.00, 'auto', NULL, 0, 5.00, 10000.00, 1)
+    `);
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS plinko_index_lists (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        type VARCHAR(50) NOT NULL,
+        indexs INT NOT NULL,
+        multiplier DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
       CREATE TABLE IF NOT EXISTS otps (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
         mobile VARCHAR(20) NOT NULL,

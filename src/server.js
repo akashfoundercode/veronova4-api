@@ -6,6 +6,7 @@ const config = require("./config");
 const { createAviatorSocket } = require("./modules/aviator/aviator.socket");
 const { createWingoSocket } = require("./modules/wingo/wingo.socket");
 const { createStackTowerSocket } = require("./modules/stackTower/stackTower.socket");
+const { createPlinkoSocket } = require("./modules/plinko/plinko.socket");
 const { socketService: horseRaceSocketService } = require("./modules/horseRace/services/socket.service");
 const { raceEngine: horseRaceEngine } = require("./modules/horseRace/services/raceEngine");
 const { isHorseDatabaseConfigured } = require("./modules/horseRace/config/database");
@@ -26,12 +27,14 @@ const io = new Server(httpServer, {
 const aviatorSocket = createAviatorSocket(io);
 const wingoSocket = createWingoSocket(io);
 const stackTowerSocket = createStackTowerSocket(io);
+const plinkoSocket = createPlinkoSocket(io);
 horseRaceSocketService.initialize(io);
 
 httpServer.on("close", () => {
   aviatorSocket.stop();
   wingoSocket.stop();
   if (stackTowerSocket) stackTowerSocket.stop();
+  if (plinkoSocket) plinkoSocket.stop();
   horseRaceSocketService.stop();
   horseRaceEngine.stop();
 });

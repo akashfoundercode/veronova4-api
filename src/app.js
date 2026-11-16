@@ -105,6 +105,7 @@ app.use(aviatorRoutes);
 app.use(API_PREFIX, trxRoutes);
 app.use(API_PREFIX, mineRoutes);
 app.use(API_PREFIX, plinkoRoutes);
+app.use(plinkoRoutes);
 app.use(API_PREFIX, kenoRoutes);
 app.use(API_PREFIX, spinRoutes);
 app.use(API_PREFIX, luckyCardRoutes);

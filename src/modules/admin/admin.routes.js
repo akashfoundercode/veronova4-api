@@ -8,6 +8,7 @@ const controller = require("./admin.controller");
 const HorseRaceAdminController = require("../horseRace/controllers/admin.controller");
 const chickenController = require("../chicken/chicken.controller");
 const stackTowerController = require("../stackTower/stackTower.controller");
+const plinkoController = require("../plinko/plinko.controller");
 const { uploadBannerImage } = require("./upload.middleware");
 
 const router = express.Router();
@@ -340,6 +341,18 @@ router.get("/stack-tower/admin/rounds", authenticate.optional, stackTowerControl
 router.get("/stack-tower/active-bets", authenticate.optional, stackTowerController.activeBets);
 router.get("/stack-tower/live", authenticate.optional, stackTowerController.activeBets);
 router.get("/stack-tower/active", authenticate.optional, stackTowerController.activeBets);
+
+// Plinko Arcade Admin Management
+router.get("/admin/plinko/settings", authenticate.optional, plinkoController.adminGetSettings);
+router.post("/admin/plinko/settings", authenticate.optional, plinkoController.adminUpdateSettings);
+router.post("/admin/plinko/control", authenticate.optional, plinkoController.adminSetControl);
+router.get("/admin/plinko/bets", authenticate.optional, plinkoController.adminGetBets);
+router.get("/admin/plinko/dashboard", authenticate.optional, plinkoController.adminGetDashboard);
+router.get("/admin/plinko_settings", authenticate.optional, plinkoController.adminGetSettings);
+router.post("/admin/plinko_settings", authenticate.optional, plinkoController.adminUpdateSettings);
+router.post("/admin/plinko_control", authenticate.optional, plinkoController.adminSetControl);
+router.get("/admin/plinko_bets", authenticate.optional, plinkoController.adminGetBets);
+router.get("/admin/plinko_dashboard", authenticate.optional, plinkoController.adminGetDashboard);
 
 // Feedbacks Admin Management
 router.get("/admin/feedbacks", authenticate.optional, controller.getFeedbacks);
