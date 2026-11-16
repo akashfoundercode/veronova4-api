@@ -20,7 +20,7 @@ function usesBatchGame(body) {
 function isChickenGame(body, query) {
   const gId = Number(body?.game_id ?? query?.game_id);
   const name = String(body?.game ?? query?.game ?? "").toLowerCase();
-  return gId === 1 || gId === 19 || name.includes("chicken");
+  return (gId === 19 || name.includes("chicken")) && gId !== 1;
 }
 
 function bet(req, res, next) {

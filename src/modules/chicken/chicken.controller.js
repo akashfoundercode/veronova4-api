@@ -80,7 +80,7 @@ module.exports = {
     if (rawGameId !== undefined && rawGameId !== null && rawGameId !== "" && Number(rawGameId) !== 19) {
       const { WingoService } = require("../wingo/wingo.service");
       const wingoService = new WingoService(getPool);
-      const requestedUserId = req.query?.user_id ?? req.query?.userid ?? req.query?.id ?? req.body?.user_id ?? req.body?.userid ?? req.body?.id ?? req.user?.id;
+      const requestedUserId = req.query?.user_id ?? req.query?.userid ?? req.query?.id ?? req.query?.uid ?? req.body?.user_id ?? req.body?.userid ?? req.body?.id ?? req.body?.uid ?? req.get?.("user-id") ?? req.get?.("userid") ?? req.user?.id;
       const game_id = Number(rawGameId);
       const limit = Number(req.query?.limit ?? req.body?.limit ?? 10);
       const offset = Number(req.query?.offset ?? req.body?.offset ?? 0);

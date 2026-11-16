@@ -861,6 +861,11 @@ async function ensureAllTables() {
       await safeExec(`ALTER TABLE bets ${col};`);
     }
 
+    await safeExec("ALTER TABLE bets ADD COLUMN userid BIGINT UNSIGNED NULL;");
+    await safeExec("ALTER TABLE bets ADD COLUMN user_id BIGINT UNSIGNED NULL;");
+    await safeExec("UPDATE bets SET userid = user_id WHERE userid IS NULL AND user_id IS NOT NULL;");
+    await safeExec("UPDATE bets SET user_id = userid WHERE user_id IS NULL AND userid IS NOT NULL;");
+
     // 3. PAYMENT & WALLET TABLES
     await safeExec(`
       CREATE TABLE IF NOT EXISTS payins (

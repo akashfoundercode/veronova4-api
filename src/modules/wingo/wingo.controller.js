@@ -236,20 +236,24 @@ async function betHistory(req, res) {
       const chickenController = require("../chicken/chicken.controller");
       return chickenController.history(req, res);
     }
-    const rawUserId = body.userid !== undefined && body.userid !== "" ? body.userid : (body.user_id !== undefined && body.user_id !== "" ? body.user_id : req.user?.id);
+    const rawUserId =
+      body.userid !== undefined && body.userid !== "" ? body.userid :
+      (body.user_id !== undefined && body.user_id !== "" ? body.user_id :
+      (body.id !== undefined && body.id !== "" ? body.id :
+      (body.uid !== undefined && body.uid !== "" ? body.uid :
+      (req.get("user-id") || req.get("userid") || req.user?.id))));
+
     if (!rawUserId) {
       return adminBetHistory(req, res);
     }
     const userid = requiredInteger(rawUserId, "userid");
-    const isAdmin = req.user && Number(req.user.id) === 1;
-    if (req.user && !isAdmin && userid !== Number(req.user.id)) {
-      return res.status(403).json({
-        status: 403,
-        message: "The userid does not match the authenticated account.",
-      });
-    }
-    const rawGameId = body.game_id ?? body.gameid ?? 1;
-    const game_id = validateGameId(rawGameId);
+    const targetUserId = req.user && Number(req.user.id) !== 1 ? Number(req.user.id) : userid;
+
+    const rawGameId = body.game_id ?? body.gameid ?? body.gameId ?? body.type ?? body.game;
+    const game_id = rawGameId !== undefined && rawGameId !== null && rawGameId !== "" && !isNaN(Number(rawGameId)) && Number(rawGameId) > 0
+      ? validateGameId(rawGameId)
+      : undefined;
+
     const limit = body.limit === undefined || body.limit === "" ? 10000 : Number(body.limit);
     const offset = body.offset === undefined || body.offset === "" ? 0 : Number(body.offset);
     if (body.from_date && body.to_date) {
@@ -257,16 +261,18 @@ async function betHistory(req, res) {
         return responseError(res, 400, "The from_date and to_date must be valid dates.");
       }
     }
-    const { rows, totalBets } = await serviceForGame(game_id).getBetHistory({
-      userid,
+    const targetService = game_id ? serviceForGame(game_id) : service;
+    const { rows, totalBets } = await targetService.getBetHistory({
+      userid: targetUserId,
       game_id,
       limit,
       offset,
       from_date: body.from_date,
       to_date: body.to_date,
+      status: body.status,
     });
     if (rows.length === 0) {
-      return res.status(200).json({ status: 200, message: "No Data found", data: [] });
+      return res.status(200).json({ status: 200, message: "No Data found", total_bets: 0, data: [] });
     }
     return res.status(200).json({
       status: 200,

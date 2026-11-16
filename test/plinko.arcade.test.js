@@ -249,6 +249,81 @@ test("Plinko Arcade: settleBet is idempotent when called again on settled bet", 
   assert.equal(userUpdate, undefined);
 });
 
+test("Plinko Arcade: settleBet falls back to pending bet when dropId/orderId is missing", async () => {
+  const pool = createMockPool((sql) => {
+    if (sql.startsWith("SELECT id, username, wallet, winning_wallet FROM users")) {
+      return [{ id: 10, username: "Vikram", wallet: "490.00", winning_wallet: "190.00" }];
+    }
+    if (sql.startsWith("SELECT * FROM plinko_bets WHERE userid = ? AND status = 0 ORDER BY id DESC LIMIT 1")) {
+      return [{
+        id: 99,
+        orderid: "ORD99999",
+        amount: "10.00",
+        userid: 10,
+        status: 0,
+        tier: 0,
+      }];
+    }
+    if (sql.startsWith("SELECT id, stats FROM plinko_game_state")) {
+      return [{ id: 1, stats: JSON.stringify({ drops: 1, totalEarned: 0, bestWin: 0 }) }];
+    }
+    return [];
+  });
+
+  const service = new PlinkoService(() => pool);
+  const res = await service.settleBet({
+    userId: 10,
+    slot: 2,
+    mult: 1.2,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.data.drop_id, 99);
+  assert.equal(res.data.status, 1);
+  assert.equal(res.data.payout, 12);
+  assert.equal(res.data.wallet, 502);
+  assert.equal(pool.connection.committed, true);
+});
+
+test("Plinko Arcade: settleBet auto-creates and settles when no pending bet exists", async () => {
+  const pool = createMockPool((sql) => {
+    if (sql.startsWith("SELECT id, username, wallet, winning_wallet FROM users")) {
+      return [{ id: 10, username: "Vikram", wallet: "500.00", winning_wallet: "200.00" }];
+    }
+    if (sql.startsWith("INSERT INTO plinko_bets")) {
+      return { insertId: 105 };
+    }
+    if (sql.startsWith("SELECT * FROM plinko_bets WHERE id = ? FOR UPDATE")) {
+      return [{
+        id: 105,
+        orderid: "AUTO_123",
+        amount: "5.00",
+        userid: 10,
+        status: 0,
+        tier: 0,
+      }];
+    }
+    if (sql.startsWith("SELECT id, stats FROM plinko_game_state")) {
+      return [{ id: 1, stats: JSON.stringify({ drops: 0, totalEarned: 0, bestWin: 0 }) }];
+    }
+    return [];
+  });
+
+  const service = new PlinkoService(() => pool);
+  const res = await service.settleBet({
+    userId: 10,
+    slot: 0,
+    mult: 1.7,
+    amount: 5,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.data.drop_id, 105);
+  assert.equal(res.data.status, 1);
+  assert.equal(res.data.payout, 8.5);
+  assert.equal(pool.connection.committed, true);
+});
+
 test("Plinko Arcade: getMyHistory returns paginated bet history", async () => {
   const pool = createMockPool((sql) => {
     if (sql.startsWith("SELECT COUNT(*) AS total FROM plinko_bets")) {

@@ -147,7 +147,8 @@ async function optionalAuthenticate(req, res, next) {
     req.get("bearer_token") ||
     req.get("token_id");
   const queryToken = req.query?.token ?? req.query?.bearer_token;
-  const parsed = parseBearerToken(authHeader || queryToken);
+  const bodyToken = req.body?.token ?? req.body?.bearer_token;
+  const parsed = parseBearerToken(authHeader || queryToken || bodyToken);
 
   if (parsed) {
     try {
@@ -160,7 +161,7 @@ async function optionalAuthenticate(req, res, next) {
     } catch (_) {}
   }
 
-  const rawToken = (authHeader || queryToken || "").replace(/^Bearer\s+/i, "");
+  const rawToken = (authHeader || queryToken || bodyToken || "").replace(/^Bearer\s+/i, "");
   if (rawToken && rawToken.split(".").length === 3) {
     try {
       const jwt = require("jsonwebtoken");
@@ -195,6 +196,7 @@ async function optionalAuthenticate(req, res, next) {
     req.get("login-token") ||
     req.get("x-login-token") ||
     req.query?.login_token ||
+    req.body?.login_token ||
     (rawToken && rawToken.length <= 64 ? rawToken : null);
   if (loginToken) {
     try {
@@ -214,9 +216,11 @@ async function optionalAuthenticate(req, res, next) {
     req.query?.id ??
     req.query?.user_id ??
     req.query?.userid ??
+    req.query?.uid ??
     req.body?.user_id ??
     req.body?.userid ??
     req.body?.id ??
+    req.body?.uid ??
     req.get("user-id") ??
     req.get("userid")
   );

@@ -863,9 +863,21 @@ class WingoService {
     return rows[0] ?? null;
   }
 
-  async getBetHistory({ userid, game_id, limit, offset, from_date, to_date }) {
-    const where = ["bets.userid = ?", "bets.game_id = ?"];
-    const values = [userid, game_id];
+  async getBetHistory({ userid, game_id, limit = 10000, offset = 0, from_date, to_date, status }) {
+    const uid = Number(userid);
+    const where = ["(bets.userid = ? OR bets.user_id = ?)"];
+    const values = [uid, uid];
+
+    if (game_id !== undefined && game_id !== null && game_id !== "" && Number(game_id) > 0) {
+      where.push("bets.game_id = ?");
+      values.push(Number(game_id));
+    } else {
+      where.push("bets.game_id IN (1, 2, 3, 4)");
+    }
+    if (status !== undefined && status !== null && status !== "") {
+      where.push("bets.status = ?");
+      values.push(Number(status));
+    }
     if (from_date) {
       where.push("bets.created_at >= ?");
       values.push(from_date);
@@ -874,6 +886,7 @@ class WingoService {
       where.push("bets.created_at <= ?");
       values.push(to_date);
     }
+    const whereSql = where.join(" AND ");
     const [rows] = await this.poolProvider().execute(
       `SELECT DISTINCT bets.*, game_settings.name AS game_name,
               virtual_games.name AS virtual_game_name
@@ -881,16 +894,16 @@ class WingoService {
        LEFT JOIN game_settings ON game_settings.id = bets.game_id
        LEFT JOIN virtual_games
          ON virtual_games.game_id = bets.game_id AND virtual_games.number = bets.number
-       WHERE ${where.join(" AND ")}
+       WHERE ${whereSql}
        ORDER BY bets.id DESC LIMIT ? OFFSET ?`,
-      [...values, limit, offset],
+      [...values, Number(limit || 10000), Number(offset || 0)],
     );
     const [counts] = await this.poolProvider().execute(
-      "SELECT COUNT(*) AS total_bet FROM bets WHERE userid = ? AND game_id = ?",
-      [userid, game_id],
+      `SELECT COUNT(*) AS total_bet FROM bets WHERE ${whereSql}`,
+      values,
     );
 
-    return { rows, totalBets: Number(counts[0].total_bet) };
+    return { rows, totalBets: Number(counts[0]?.total_bet || 0) };
   }
 
   async addAdminResult({ period_num, card_number, gameid }) {

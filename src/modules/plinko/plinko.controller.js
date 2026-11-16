@@ -20,7 +20,16 @@ function sendError(error, res) {
 }
 
 function getUserId(req) {
-  return req.user?.id ? Number(req.user.id) : Number(req.body?.userid ?? req.query?.userid ?? req.body?.userId ?? req.query?.userId);
+  const uid =
+    req.user?.id ??
+    req.user?.userid ??
+    req.body?.userid ??
+    req.query?.userid ??
+    req.body?.userId ??
+    req.query?.userId ??
+    req.body?.user_id ??
+    req.query?.user_id;
+  return uid ? Number(uid) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,7 +133,8 @@ async function sessionInit(req, res) {
 async function betDrop(req, res) {
   try {
     const userId = getUserId(req);
-    const { amount, bet: betAmt, tier, tierId, is_free, isFree } = req.body ?? {};
+    const payload = { ...(req.query ?? {}), ...(req.body ?? {}) };
+    const { amount, bet: betAmt, tier, tierId, is_free, isFree } = payload;
     const finalAmount = amount !== undefined ? amount : (betAmt !== undefined ? betAmt : 5);
     const finalTier = tier !== undefined ? tier : (tierId !== undefined ? tierId : 0);
     const free = is_free !== undefined ? is_free : Boolean(isFree);
@@ -147,12 +157,14 @@ async function betDrop(req, res) {
 async function betSettle(req, res) {
   try {
     const userId = getUserId(req);
+    const payload = { ...(req.query ?? {}), ...(req.body ?? {}) };
     const {
       drop_id,
       dropId,
       id,
       orderid,
       orderId,
+      order_id,
       slot,
       mult,
       multiplier: multVal,
@@ -161,13 +173,18 @@ async function betSettle(req, res) {
       is_out,
       isOut,
       tier,
-    } = req.body ?? {};
+      tierId,
+      amount,
+      bet: betAmt,
+    } = payload;
 
     const targetDropId = drop_id ?? dropId ?? id;
-    const targetOrderId = orderid ?? orderId;
+    const targetOrderId = orderid ?? orderId ?? order_id;
     const targetMult = mult !== undefined ? mult : multVal;
     const targetPayout = payout !== undefined ? payout : win_amount;
     const targetOut = is_out !== undefined ? is_out : isOut;
+    const targetTier = tier !== undefined ? tier : tierId;
+    const targetAmount = amount !== undefined ? amount : betAmt;
 
     const data = await service.settleBet({
       userId,
@@ -177,7 +194,8 @@ async function betSettle(req, res) {
       mult: targetMult,
       payout: targetPayout,
       isOut: targetOut,
-      tier,
+      tier: targetTier,
+      amount: targetAmount,
     });
     return res.status(200).json(data);
   } catch (error) {

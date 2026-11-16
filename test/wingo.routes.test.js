@@ -215,3 +215,41 @@ test("POST /results and GET /game_history return game results without crashing o
     wingoController.service.poolProvider = origPoolProvider;
   }
 });
+
+test("POST and GET /api/bet_history returns wingo bets history for game_id: 1 and userid", async () => {
+  const wingoController = require("../src/modules/wingo/wingo.controller");
+  const origPoolProvider = wingoController.service.poolProvider;
+  const mockBets = [
+    { id: 10, userid: 5, user_id: 5, game_id: 1, amount: "100.00", number: "Green", games_no: "20261114001", status: 1 },
+  ];
+  wingoController.service.poolProvider = () => ({
+    async execute(sql) {
+      if (sql.includes("COUNT(*) AS total_bet")) {
+        return [[{ total_bet: mockBets.length }], []];
+      }
+      if (sql.includes("FROM bets")) {
+        return [mockBets, []];
+      }
+      return [[], []];
+    },
+  });
+
+  try {
+    const resPost = await testRoute("POST", "/api/bet_history", {}, { game_id: 1, userid: 5 });
+    assert.equal(resPost.statusCode, 200);
+    assert.equal(resPost.body.status, 200);
+    assert.equal(resPost.body.message, "Data found");
+    assert.equal(resPost.body.total_bets, 1);
+    assert.ok(Array.isArray(resPost.body.data));
+    assert.equal(resPost.body.data.length, 1);
+
+    const resGet = await testRoute("GET", "/api/bet_history?game_id=1&user_id=5");
+    assert.equal(resGet.statusCode, 200);
+    assert.equal(resGet.body.status, 200);
+    assert.equal(resGet.body.message, "Data found");
+    assert.equal(resGet.body.total_bets, 1);
+    assert.ok(Array.isArray(resGet.body.data));
+  } finally {
+    wingoController.service.poolProvider = origPoolProvider;
+  }
+});
