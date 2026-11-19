@@ -405,15 +405,30 @@ function createDragonTigerSocket(io, {
       }
     } catch (_) {}
 
-    // Advance to next period
-    await syncPeriod();
+    // Advance to next period explicitly in DB & memory
+    try {
+      const nextPeriod = await service.advancePeriod(DRAGON_TIGER_GAME_ID, state.period);
+      state.period = String(nextPeriod);
+    } catch (_) {
+      if (/^\d+$/.test(String(state.period))) {
+        state.period = String(BigInt(state.period) + 1n);
+      }
+    }
+    resetActiveRoundBets(state.period);
 
     // Start next round with Phase 1: Versus
     startVersusPhase();
   }
 
-  // Initial period sync
-  syncPeriod();
+  // Initial period sync from database
+  service.getCurrentPeriod(DRAGON_TIGER_GAME_ID).then((period) => {
+    if (period && period !== "0") {
+      state.period = String(period);
+      resetActiveRoundBets(state.period);
+      emitClientState();
+      emitAdminState();
+    }
+  }).catch(() => {});
 
   // Master 1-second state-machine timer loop
   const intervalId = setIntervalImpl(async () => {

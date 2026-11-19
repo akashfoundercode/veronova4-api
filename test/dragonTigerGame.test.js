@@ -231,6 +231,7 @@ test("DragonTigerSocket manages exact 5-phase timing: 4s versus, 2s place bet po
 
   const mockService = {
     getCurrentPeriod: async () => "20261119100001",
+    advancePeriod: async (gid, curr) => String(BigInt(curr || "20261119100001") + 1n),
     settleRound: async () => ({
       games_no: "20261119100001",
       winner: "D",
@@ -245,6 +246,7 @@ test("DragonTigerSocket manages exact 5-phase timing: 4s versus, 2s place bet po
     setIntervalImpl: mockSetInterval,
     clearIntervalImpl: () => {},
   });
+  socketInstance.state.period = "20261119100001";
 
   assert.ok(socketInstance);
   // Phase 1: Versus (4 seconds)
@@ -306,6 +308,7 @@ test("DragonTigerSocket manages exact 5-phase timing: 4s versus, 2s place bet po
   await tickHandler();
   assert.equal(socketInstance.state.phase, "versus");
   assert.equal(socketInstance.state.time_remaining, 4);
+  assert.equal(socketInstance.state.period, "20261119100002");
 
   socketInstance.stop();
 });
@@ -437,4 +440,27 @@ test("DragonTiger controllers support placeBet, getResults, getCurrentRound, and
   assert.equal(rejectedCode, 400);
 
   controller.service.placeSingleOrMultiBet = origPlaceBet;
+});
+
+test("DragonTigerService advancePeriod accurately increments period sequence", async () => {
+  const calls = [];
+  const mockPool = {
+    execute: async (sql, params) => {
+      calls.push({ sql, params });
+      if (sql.includes("FROM bet_results")) {
+        return [[{ games_no: "20261119100050" }], []];
+      }
+      if (sql.includes("FROM betlogs")) {
+        return [[{ games_no: "20261119100050" }], []];
+      }
+      return [{ affectedRows: 1 }, []];
+    },
+  };
+
+  const service = new DragonTigerService(() => mockPool);
+  const curr = await service.getCurrentPeriod(10);
+  assert.equal(curr, "20261119100051");
+
+  const next = await service.advancePeriod(10, curr);
+  assert.equal(next, "20261119100052");
 });

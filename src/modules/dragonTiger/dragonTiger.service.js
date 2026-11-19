@@ -81,23 +81,100 @@ class DragonTigerService {
 
   async getCurrentPeriod(gameId = DRAGON_TIGER_GAME_ID) {
     const pool = this.poolProvider();
+    let currentPeriod = null;
+
     try {
+      // 1. Check last settled round in bet_results
+      const [lastResultRows] = await pool.execute(
+        "SELECT games_no FROM bet_results WHERE game_id = ? ORDER BY id DESC LIMIT 1",
+        [Number(gameId)],
+      );
+      let lastResultNo = null;
+      if (lastResultRows.length > 0 && lastResultRows[0].games_no) {
+        lastResultNo = String(lastResultRows[0].games_no);
+      }
+
+      // 2. Check betlogs
       const [rows] = await pool.execute(
         "SELECT games_no FROM betlogs WHERE game_id = ? ORDER BY id ASC LIMIT 1",
         [Number(gameId)],
       );
+      let betlogNo = null;
       if (rows && rows.length > 0 && rows[0].games_no) {
-        return String(rows[0].games_no);
+        betlogNo = String(rows[0].games_no);
+      }
+
+      if (lastResultNo && /^\d+$/.test(lastResultNo)) {
+        const nextFromRes = String(BigInt(lastResultNo) + 1n);
+        if (!betlogNo || !/^\d+$/.test(betlogNo) || BigInt(betlogNo) <= BigInt(lastResultNo)) {
+          currentPeriod = nextFromRes;
+          try {
+            await pool.execute(
+              "UPDATE betlogs SET games_no = ? WHERE game_id = ?",
+              [currentPeriod, Number(gameId)],
+            );
+          } catch (_) {}
+        } else {
+          currentPeriod = betlogNo;
+        }
+      } else if (betlogNo && /^\d+$/.test(betlogNo)) {
+        currentPeriod = betlogNo;
       }
     } catch (_) {}
-    const date = new Date();
-    return [
-      date.getFullYear(),
-      String(date.getMonth() + 1).padStart(2, "0"),
-      String(date.getDate()).padStart(2, "0"),
-      String(DRAGON_TIGER_GAME_ID).padStart(2, "0"),
-      "0001",
-    ].join("");
+
+    if (!currentPeriod) {
+      const date = new Date();
+      currentPeriod = [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+        String(DRAGON_TIGER_GAME_ID).padStart(2, "0"),
+        "0001",
+      ].join("");
+    }
+    return currentPeriod;
+  }
+
+  /**
+   * Explicitly advances period to next round in both database and memory
+   */
+  async advancePeriod(gameId = DRAGON_TIGER_GAME_ID, currentPeriod = null) {
+    const pool = this.poolProvider();
+    let base = currentPeriod;
+    if (!base || !/^\d+$/.test(String(base))) {
+      base = await this.getCurrentPeriod(gameId);
+    }
+
+    let nextPeriod;
+    if (base && /^\d+$/.test(String(base))) {
+      nextPeriod = String(BigInt(base) + 1n);
+    } else {
+      const d = new Date();
+      nextPeriod = [
+        d.getFullYear(),
+        String(d.getMonth() + 1).padStart(2, "0"),
+        String(d.getDate()).padStart(2, "0"),
+        String(DRAGON_TIGER_GAME_ID).padStart(2, "0"),
+        "0001",
+      ].join("");
+    }
+
+    try {
+      const [upd] = await pool.execute(
+        "UPDATE betlogs SET amount = 0, games_no = ? WHERE game_id = ?",
+        [nextPeriod, Number(gameId)],
+      );
+      if (upd.affectedRows === 0) {
+        for (const num of [1, 2, 3]) {
+          await pool.execute(
+            "INSERT INTO betlogs (game_id, games_no, number, amount) VALUES (?, ?, ?, 0.00)",
+            [Number(gameId), nextPeriod, String(num)],
+          );
+        }
+      }
+    } catch (_) {}
+
+    return nextPeriod;
   }
 
   /**
@@ -712,9 +789,19 @@ class DragonTigerService {
         [gameId, gameNo],
       );
       if (existing.length > 0) {
+        let nextNo = gameNo;
+        if (/^\d+$/.test(gameNo)) {
+          nextNo = String(BigInt(gameNo) + 1n);
+          try {
+            await connection.execute(
+              "UPDATE betlogs SET amount = 0, games_no = ? WHERE game_id = ?",
+              [nextNo, gameId],
+            );
+          } catch (_) {}
+        }
         await connection.commit();
         transactionStarted = false;
-        return { message: "Dragon Tiger round already settled", games_no: gameNo };
+        return { message: "Dragon Tiger round already settled", games_no: nextNo, already_settled: true };
       }
 
       // Check for explicit or admin forced winner
@@ -819,10 +906,24 @@ class DragonTigerService {
         [resultNumber, gameNo, gameId],
       );
 
-      // Reset betlogs amount and increment games_no
+      // Calculate next game number accurately using BigInt
+      let nextGameNo = gameNo;
+      if (/^\d+$/.test(gameNo)) {
+        nextGameNo = String(BigInt(gameNo) + 1n);
+      } else {
+        const d = new Date();
+        nextGameNo = [
+          d.getFullYear(),
+          String(d.getMonth() + 1).padStart(2, "0"),
+          String(d.getDate()).padStart(2, "0"),
+          String(gameId).padStart(2, "0"),
+          "0001",
+        ].join("");
+      }
+
       await connection.execute(
-        "UPDATE betlogs SET amount = 0, games_no = games_no + 1 WHERE game_id = ?",
-        [gameId],
+        "UPDATE betlogs SET amount = 0, games_no = ? WHERE game_id = ?",
+        [nextGameNo, gameId],
       );
 
       await connection.commit();
