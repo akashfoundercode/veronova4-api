@@ -42,10 +42,11 @@ async function placeBet(req, res) {
   if (!assertAuthenticatedUser(req, res, userid)) return;
 
   const socketInstance = getDragonTigerSocket();
-  if (socketInstance && socketInstance.state && socketInstance.state.status === "revealing") {
+  const currentPhase = socketInstance?.state?.phase;
+  if (currentPhase && currentPhase !== "betting" && currentPhase !== "place_bet_popup") {
     return res.status(400).json({
       status: 400,
-      message: "Betting closed for current round. Please wait for the next round to start.",
+      message: "Betting closed for current round. Please wait for the betting window to start.",
     });
   }
 
@@ -125,17 +126,26 @@ async function getCurrentRound(req, res) {
   try {
     const socketInstance = getDragonTigerSocket();
     const period = socketInstance?.state?.period || (await service.getCurrentPeriod(DRAGON_TIGER_GAME_ID));
-    const status = socketInstance?.state?.status || "betting";
+    const phase = socketInstance?.state?.phase || "betting";
+    const status = socketInstance?.state?.status || phase;
     const timeRemaining = socketInstance?.state?.time_remaining ?? 15;
+    const phaseDuration = socketInstance?.state?.phase_duration ?? 15;
 
     return res.status(200).json({
       status: 200,
       period,
       game_id: DRAGON_TIGER_GAME_ID,
+      phase,
       game_status: status,
       time_remaining: timeRemaining,
-      total_bet_time: 15,
-      total_reveal_time: 8,
+      phase_duration: phaseDuration,
+      timings: {
+        versus: 4,
+        place_bet_popup: 2,
+        betting: 15,
+        revealing: 6,
+        winner_popup: 5,
+      },
     });
   } catch (error) {
     if (error instanceof AppError) {

@@ -3,8 +3,27 @@
 const { DragonTigerService, DRAGON_TIGER_GAME_ID } = require("./dragonTiger.service");
 const { dealWinningCards, determineWinner } = require("./dragonTigerDeck");
 
-const BETTING_TIME_SEC = 15;
-const REVEALING_TIME_SEC = 8;
+// User requested exact timing cycle:
+// 1. 4 sec versus pop up
+// 2. 2 sec place bet pop up
+// 3. 15 sec place bets timer
+// 4. 6 sec revealing cards & winner decide
+// 5. 5 sec winner pop up
+const PHASES = Object.freeze({
+  VERSUS: "versus",
+  PLACE_BET_POPUP: "place_bet_popup",
+  BETTING: "betting",
+  REVEALING: "revealing",
+  WINNER_POPUP: "winner_popup",
+});
+
+const PHASE_TIMINGS = Object.freeze({
+  [PHASES.VERSUS]: 4,
+  [PHASES.PLACE_BET_POPUP]: 2,
+  [PHASES.BETTING]: 15,
+  [PHASES.REVEALING]: 6,
+  [PHASES.WINNER_POPUP]: 5,
+});
 
 let activeSocketInstance = null;
 
@@ -24,10 +43,11 @@ function createDragonTigerSocket(io, {
   const state = {
     game_id: DRAGON_TIGER_GAME_ID,
     period: "0",
-    status: "betting", // "betting" | "revealing"
-    time_remaining: BETTING_TIME_SEC,
-    total_bet_time: BETTING_TIME_SEC,
-    total_reveal_time: REVEALING_TIME_SEC,
+    status: PHASES.VERSUS, // "versus" | "place_bet_popup" | "betting" | "revealing" | "winner_popup"
+    phase: PHASES.VERSUS,
+    time_remaining: PHASE_TIMINGS[PHASES.VERSUS],
+    phase_duration: PHASE_TIMINGS[PHASES.VERSUS],
+    timings: PHASE_TIMINGS,
     last_settled: null,
     current_cards: null,
     current_winner: null,
@@ -130,15 +150,19 @@ function createDragonTigerSocket(io, {
   }
 
   function emitClientState(target = clientNsp) {
+    const isRevealOrWinner = state.phase === PHASES.REVEALING || state.phase === PHASES.WINNER_POPUP;
     const payload = {
       status: state.status,
+      phase: state.phase,
+      phase_duration: state.phase_duration,
       period: state.period,
       time_remaining: state.time_remaining,
       game_id: state.game_id,
       online_count: state.online_count,
-      cards: state.status === "revealing" ? state.current_cards : null,
-      winner: state.status === "revealing" ? state.current_winner : null,
-      multiplier: state.status === "revealing" ? state.multiplier : null,
+      cards: isRevealOrWinner ? state.current_cards : null,
+      winner: isRevealOrWinner ? state.current_winner : null,
+      multiplier: isRevealOrWinner ? state.multiplier : null,
+      timings: PHASE_TIMINGS,
     };
 
     try {
@@ -161,12 +185,15 @@ function createDragonTigerSocket(io, {
       period: state.period,
       game_id: DRAGON_TIGER_GAME_ID,
       status: state.status,
+      phase: state.phase,
       time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
       totals: { ...activeRoundBets.totals },
       counts: { ...activeRoundBets.counts },
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
       bets: activeRoundBets.bets.slice(0, 50),
+      timings: PHASE_TIMINGS,
     };
 
     try {
@@ -177,11 +204,92 @@ function createDragonTigerSocket(io, {
     } catch (_) {}
   }
 
-  async function handleRevealingPhase() {
-    state.status = "revealing";
-    state.time_remaining = REVEALING_TIME_SEC;
+  // --- Phase Handlers ---
 
-    logger.log(`[DragonTigerSocket] Round ${state.period} betting ended. Entering revealing phase...`);
+  function startVersusPhase() {
+    state.status = PHASES.VERSUS;
+    state.phase = PHASES.VERSUS;
+    state.phase_duration = PHASE_TIMINGS[PHASES.VERSUS];
+    state.time_remaining = PHASE_TIMINGS[PHASES.VERSUS];
+    state.current_cards = null;
+    state.current_winner = null;
+
+    logger.log(`[DragonTigerSocket] Round ${state.period} - Phase 1: Versus Pop-up (4s)...`);
+    const payload = {
+      status: PHASES.VERSUS,
+      phase: PHASES.VERSUS,
+      period: state.period,
+      time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
+    };
+    try {
+      clientNsp.emit("dragon_tiger:versus", payload);
+      if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:versus", payload);
+      }
+    } catch (_) {}
+    emitClientState();
+    emitAdminState();
+  }
+
+  function startPlaceBetPopupPhase() {
+    state.status = PHASES.PLACE_BET_POPUP;
+    state.phase = PHASES.PLACE_BET_POPUP;
+    state.phase_duration = PHASE_TIMINGS[PHASES.PLACE_BET_POPUP];
+    state.time_remaining = PHASE_TIMINGS[PHASES.PLACE_BET_POPUP];
+
+    logger.log(`[DragonTigerSocket] Round ${state.period} - Phase 2: Place Bet Pop-up (2s)...`);
+    const payload = {
+      status: PHASES.PLACE_BET_POPUP,
+      phase: PHASES.PLACE_BET_POPUP,
+      period: state.period,
+      time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
+    };
+    try {
+      clientNsp.emit("dragon_tiger:place_bet_popup", payload);
+      clientNsp.emit("dragon_tiger:start_bet", payload);
+      if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:place_bet_popup", payload);
+        io.emit("dragon_tiger:start_bet", payload);
+      }
+    } catch (_) {}
+    emitClientState();
+    emitAdminState();
+  }
+
+  function startBettingPhase() {
+    state.status = PHASES.BETTING;
+    state.phase = PHASES.BETTING;
+    state.phase_duration = PHASE_TIMINGS[PHASES.BETTING];
+    state.time_remaining = PHASE_TIMINGS[PHASES.BETTING];
+
+    logger.log(`[DragonTigerSocket] Round ${state.period} - Phase 3: Place Bets Timer (15s)...`);
+    const payload = {
+      status: PHASES.BETTING,
+      phase: PHASES.BETTING,
+      period: state.period,
+      time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
+    };
+    try {
+      clientNsp.emit("dragon_tiger:betting_started", payload);
+      if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:betting_started", payload);
+      }
+      adminNsp.emit("dragon_tiger:admin:round_change", { type: "betting", ...payload });
+    } catch (_) {}
+    emitClientState();
+    emitAdminState();
+  }
+
+  async function startRevealingPhase() {
+    state.status = PHASES.REVEALING;
+    state.phase = PHASES.REVEALING;
+    state.phase_duration = PHASE_TIMINGS[PHASES.REVEALING];
+    state.time_remaining = PHASE_TIMINGS[PHASES.REVEALING];
+
+    logger.log(`[DragonTigerSocket] Round ${state.period} - Phase 4: Revealing Cards & Winner Decide (6s)...`);
 
     let settleResult = null;
     try {
@@ -213,9 +321,11 @@ function createDragonTigerSocket(io, {
     state.last_settled = settleResult;
 
     const revealPayload = {
-      status: "revealing",
+      status: PHASES.REVEALING,
+      phase: PHASES.REVEALING,
       period: state.period,
       time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
       game_id: state.game_id,
       cards: settleResult.cards,
       winner: settleResult.winner, // "D" | "T" | "Tie"
@@ -225,10 +335,8 @@ function createDragonTigerSocket(io, {
 
     try {
       clientNsp.emit("dragon_tiger:revealing", revealPayload);
-      clientNsp.emit("dragon_tiger:state", revealPayload);
       if (io !== clientNsp && typeof io.emit === "function") {
         io.emit("dragon_tiger:revealing", revealPayload);
-        io.emit("dragon_tiger:state", revealPayload);
       }
 
       adminNsp.emit("dragon_tiger:admin:round_change", {
@@ -242,10 +350,44 @@ function createDragonTigerSocket(io, {
         });
       }
     } catch (_) {}
+    emitClientState();
+    emitAdminState();
   }
 
-  async function handleRoundTransition() {
-    logger.log(`[DragonTigerSocket] Round ${state.period} complete. Starting next round...`);
+  function startWinnerPopupPhase() {
+    state.status = PHASES.WINNER_POPUP;
+    state.phase = PHASES.WINNER_POPUP;
+    state.phase_duration = PHASE_TIMINGS[PHASES.WINNER_POPUP];
+    state.time_remaining = PHASE_TIMINGS[PHASES.WINNER_POPUP];
+
+    logger.log(`[DragonTigerSocket] Round ${state.period} - Phase 5: Winner Pop-up (5s)... Winner: ${state.current_winner}`);
+
+    const winnerPayload = {
+      status: PHASES.WINNER_POPUP,
+      phase: PHASES.WINNER_POPUP,
+      period: state.period,
+      time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
+      winner: state.current_winner,
+      win_number: state.last_settled?.win_number,
+      multiplier: state.multiplier,
+      cards: state.current_cards,
+    };
+
+    try {
+      clientNsp.emit("dragon_tiger:winner_popup", winnerPayload);
+      clientNsp.emit("dragon_tiger:winner", winnerPayload);
+      if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:winner_popup", winnerPayload);
+        io.emit("dragon_tiger:winner", winnerPayload);
+      }
+    } catch (_) {}
+    emitClientState();
+    emitAdminState();
+  }
+
+  async function handleCycleTransition() {
+    logger.log(`[DragonTigerSocket] Round ${state.period} fully completed. Starting next round...`);
 
     const settledPayload = {
       period: state.period,
@@ -263,48 +405,53 @@ function createDragonTigerSocket(io, {
       }
     } catch (_) {}
 
-    // Reset state to betting
-    state.status = "betting";
-    state.time_remaining = BETTING_TIME_SEC;
-    state.current_cards = null;
-    state.current_winner = null;
-
     // Advance to next period
     await syncPeriod();
 
-    emitClientState();
-    emitAdminState();
-
-    try {
-      adminNsp.emit("dragon_tiger:admin:round_change", {
-        type: "new_round",
-        period: state.period,
-        status: "betting",
-        time_remaining: BETTING_TIME_SEC,
-      });
-    } catch (_) {}
+    // Start next round with Phase 1: Versus
+    startVersusPhase();
   }
 
-  // Initial sync
+  // Initial period sync
   syncPeriod();
 
-  // Master 1-second loop
+  // Master 1-second state-machine timer loop
   const intervalId = setIntervalImpl(async () => {
     if (state.stopped) return;
 
-    if (state.status === "betting") {
-      state.time_remaining -= 1;
-      emitClientState();
+    state.time_remaining -= 1;
+    emitClientState();
 
-      if (state.time_remaining <= 0) {
-        await handleRevealingPhase();
-      }
-    } else if (state.status === "revealing") {
-      state.time_remaining -= 1;
-      emitClientState();
+    if (state.time_remaining <= 0) {
+      switch (state.phase) {
+        case PHASES.VERSUS:
+          // 4s versus complete -> start 2s place bet popup
+          startPlaceBetPopupPhase();
+          break;
 
-      if (state.time_remaining <= 0) {
-        await handleRoundTransition();
+        case PHASES.PLACE_BET_POPUP:
+          // 2s place bet popup complete -> start 15s place bets timer
+          startBettingPhase();
+          break;
+
+        case PHASES.BETTING:
+          // 15s betting timer complete -> start 6s revealing cards & winner decide
+          await startRevealingPhase();
+          break;
+
+        case PHASES.REVEALING:
+          // 6s revealing cards complete -> start 5s winner popup
+          startWinnerPopupPhase();
+          break;
+
+        case PHASES.WINNER_POPUP:
+          // 5s winner popup complete -> complete round and transition to next round
+          await handleCycleTransition();
+          break;
+
+        default:
+          startVersusPhase();
+          break;
       }
     }
   }, 1000);
@@ -313,10 +460,10 @@ function createDragonTigerSocket(io, {
   clientNsp.on("connection", (client) => {
     emitClientState(client);
 
-    // Allow bet placement over socket
+    // Allow bet placement over socket (allowed during betting & place_bet_popup phases)
     client.on("dragon_tiger:place_bet", async (data, callback) => {
       try {
-        if (state.status !== "betting") {
+        if (state.phase !== PHASES.BETTING && state.phase !== PHASES.PLACE_BET_POPUP) {
           const errRes = { status: 400, message: "Betting closed for current round. Please wait for next round." };
           if (typeof callback === "function") callback(errRes);
           return client.emit("dragon_tiger:bet_error", errRes);
@@ -385,6 +532,13 @@ function createDragonTigerSocket(io, {
       clearIntervalImpl(intervalId);
     },
     syncPeriod,
+    // Methods for testing transitions directly
+    startVersusPhase,
+    startPlaceBetPopupPhase,
+    startBettingPhase,
+    startRevealingPhase,
+    startWinnerPopupPhase,
+    handleCycleTransition,
   };
 
   activeSocketInstance = instance;
@@ -398,6 +552,6 @@ function getDragonTigerSocket() {
 module.exports = {
   createDragonTigerSocket,
   getDragonTigerSocket,
-  BETTING_TIME_SEC,
-  REVEALING_TIME_SEC,
+  PHASES,
+  PHASE_TIMINGS,
 };

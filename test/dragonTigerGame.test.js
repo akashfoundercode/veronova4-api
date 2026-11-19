@@ -195,7 +195,7 @@ test("DragonTigerService settleRound awards 2x for Dragon/Tiger and 5x for Tie a
   assert.equal(updateBets.params[1], 3); // win_number = 3
 });
 
-test("DragonTigerSocket manages 15-second timer, reveals cards, and emits to Socket 1 and Socket 2", async () => {
+test("DragonTigerSocket manages exact 5-phase timing: 4s versus, 2s place bet popup, 15s betting, 6s revealing, 5s winner popup", async () => {
   const clientEvents = [];
   const adminEvents = [];
 
@@ -247,7 +247,20 @@ test("DragonTigerSocket manages 15-second timer, reveals cards, and emits to Soc
   });
 
   assert.ok(socketInstance);
-  assert.equal(socketInstance.state.status, "betting");
+  // Phase 1: Versus (4 seconds)
+  assert.equal(socketInstance.state.phase, "versus");
+  assert.equal(socketInstance.state.time_remaining, 4);
+
+  // Fast forward versus timer (4 -> 0) -> should transition to Phase 2: Place Bet Pop-up (2s)
+  socketInstance.state.time_remaining = 1;
+  await tickHandler();
+  assert.equal(socketInstance.state.phase, "place_bet_popup");
+  assert.equal(socketInstance.state.time_remaining, 2);
+
+  // Fast forward place bet pop-up timer (2 -> 0) -> should transition to Phase 3: Betting (15s)
+  socketInstance.state.time_remaining = 1;
+  await tickHandler();
+  assert.equal(socketInstance.state.phase, "betting");
   assert.equal(socketInstance.state.time_remaining, 15);
 
   // Place a live bet and check Socket 2 (Admin Live Bets Stream)
@@ -264,19 +277,35 @@ test("DragonTigerSocket manages 15-second timer, reveals cards, and emits to Soc
   assert.equal(adminBetEvent.data.latest_bet.amount, 500);
   assert.equal(adminBetEvent.data.totals.dragon, 500);
 
-  // Fast forward timer to 0 -> should transition to revealing phase
+  // Fast forward betting timer (15 -> 0) -> should transition to Phase 4: Revealing (6s)
   socketInstance.state.time_remaining = 1;
   await tickHandler();
-
-  assert.equal(socketInstance.state.status, "revealing");
-  assert.equal(socketInstance.state.time_remaining, 8);
+  assert.equal(socketInstance.state.phase, "revealing");
+  assert.equal(socketInstance.state.time_remaining, 6);
 
   const revealEvent = clientEvents.find((e) => e.event === "dragon_tiger:revealing");
   assert.ok(revealEvent);
-  assert.equal(revealEvent.data.status, "revealing");
+  assert.equal(revealEvent.data.phase, "revealing");
   assert.equal(revealEvent.data.winner, "D");
   assert.equal(revealEvent.data.multiplier, 2);
   assert.ok(revealEvent.data.cards.dragon.rank > revealEvent.data.cards.tiger.rank);
+
+  // Fast forward revealing timer (6 -> 0) -> should transition to Phase 5: Winner Pop-up (5s)
+  socketInstance.state.time_remaining = 1;
+  await tickHandler();
+  assert.equal(socketInstance.state.phase, "winner_popup");
+  assert.equal(socketInstance.state.time_remaining, 5);
+
+  const winnerEvent = clientEvents.find((e) => e.event === "dragon_tiger:winner_popup");
+  assert.ok(winnerEvent);
+  assert.equal(winnerEvent.data.phase, "winner_popup");
+  assert.equal(winnerEvent.data.winner, "D");
+
+  // Fast forward winner pop-up timer (5 -> 0) -> round completes and transitions back to Phase 1: Versus (4s)
+  socketInstance.state.time_remaining = 1;
+  await tickHandler();
+  assert.equal(socketInstance.state.phase, "versus");
+  assert.equal(socketInstance.state.time_remaining, 4);
 
   socketInstance.stop();
 });
@@ -368,7 +397,10 @@ test("DragonTiger controllers support placeBet, getResults, getCurrentRound, and
 
   // 4. placeBet
   const socket = require("../src/modules/dragonTiger/dragonTiger.socket").getDragonTigerSocket();
-  if (socket) socket.state.status = "betting";
+  if (socket) {
+    socket.state.status = "betting";
+    socket.state.phase = "betting";
+  }
 
   let betJson = null;
   const mockResBet = {
@@ -390,7 +422,10 @@ test("DragonTiger controllers support placeBet, getResults, getCurrentRound, and
   assert.equal(betJson.balance, 900);
 
   // 5. placeBet should reject when revealing
-  if (socket) socket.state.status = "revealing";
+  if (socket) {
+    socket.state.status = "revealing";
+    socket.state.phase = "revealing";
+  }
   let rejectedCode = null;
   const mockResReject = {
     status(code) {
