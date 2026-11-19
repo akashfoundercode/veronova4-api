@@ -319,6 +319,7 @@ async function ensureAllTables() {
     await safeExec("ALTER TABLE bet_results ADD COLUMN random_card VARCHAR(50) NULL");
     await safeExec("ALTER TABLE bet_results ADD COLUMN token VARCHAR(255) NULL");
     await safeExec("ALTER TABLE bet_results ADD COLUMN block BIGINT NULL DEFAULT 100");
+    await safeExec("ALTER TABLE bet_results ADD COLUMN card_id VARCHAR(255) NULL");
     await safeExec("ALTER TABLE bet_results ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
 
     await safeExec(`
@@ -1282,6 +1283,23 @@ async function ensureAllTables() {
             `INSERT IGNORE INTO extra_first_deposit_bonus (id, first_deposit_ammount, amount, max_amount, bonus, name, status) VALUES (${b[0]}, ${b[1]}, ${b[2]}, ${b[3]}, ${b[4]}, '${b[5]}', ${b[6]});`
           );
         }
+      }
+    } catch (_) {}
+
+    // 12. DRAGON TIGER SEED (game_id = 10, Dragon 2x, Tiger 2x, Tie 5x)
+    try {
+      const [existingVg] = await connection.query("SELECT COUNT(*) as cnt FROM virtual_games WHERE game_id = 10");
+      if (!existingVg[0]?.cnt) {
+        await safeExec("INSERT IGNORE INTO virtual_games (game_id, name, number, actual_number, multiplier) VALUES (10, 'Dragon', '1', '1', 2.00)");
+        await safeExec("INSERT IGNORE INTO virtual_games (game_id, name, number, actual_number, multiplier) VALUES (10, 'Tiger', '2', '2', 2.00)");
+        await safeExec("INSERT IGNORE INTO virtual_games (game_id, name, number, actual_number, multiplier) VALUES (10, 'Tie', '3', '3', 5.00)");
+      }
+      const [existingBetlogs] = await connection.query("SELECT COUNT(*) as cnt FROM betlogs WHERE game_id = 10");
+      if (!existingBetlogs[0]?.cnt) {
+        const initPeriod = `${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}100001`;
+        await safeExec(`INSERT IGNORE INTO betlogs (game_id, games_no, number, amount) VALUES (10, '${initPeriod}', '1', 0.00)`);
+        await safeExec(`INSERT IGNORE INTO betlogs (game_id, games_no, number, amount) VALUES (10, '${initPeriod}', '2', 0.00)`);
+        await safeExec(`INSERT IGNORE INTO betlogs (game_id, games_no, number, amount) VALUES (10, '${initPeriod}', '3', 0.00)`);
       }
     } catch (_) {}
 

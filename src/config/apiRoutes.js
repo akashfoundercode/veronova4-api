@@ -26,6 +26,14 @@ const API_ROUTES = Object.freeze({
   }),
   dragonTiger: Object.freeze({
     batchBet: DRAGON_TIGER_BATCH_BET_ROUTE,
+    bet: "/dragon/bet",
+    results: "/dragon/results",
+    currentRound: "/dragon/current-round",
+    betHistory: "/dragon/bet-history",
+    adminControl: "/admin/dragon/control",
+    adminBets: "/admin/dragon/bets",
+    socketNamespace: "/dragon-tiger",
+    adminSocketNamespace: "/dragon-tiger-admin",
   }),
   wingo: Object.freeze({
     gameSerialNo: "/gameSerialNo",
