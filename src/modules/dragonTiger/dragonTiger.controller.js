@@ -135,7 +135,7 @@ async function getCurrentRound(req, res) {
       game_status: status,
       time_remaining: timeRemaining,
       total_bet_time: 15,
-      total_reveal_time: 5,
+      total_reveal_time: 8,
     });
   } catch (error) {
     if (error instanceof AppError) {

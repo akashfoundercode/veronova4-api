@@ -4,7 +4,7 @@ const { DragonTigerService, DRAGON_TIGER_GAME_ID } = require("./dragonTiger.serv
 const { dealWinningCards, determineWinner } = require("./dragonTigerDeck");
 
 const BETTING_TIME_SEC = 15;
-const REVEALING_TIME_SEC = 5;
+const REVEALING_TIME_SEC = 8;
 
 let activeSocketInstance = null;
 

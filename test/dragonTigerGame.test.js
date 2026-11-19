@@ -269,7 +269,7 @@ test("DragonTigerSocket manages 15-second timer, reveals cards, and emits to Soc
   await tickHandler();
 
   assert.equal(socketInstance.state.status, "revealing");
-  assert.equal(socketInstance.state.time_remaining, 5);
+  assert.equal(socketInstance.state.time_remaining, 8);
 
   const revealEvent = clientEvents.find((e) => e.event === "dragon_tiger:revealing");
   assert.ok(revealEvent);
