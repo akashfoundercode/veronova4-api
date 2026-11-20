@@ -464,3 +464,43 @@ test("DragonTigerService advancePeriod accurately increments period sequence", a
   const next = await service.advancePeriod(10, curr);
   assert.equal(next, "20261119100052");
 });
+
+test("DragonTigerService self-heals when tables are truncated/empty and settles round without error", async () => {
+  const calls = [];
+  let committed = false;
+  let rolledBack = false;
+
+  const mockConnection = {
+    calls,
+    get committed() { return committed; },
+    get rolledBack() { return rolledBack; },
+    async beginTransaction() {},
+    async execute(sql, params) {
+      calls.push({ sql: sql.replace(/\s+/g, " ").trim(), params });
+      // Simulate empty tables for everything
+      if (sql.includes("FROM betlogs")) return [[], []];
+      if (sql.includes("FROM bet_results")) return [[], []];
+      if (sql.includes("FROM virtual_games")) return [[], []];
+      if (sql.includes("FROM admin_winner_results")) return [[], []];
+      if (sql.includes("FROM bets")) return [[], []];
+      return [{ affectedRows: 1 }, []];
+    },
+    async commit() { committed = true; },
+    async rollback() { rolledBack = true; },
+    release() {},
+  };
+
+  const service = new DragonTigerService(() => ({
+    execute: async (sql, params) => mockConnection.execute(sql, params),
+    getConnection: async () => mockConnection,
+  }));
+
+  // Settle round on completely empty tables -> must NOT throw ROUND_NOT_FOUND, must auto-seed and succeed!
+  const res = await service.settleRound(10);
+  assert.ok(res);
+  assert.equal(res.message, "Dragon Tiger result generated successfully");
+  assert.ok(res.games_no);
+  assert.ok(res.winner);
+  assert.equal(mockConnection.committed, true);
+  assert.equal(mockConnection.rolledBack, false);
+});

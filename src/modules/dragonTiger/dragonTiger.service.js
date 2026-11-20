@@ -79,6 +79,73 @@ class DragonTigerService {
     return period;
   }
 
+  async ensureVirtualGamesSeeded(connectionOrPool, gameId = DRAGON_TIGER_GAME_ID) {
+    if (Number(gameId) !== DRAGON_TIGER_GAME_ID) return;
+    try {
+      const [rows] = await connectionOrPool.execute(
+        "SELECT id FROM virtual_games WHERE game_id = ? LIMIT 1",
+        [Number(gameId)],
+      );
+      if (rows.length === 0) {
+        await connectionOrPool.execute(
+          "INSERT IGNORE INTO virtual_games (game_id, name, number, actual_number, multiplier) VALUES (10, 'Dragon', '1', '1', 2.00)"
+        );
+        await connectionOrPool.execute(
+          "INSERT IGNORE INTO virtual_games (game_id, name, number, actual_number, multiplier) VALUES (10, 'Tiger', '2', '2', 2.00)"
+        );
+        await connectionOrPool.execute(
+          "INSERT IGNORE INTO virtual_games (game_id, name, number, actual_number, multiplier) VALUES (10, 'Tie', '3', '3', 5.00)"
+        );
+      }
+    } catch (_) {}
+  }
+
+  async ensureBetlogsSeeded(connectionOrPool, gameId = DRAGON_TIGER_GAME_ID, period = null) {
+    if (Number(gameId) !== DRAGON_TIGER_GAME_ID) return;
+    const p = period || (await this.getCurrentPeriod(gameId));
+    try {
+      const [rows] = await connectionOrPool.execute(
+        "SELECT id, number FROM betlogs WHERE game_id = ? LIMIT 1",
+        [Number(gameId)],
+      );
+      if (rows.length === 0) {
+        // Auto-fix AUTO_INCREMENT if id 0 collision exists
+        try {
+          await connectionOrPool.execute(
+            "UPDATE betlogs SET id = (SELECT next_id FROM (SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM betlogs) t) WHERE id = 0",
+          );
+          await connectionOrPool.execute(
+            "ALTER TABLE betlogs MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+          );
+        } catch (_) {}
+
+        for (const num of [1, 2, 3]) {
+          try {
+            await connectionOrPool.execute(
+              "INSERT INTO betlogs (game_id, games_no, number, amount) VALUES (?, ?, ?, 0.00)",
+              [Number(gameId), p, String(num)],
+            );
+          } catch (insErr) {
+            if (insErr && String(insErr.message || "").includes("Duplicate entry")) {
+              try {
+                await connectionOrPool.execute(
+                  "UPDATE betlogs SET id = (SELECT next_id FROM (SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM betlogs) t) WHERE id = 0",
+                );
+                await connectionOrPool.execute(
+                  "ALTER TABLE betlogs MODIFY id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT",
+                );
+                await connectionOrPool.execute(
+                  "INSERT INTO betlogs (game_id, games_no, number, amount) VALUES (?, ?, ?, 0.00)",
+                  [Number(gameId), p, String(num)],
+                );
+              } catch (_) {}
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   async getCurrentPeriod(gameId = DRAGON_TIGER_GAME_ID) {
     const pool = this.poolProvider();
     let currentPeriod = null;
@@ -132,6 +199,11 @@ class DragonTigerService {
         "0001",
       ].join("");
     }
+
+    // Auto-seed if tables were truncated
+    await this.ensureBetlogsSeeded(pool, gameId, currentPeriod);
+    await this.ensureVirtualGamesSeeded(pool, gameId);
+
     return currentPeriod;
   }
 
@@ -462,14 +534,8 @@ class DragonTigerService {
       );
       let period = periodRows[0]?.games_no;
       if (period === undefined || period === null) {
-        const d = new Date();
-        period = [
-          d.getFullYear(),
-          String(d.getMonth() + 1).padStart(2, "0"),
-          String(d.getDate()).padStart(2, "0"),
-          String(gameId).padStart(2, "0"),
-          "0001",
-        ].join("");
+        period = await this.getCurrentPeriod(gameId);
+        await this.ensureBetlogsSeeded(connection, gameId, period);
       }
 
       const [options] = await connection.execute(
@@ -480,6 +546,7 @@ class DragonTigerService {
 
       // Fallback for Dragon Tiger default options if table not seeded
       if (optionByNumber.size === 0 && gameId === DRAGON_TIGER_GAME_ID) {
+        await this.ensureVirtualGamesSeeded(connection, gameId);
         optionByNumber.set(1, { number: 1, actual_number: 1, multiplier: 2.0 });
         optionByNumber.set(2, { number: 2, actual_number: 2, multiplier: 2.0 });
         optionByNumber.set(3, { number: 3, actual_number: 3, multiplier: 5.0 });
@@ -780,10 +847,13 @@ class DragonTigerService {
         "SELECT games_no, number, amount FROM betlogs WHERE game_id = ? ORDER BY id ASC FOR UPDATE",
         [gameId],
       );
+      let gameNo;
       if (logRows.length === 0) {
-        throw new AppError(409, "ROUND_NOT_FOUND", "No current game number found");
+        gameNo = await this.getCurrentPeriod(gameId);
+        await this.ensureBetlogsSeeded(connection, gameId, gameNo);
+      } else {
+        gameNo = String(logRows[0].games_no);
       }
-      const gameNo = String(logRows[0].games_no);
       const [existing] = await connection.execute(
         "SELECT id FROM bet_results WHERE game_id = ? AND games_no = ? LIMIT 1",
         [gameId, gameNo],
