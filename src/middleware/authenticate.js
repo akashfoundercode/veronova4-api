@@ -109,6 +109,20 @@ async function authenticate(req, res, next) {
         req.auth = { tokenId: Number(rows[0].id), tokenHash: null };
         return next();
       }
+
+      const [adminRows] = await getPool().execute(
+        "SELECT *, 'admin' AS role, 1 AS role_id, 2 AS verification, 1 AS is_admin FROM admins WHERE login_token = ? AND (status = 1 OR status IS NULL) LIMIT 1",
+        [loginToken],
+      );
+      if (adminRows && adminRows.length > 0) {
+        req.user = adminRows[0];
+        req.user.is_admin = true;
+        req.user.role = "admin";
+        req.user.role_id = 1;
+        req.user.verification = 2;
+        req.auth = { tokenId: Number(adminRows[0].id), tokenHash: null };
+        return next();
+      }
     } catch (_) {}
   }
 
@@ -207,6 +221,20 @@ async function optionalAuthenticate(req, res, next) {
       if (rows && rows.length > 0) {
         req.user = rows[0];
         req.auth = { tokenId: Number(rows[0].id), tokenHash: null };
+        return next();
+      }
+
+      const [adminRows] = await getPool().execute(
+        "SELECT *, 'admin' AS role, 1 AS role_id, 2 AS verification, 1 AS is_admin FROM admins WHERE login_token = ? AND (status = 1 OR status IS NULL) LIMIT 1",
+        [loginToken],
+      );
+      if (adminRows && adminRows.length > 0) {
+        req.user = adminRows[0];
+        req.user.is_admin = true;
+        req.user.role = "admin";
+        req.user.role_id = 1;
+        req.user.verification = 2;
+        req.auth = { tokenId: Number(adminRows[0].id), tokenHash: null };
         return next();
       }
     } catch (_) {}

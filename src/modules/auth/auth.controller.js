@@ -206,6 +206,49 @@ async function login(req, res) {
   });
 }
 
+async function adminLogin(req, res) {
+  const body = req.body ?? {};
+  const identity = body.username || body.identity || body.email || body.mobile;
+  const password = body.password;
+
+  if (!identity || !password) {
+    return res.status(400).json({
+      status: "400",
+      message: "Username/email and password are required.",
+    });
+  }
+
+  const result = await service.adminLogin({
+    identity: String(identity).trim(),
+    password: String(password).trim(),
+    ip_address: req.ip,
+  });
+
+  if (!result || result.error) {
+    return res.status(401).json({
+      status: "401",
+      message: result?.message || "Invalid admin username or password.",
+    });
+  }
+
+  return res.status(200).json({
+    status: "200",
+    message: "Admin login successful",
+    id: result.id,
+    token: result.token,
+    login_token: result.login_token,
+    token_type: "Bearer",
+    data: {
+      id: result.id,
+      username: result.username,
+      email: result.email,
+      role: result.role,
+      token: result.token,
+      login_token: result.login_token,
+    },
+  });
+}
+
 async function register(req, res) {
   const body = req.body ?? {};
   const email =
@@ -574,6 +617,7 @@ async function changePassword(req, res) {
 }
 
 module.exports = {
+  adminLogin,
   changePassword,
   getCountry,
   imageAll,

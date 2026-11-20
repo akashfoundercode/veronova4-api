@@ -128,10 +128,32 @@ async function ensureAllTables() {
       "ADD COLUMN total_payin DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
       "ADD COLUMN no_of_payin INT NOT NULL DEFAULT 0",
       "ADD COLUMN deposit_balance DECIMAL(20, 4) NOT NULL DEFAULT '0.0000'",
+      "ADD COLUMN illegal_count INT NOT NULL DEFAULT 0",
     ];
     for (const col of userColumns) {
       await safeExec(`ALTER TABLE users ${col};`);
     }
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS feedbacks (
+        id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        userid BIGINT UNSIGNED NOT NULL,
+        description TEXT NULL,
+        status INT NOT NULL DEFAULT 1,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_feedbacks_userid (userid),
+        INDEX idx_feedbacks_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    await safeExec(`
+      CREATE TABLE IF NOT EXISTS otp_sms (
+        id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+        opt_pack VARCHAR(255) NULL DEFAULT 'default',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
 
     // Ensure wallet and winning_wallet are non-null and default to 0
     await safeExec("UPDATE users SET wallet = 0 WHERE wallet IS NULL");
@@ -766,13 +788,36 @@ async function ensureAllTables() {
     await safeExec(`
       CREATE TABLE IF NOT EXISTS admins (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(40) NOT NULL UNIQUE,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        name VARCHAR(100) NULL DEFAULT 'Admin',
         email VARCHAR(255) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
+        password VARCHAR(255) NULL,
+        password_hash VARCHAR(255) NULL,
+        role VARCHAR(50) NOT NULL DEFAULT 'admin',
+        role_id INT NOT NULL DEFAULT 1,
+        verification INT NOT NULL DEFAULT 2,
+        status TINYINT NOT NULL DEFAULT 1,
+        login_token VARCHAR(255) NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_admins_username (username),
+        INDEX idx_admins_email (email)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    const adminColumns = [
+      "ADD COLUMN name VARCHAR(100) NULL DEFAULT 'Admin'",
+      "ADD COLUMN password VARCHAR(255) NULL",
+      "ADD COLUMN password_hash VARCHAR(255) NULL",
+      "ADD COLUMN role VARCHAR(50) NOT NULL DEFAULT 'admin'",
+      "ADD COLUMN role_id INT NOT NULL DEFAULT 1",
+      "ADD COLUMN verification INT NOT NULL DEFAULT 2",
+      "ADD COLUMN status TINYINT NOT NULL DEFAULT 1",
+      "ADD COLUMN login_token VARCHAR(255) NULL",
+    ];
+    for (const col of adminColumns) {
+      await safeExec(`ALTER TABLE admins ${col};`);
+    }
 
     await safeExec(`
       CREATE TABLE IF NOT EXISTS scheduled_race_winners (
@@ -1106,6 +1151,9 @@ async function ensureAllTables() {
       "ADD COLUMN color VARCHAR(50) NULL DEFAULT 'Aviator'",
       "ADD COLUMN commission DECIMAL(18, 4) NOT NULL DEFAULT 0.0000",
       "ADD COLUMN datetime TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+      "ADD COLUMN uid BIGINT UNSIGNED NULL",
+      "ADD COLUMN user_id BIGINT UNSIGNED NULL",
+      "ADD COLUMN win DECIMAL(18, 4) NOT NULL DEFAULT 0.0000",
     ];
     for (const col of aviatorBetColumns) {
       await safeExec(`ALTER TABLE aviator_bet ${col}`);
@@ -1206,8 +1254,9 @@ async function ensureAllTables() {
       const [existingAdmins] = await connection.query("SELECT COUNT(*) as cnt FROM admins");
       if (!existingAdmins[0]?.cnt) {
         await safeExec(`
-          INSERT IGNORE INTO admins (id, username, email, password_hash)
-          VALUES (1, 'admin', 'admin@veronova.com', '$2a$10$7EqJtq98hPqEX7fNZaFWoO5d6N3hI005rE1xV9uQ0U19N.k456g8u');
+          INSERT INTO admins (id, username, name, email, password, password_hash, role, role_id, verification, status)
+          VALUES (1, 'admin', 'Super Admin', 'admin@veronova.com', 'admin123', '$2a$10$7EqJtq98hPqEX7fNZaFWoO5d6N3hI005rE1xV9uQ0U19N.k456g8u', 'admin', 1, 2, 1)
+          ON DUPLICATE KEY UPDATE status = 1;
         `);
       }
     } catch (_) {}

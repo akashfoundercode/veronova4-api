@@ -1335,6 +1335,15 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
   };
 }
 
+async function safeDashboardQuery(pool, sql, params = [], fallback = [[]]) {
+  try {
+    return await pool.execute(sql, params);
+  } catch (err) {
+    console.warn("[Admin Dashboard Warning] Safe query fallback:", err.sqlMessage || err.message);
+    return fallback;
+  }
+}
+
 class AdminService {
   constructor(poolProvider = getPool, clock = () => new Date()) {
     if (typeof poolProvider === "object" && poolProvider !== null && typeof poolProvider.poolProvider === "function") {
@@ -1368,7 +1377,8 @@ class AdminService {
     const pool = this.poolProvider();
     const [users, bets, deposits, withdrawals, misc, turnoverRows, depositRows, withdrawalRows, playerRows] =
       await Promise.all([
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT
              (SELECT COUNT(*) FROM users WHERE account_type = 0) AS total_players,
              (SELECT COUNT(*) FROM users WHERE account_type = 0 AND status = 1) AS active_players,
@@ -1383,8 +1393,10 @@ class AdminService {
             startDate, endDate, previousStartDate, previousEndDate,
             today, todayEndDate, yesterday, today,
           ],
+          [[{}], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT
              COALESCE(SUM(b.amount), 0) AS total_turnover,
              COALESCE(SUM(b.amount - CASE WHEN b.status = 1 THEN b.win_amount ELSE 0 END), 0) AS total_revenue,
@@ -1412,8 +1424,10 @@ class AdminService {
             startDate, endDate, previousStartDate, previousEndDate,
             today, todayEndDate, yesterday, today,
           ],
+          [[{}], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT
              COALESCE(SUM(CASE WHEN p.status = 2 THEN p.cash ELSE 0 END), 0) AS total_deposit,
              COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS current_deposit,
@@ -1431,8 +1445,10 @@ class AdminService {
             today, todayEndDate, yesterday, today,
             startDate, endDate, previousStartDate, previousEndDate,
           ],
+          [[{}], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT
              COALESCE(SUM(CASE WHEN w.status = 2 THEN w.amount ELSE 0 END), 0) AS total_withdrawal,
              COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS current_withdrawal,
@@ -1450,8 +1466,10 @@ class AdminService {
             today, todayEndDate, yesterday, today,
             startDate, endDate, previousStartDate, previousEndDate,
           ],
+          [[{}], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT
              (SELECT COUNT(*) FROM feedbacks) AS feedbacks,
              (SELECT COUNT(*) FROM game_settings WHERE status = 0) AS total_games,
@@ -1461,7 +1479,7 @@ class AdminService {
              (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
              (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_net,
              (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2) AS aviator_loss,
-             (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack,
+             (SELECT opt_pack FROM otp_sms LIMIT 1) AS opt_pack,
              (SELECT COUNT(*) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_games,
              (SELECT COUNT(*) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_games,
              (SELECT COUNT(*) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0) AS stack_tower_games,
@@ -1516,8 +1534,10 @@ class AdminService {
             startDate, endDate, previousStartDate, previousEndDate,
             startDate, endDate, previousStartDate, previousEndDate,
           ],
+          [[{}], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT DATE(b.created_at) AS day, COALESCE(SUM(b.amount), 0) AS value
            FROM (
              SELECT COALESCE(b.userid, b.user_id) AS uid, b.amount, b.created_at FROM bets b
@@ -1532,26 +1552,33 @@ class AdminService {
            WHERE u.account_type = 0 AND b.created_at >= ? AND b.created_at < ?
            GROUP BY DATE(b.created_at) ORDER BY day`,
           [startDate, endDate],
+          [[], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT DATE(p.updated_at) AS day, COALESCE(SUM(p.cash), 0) AS value
            FROM payins p INNER JOIN users u ON u.id = p.user_id
            WHERE u.account_type = 0 AND p.status = 2 AND p.updated_at >= ? AND p.updated_at < ?
            GROUP BY DATE(p.updated_at) ORDER BY day`,
           [startDate, endDate],
+          [[], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT DATE(w.updated_at) AS day, COALESCE(SUM(w.amount), 0) AS value
            FROM withdraw_histories w INNER JOIN users u ON u.id = w.user_id
            WHERE u.account_type = 0 AND w.status = 2 AND w.updated_at >= ? AND w.updated_at < ?
            GROUP BY DATE(w.updated_at) ORDER BY day`,
           [startDate, endDate],
+          [[], []],
         ),
-        pool.execute(
+        safeDashboardQuery(
+          pool,
           `SELECT DATE(created_at) AS day, COUNT(*) AS value
            FROM users WHERE account_type = 0 AND created_at >= ? AND created_at < ?
            GROUP BY DATE(created_at) ORDER BY day`,
           [startDate, endDate],
+          [[], []],
         ),
       ]);
 
@@ -1672,15 +1699,18 @@ class AdminService {
 
     const pool = this.poolProvider();
     const [users, bets, deposits, withdrawals, misc] = await Promise.all([
-      pool.execute(
+      safeDashboardQuery(
+        pool,
         `SELECT
            (SELECT COUNT(*) FROM users WHERE account_type = 0) AS total_players,
            (SELECT COUNT(*) FROM users WHERE account_type = 0 AND status = 1) AS active_players,
            (SELECT COUNT(*) FROM users WHERE account_type = 0 AND created_at >= ? AND created_at < ?) AS today_players,
            (SELECT COUNT(*) FROM users WHERE account_type = 0 AND created_at >= ? AND created_at < ?) AS yesterday_players`,
         [today, todayEndDate, yesterday, today],
+        [[{}], []],
       ),
-      pool.execute(
+      safeDashboardQuery(
+        pool,
         `SELECT
            COALESCE(SUM(b.amount), 0) AS total_turnover,
            COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS today_turnover,
@@ -1697,8 +1727,10 @@ class AdminService {
          INNER JOIN users u ON u.id = b.uid
          WHERE u.account_type = 0`,
         [today, todayEndDate, yesterday, today],
+        [[{}], []],
       ),
-      pool.execute(
+      safeDashboardQuery(
+        pool,
         `SELECT
            COALESCE(SUM(CASE WHEN p.status = 2 THEN p.cash ELSE 0 END), 0) AS total_deposit,
            COALESCE(SUM(CASE WHEN p.status = 2 AND p.updated_at >= ? AND p.updated_at < ? THEN p.cash ELSE 0 END), 0) AS today_deposit,
@@ -1708,8 +1740,10 @@ class AdminService {
          INNER JOIN users u ON u.id = p.user_id
          WHERE u.account_type = 0`,
         [today, todayEndDate, yesterday, today],
+        [[{}], []],
       ),
-      pool.execute(
+      safeDashboardQuery(
+        pool,
         `SELECT
            COALESCE(SUM(CASE WHEN w.status = 2 THEN w.amount ELSE 0 END), 0) AS total_withdrawal,
            COALESCE(SUM(CASE WHEN w.status = 2 AND w.updated_at >= ? AND w.updated_at < ? THEN w.amount ELSE 0 END), 0) AS today_withdrawal,
@@ -1719,8 +1753,10 @@ class AdminService {
          INNER JOIN users u ON u.id = w.user_id
          WHERE u.account_type = 0`,
         [today, todayEndDate, yesterday, today],
+        [[{}], []],
       ),
-      pool.execute(
+      safeDashboardQuery(
+        pool,
         `SELECT
            (SELECT COUNT(*) FROM feedbacks) AS feedbacks,
            (SELECT COUNT(*) FROM game_settings WHERE status = 0) AS total_games,
@@ -1730,7 +1766,7 @@ class AdminService {
            (SELECT COALESCE(SUM(cb.amount) - SUM(CASE WHEN cb.status = 1 THEN cb.win_amount ELSE 0 END), 0) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_net,
            (SELECT COALESCE(SUM(ab.amount) - SUM(CASE WHEN ab.status = 1 THEN ab.win ELSE 0 END), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_net,
            (SELECT COALESCE(SUM(ab.amount), 0) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0 AND ab.status = 2) AS aviator_loss,
-           (SELECT opt_pack FROM otp_sms LIMIT 1) AS otp_pack,
+           (SELECT opt_pack FROM otp_sms LIMIT 1) AS opt_pack,
            (SELECT COUNT(*) FROM chicken_bets cb INNER JOIN users u ON u.id = cb.user_id WHERE u.account_type = 0) AS chicken_games,
            (SELECT COUNT(*) FROM aviator_bet ab INNER JOIN users u ON u.id = ab.uid WHERE u.account_type = 0) AS aviator_games,
            (SELECT COUNT(*) FROM stack_tower_bets stb INNER JOIN users u ON u.id = stb.user_id WHERE u.account_type = 0) AS stack_tower_games,
@@ -1744,6 +1780,8 @@ class AdminService {
            (SELECT COUNT(*) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11)) AS horse_racing_bets,
            (SELECT COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('WON', '1', 1) THEN COALESCE(b.payout_amount, b.win_amount, 0) ELSE 0 END), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11)) AS horse_racing_net,
            (SELECT COALESCE(SUM(b.amount), 0) FROM bets b INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id) WHERE u.account_type = 0 AND (b.race_id IS NOT NULL OR b.horse_id IS NOT NULL OR b.game_id = 11) AND b.status IN ('LOST', '2', 2)) AS horse_racing_loss`,
+        [today, todayEndDate, yesterday, today],
+        [[{}], []],
       ),
     ]);
 

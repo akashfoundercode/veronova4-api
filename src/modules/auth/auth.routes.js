@@ -8,7 +8,8 @@ const { API_ROUTES } = require("../../config/apiRoutes");
 const router = express.Router();
 
 router.post(API_ROUTES.auth.login, controller.login);
-router.post("/admin/login", controller.login);
+router.post("/admin/login", controller.adminLogin);
+router.post("/api/admin/login", controller.adminLogin);
 router.post(API_ROUTES.auth.register, controller.register);
 router.get("/image_all", controller.imageAll);
 router.get("/uploads/profileimage/:filename", controller.proxyAvatar);

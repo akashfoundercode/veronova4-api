@@ -6,6 +6,7 @@ const config = require("../../config");
 const { getPool } = require("../../config/database");
 
 const USER_TOKEN_TYPE = "App\\Models\\User";
+const ADMIN_TOKEN_TYPE = "App\\Models\\Admin";
 
 function getIdentityCandidates(identity, country_code = "91") {
   const rawIdentity = String(identity || "").trim();
@@ -281,6 +282,110 @@ class AuthService {
     }
   }
 
+  async adminLogin({ identity, password, ip_address }) {
+    const pool = this.poolProvider();
+    const connection = await pool.getConnection();
+    let transactionStarted = false;
+
+    try {
+      await connection.beginTransaction();
+      transactionStarted = true;
+
+      const rawIdentity = String(identity || "").trim();
+      let admin = null;
+      let isAdminTable = true;
+
+      try {
+        const [admins] = await connection.execute(
+          `SELECT * FROM admins
+           WHERE (username = ? OR email = ?)
+           LIMIT 1 FOR UPDATE`,
+          [rawIdentity, rawIdentity]
+        );
+        if (admins && admins.length > 0) {
+          admin = admins[0];
+        }
+      } catch (_) {}
+
+      // Fallback to users table if not in admins table (for backward compatibility)
+      if (!admin) {
+        try {
+          const [users] = await connection.execute(
+            `SELECT * FROM users
+             WHERE (username = ? OR email = ? OR mobile = ?)
+               AND (role IN ('admin', 'super_admin') OR id = 1)
+             LIMIT 1 FOR UPDATE`,
+            [rawIdentity, rawIdentity, rawIdentity]
+          );
+          if (users && users.length > 0) {
+            admin = users[0];
+            isAdminTable = false;
+          }
+        } catch (_) {}
+      }
+
+      if (!admin) {
+        await connection.rollback();
+        transactionStarted = false;
+        return null;
+      }
+
+      const storedPassword = admin.password || admin.password_hash;
+      if (!matchesPassword(storedPassword, password)) {
+        await connection.rollback();
+        transactionStarted = false;
+        return null;
+      }
+
+      if (admin.status !== undefined && Number(admin.status) === 0) {
+        await connection.rollback();
+        transactionStarted = false;
+        return { error: "ADMIN_INACTIVE", message: "Admin account is inactive." };
+      }
+
+      const tokenType = isAdminTable ? ADMIN_TOKEN_TYPE : USER_TOKEN_TYPE;
+      const plainToken = crypto.randomBytes(40).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(plainToken).digest("hex");
+
+      const [insertResult] = await connection.execute(
+        `INSERT INTO personal_access_tokens
+          (tokenable_type, tokenable_id, name, token, abilities, created_at, updated_at)
+         VALUES (?, ?, 'AdminApp', ?, '["*"]', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [tokenType, admin.id, tokenHash]
+      );
+
+      const loginToken = admin.login_token || crypto.randomBytes(24).toString("hex");
+      if (isAdminTable) {
+        try {
+          await connection.execute(
+            "UPDATE admins SET login_token = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            [loginToken, admin.id]
+          );
+        } catch (_) {}
+      }
+
+      await connection.commit();
+      transactionStarted = false;
+
+      return {
+        id: Number(admin.id),
+        username: admin.username,
+        email: admin.email,
+        role: admin.role || "admin",
+        is_admin: true,
+        token: `${insertResult.insertId}|${plainToken}`,
+        login_token: loginToken,
+      };
+    } catch (error) {
+      if (transactionStarted) {
+        await connection.rollback();
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async getUserForToken(tokenId, tokenHash) {
     const [rows] = await this.poolProvider().execute(
       `SELECT users.*,
@@ -297,7 +402,39 @@ class AuthService {
        LIMIT 1`,
       [tokenId, USER_TOKEN_TYPE, tokenHash],
     );
-    const user = rows[0];
+    let user = rows[0];
+
+    if (!user) {
+      try {
+        const [adminRows] = await this.poolProvider().execute(
+          `SELECT admins.*,
+                  'admin' AS role,
+                  1 AS role_id,
+                  2 AS verification,
+                  1 AS is_admin,
+                  personal_access_tokens.id AS access_token_id,
+                  personal_access_tokens.last_used_at,
+                  personal_access_tokens.created_at AS token_created_at
+           FROM personal_access_tokens
+           INNER JOIN admins
+             ON admins.id = personal_access_tokens.tokenable_id
+           WHERE personal_access_tokens.id = ?
+             AND (personal_access_tokens.tokenable_type = ? OR personal_access_tokens.tokenable_type = 'Admin')
+             AND personal_access_tokens.token = ?
+             AND (personal_access_tokens.expires_at IS NULL OR personal_access_tokens.expires_at > CURRENT_TIMESTAMP)
+           LIMIT 1`,
+          [tokenId, ADMIN_TOKEN_TYPE, tokenHash],
+        );
+        if (adminRows && adminRows.length > 0) {
+          user = adminRows[0];
+          user.is_admin = true;
+          user.role = "admin";
+          user.role_id = 1;
+          user.verification = 2;
+        }
+      } catch (_) {}
+    }
+
     if (!user) {
       return null;
     }

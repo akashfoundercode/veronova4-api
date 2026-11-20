@@ -37,6 +37,17 @@ function getPublicError(error) {
     };
   }
 
+  if (error.code === "ER_BAD_FIELD_ERROR") {
+    console.error("[Database Error] Bad field:", error.message || error.sqlMessage);
+    return {
+      statusCode: 500,
+      code: "DATABASE_CONFIGURATION_ERROR",
+      message: error.sqlMessage
+        ? `Database field error: ${error.sqlMessage}. Verify the selected database without renaming its fields.`
+        : "A database field does not match the expected SQL dump schema. Verify the selected database without renaming its fields.",
+    };
+  }
+
   if (databaseErrors[error.code]) {
     return {
       statusCode: 500,
