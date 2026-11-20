@@ -134,7 +134,8 @@ async function getCurrentRound(req, res) {
     const phaseDuration = socketInstance?.state?.phase_duration ?? 15;
     const isRevealOrWinner = phase === "revealing" || phase === "winner_popup";
 
-    const activeForceObj = socketInstance?.service?.inMemoryForce || service.inMemoryForce || null;
+    const cachedForce = socketInstance?.service?.inMemoryForce || service.inMemoryForce || null;
+    const activeForceObj = cachedForce && String(cachedForce.period) === String(period) ? cachedForce : null;
     let activeWinner = activeForceObj?.winner && activeForceObj.winner !== "auto" ? activeForceObj.winner : null;
     let activeCards = activeForceObj?.cards || null;
     let activeWinNumber = activeForceObj?.win_number || (activeWinner ? winnerToNumber(activeWinner) : null);

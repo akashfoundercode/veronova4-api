@@ -399,7 +399,9 @@ function createDragonTigerSocket(io, {
     try {
       settleResult = await service.settleRound(
         DRAGON_TIGER_GAME_ID,
-        service.inMemoryForce?.winner || null,
+        service.inMemoryForce && String(service.inMemoryForce.period) === String(state.period)
+          ? service.inMemoryForce.winner
+          : null,
         state.period,
       );
       logger.log(
@@ -408,7 +410,9 @@ function createDragonTigerSocket(io, {
     } catch (err) {
       logger.error("[DragonTigerSocket] Settle round error:", err.message);
       // Fallback in-memory settlement card reveal - RESPECT ACTIVE FORCE!
-      const activeForced = service.inMemoryForce?.winner || null;
+      const activeForced = service.inMemoryForce && String(service.inMemoryForce.period) === String(state.period)
+        ? service.inMemoryForce.winner
+        : null;
       const fallbackWinner = activeForced ? activeForced : determineWinner({
         dragonTotal: activeRoundBets.totals.dragon,
         tigerTotal: activeRoundBets.totals.tiger,
@@ -419,7 +423,7 @@ function createDragonTigerSocket(io, {
             dragon: service.inMemoryForce.cards.dragon,
             tiger: service.inMemoryForce.cards.tiger,
             win_number: service.inMemoryForce.win_number || (fallbackWinner === "D" ? 1 : fallbackWinner === "T" ? 2 : 3),
-            multiplier: service.inMemoryForce.multiplier || (fallbackWinner === "Tie" ? 9 : 2),
+            multiplier: service.inMemoryForce.multiplier || (fallbackWinner === "Tie" ? 5 : 2),
           }
         : dealWinningCards(fallbackWinner);
       settleResult = {
