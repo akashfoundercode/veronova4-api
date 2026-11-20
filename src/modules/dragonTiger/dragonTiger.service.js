@@ -934,15 +934,15 @@ class DragonTigerService {
       let forced = explicitInput ? (normalizeWinner(explicitInput) || numberToWinner(explicitInput)) : null;
 
       // 1. In-memory forced winner check (direct)
-      if (!forced && this.inMemoryForce?.winner && String(this.inMemoryForce.period) === String(gameNo)) {
+      if (!forced && this.inMemoryForce?.winner && this.inMemoryForce.winner !== "auto") {
         forced = this.inMemoryForce.winner;
       }
 
-      // 2. Query admin_winner_results by exact gamesno
+      // 2. Query admin_winner_results by exact gamesno or active status
       if (!forced) {
         try {
           const [adminResults] = await connection.execute(
-            "SELECT number FROM admin_winner_results WHERE (gamesno = ? OR gamesno = ?) AND (gameId = ? OR gameId = 10) AND (status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
+            "SELECT number FROM admin_winner_results WHERE (gamesno = ? OR gamesno = ? OR status = '1' OR status = 1) AND (gameId = ? OR gameId = 10) ORDER BY id DESC LIMIT 1",
             [gameNo, String(gameNo), gameId],
           );
           if (adminResults.length > 0) {
@@ -954,11 +954,11 @@ class DragonTigerService {
         } catch (_) {}
       }
 
-      // 3. Legacy admin table is also scoped to this exact period.
+      // 3. Legacy admin table is also checked
       if (!forced) {
         try {
           const [dragonAdminRows] = await connection.execute(
-            "SELECT number FROM dragon_admin_result WHERE gamesno = ? AND (status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
+            "SELECT number FROM dragon_admin_result WHERE (gamesno = ? OR status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
             [String(gameNo)],
           );
           if (dragonAdminRows.length > 0) {
@@ -1001,23 +1001,21 @@ class DragonTigerService {
       }
 
       // Capture pre-dealt cards if this inMemoryForce had cards pre-dealt for this winner
-      const preDealtCards = (this.inMemoryForce?.cards && String(this.inMemoryForce.period) === String(gameNo) && this.inMemoryForce.winner === winnerCode)
+      const preDealtCards = (this.inMemoryForce?.cards && this.inMemoryForce.winner === winnerCode)
         ? this.inMemoryForce.cards
         : null;
 
       // Consume used admin force so it doesn't affect subsequent rounds
-      if (this.inMemoryForce && String(this.inMemoryForce.period) === String(gameNo)) {
-        this.inMemoryForce = null;
-      }
+      this.inMemoryForce = null;
       try {
         await connection.execute(
-          "UPDATE admin_winner_results SET status = '0' WHERE (gamesno = ? OR gamesno = ?) AND (gameId = ? OR gameId = 10) AND (status = '1' OR status = 1)",
-          [gameNo, String(gameNo), gameId],
+          "UPDATE admin_winner_results SET status = '0' WHERE (gamesno = ? OR gamesno = ? OR gameId = 10) AND (status = '1' OR status = 1)",
+          [gameNo, String(gameNo)],
         );
       } catch (_) {}
       try {
         await connection.execute(
-          "UPDATE dragon_admin_result SET status = '0' WHERE gamesno = ? AND (status = '1' OR status = 1)",
+          "UPDATE dragon_admin_result SET status = '0' WHERE (gamesno = ? OR status = '1' OR status = 1)",
           [gameNo],
         );
       } catch (_) {}

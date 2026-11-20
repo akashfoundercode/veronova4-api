@@ -540,6 +540,20 @@ test("Admin force generates instant cards, reveals identical pre-dealt cards on 
   assert.ok(forceResult.cards.tiger);
   assert.ok(forceResult.cards.dragon.rank > forceResult.cards.tiger.rank);
 
+  // Verify getCurrentRound reflects the forced winner directly in winner field
+  const controller = require("../src/modules/dragonTiger/dragonTiger.controller");
+  controller.service.inMemoryForce = service.inMemoryForce;
+  let forceCheckRes = null;
+  await controller.getCurrentRound({}, {
+    status(code) {
+      assert.equal(code, 200);
+      return { json(data) { forceCheckRes = data; } };
+    },
+  });
+  assert.equal(forceCheckRes.admin_force, "D");
+  assert.equal(forceCheckRes.winner, "D");
+  assert.equal(forceCheckRes.win_number, 1);
+
   // Settle round and verify it used the EXACT same pre-dealt cards
   const settled = await service.settleRound(10, null, "20261120000099");
   assert.equal(settled.winner, "D");

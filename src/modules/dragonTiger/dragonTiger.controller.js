@@ -140,11 +140,10 @@ async function getCurrentRound(req, res) {
     const isRevealOrWinner = phase === "revealing" || phase === "winner_popup";
 
     const cachedForce = socketInstance?.service?.inMemoryForce || service.inMemoryForce || null;
-    const activeForceObj = cachedForce && String(cachedForce.period) === String(period) ? cachedForce : null;
-    let activeWinner = activeForceObj?.winner && activeForceObj.winner !== "auto" ? activeForceObj.winner : null;
-    let activeCards = activeForceObj?.cards || null;
-    let activeWinNumber = activeForceObj?.win_number || (activeWinner ? winnerToNumber(activeWinner) : null);
-    let activeMultiplier = activeForceObj?.multiplier || null;
+    let activeWinner = cachedForce?.winner && cachedForce.winner !== "auto" ? cachedForce.winner : null;
+    let activeCards = cachedForce?.cards || null;
+    let activeWinNumber = cachedForce?.win_number || (activeWinner ? winnerToNumber(activeWinner) : null);
+    let activeMultiplier = cachedForce?.multiplier || null;
 
     if (!activeWinner) {
       try {
@@ -159,13 +158,37 @@ async function getCurrentRound(req, res) {
       } catch (_) {}
     }
 
-    const settledForPeriod = isRevealOrWinner && String(socketInstance?.state?.last_settled?.games_no) === String(period);
-    const currentCards = (settledForPeriod ? socketInstance?.state?.last_settled?.cards : null) || activeCards || null;
     const forcedWinner = activeWinner || (roundBets?.admin_force && roundBets.admin_force !== "auto" ? roundBets.admin_force : null);
-    const predictedWinner = forcedWinner || roundBets?.lowest_winner || null;
-    const currentWinner = (settledForPeriod ? socketInstance?.state?.last_settled?.winner : null) || predictedWinner;
-    const winNumber = (settledForPeriod ? socketInstance?.state?.last_settled?.win_number : null) || activeWinNumber || (currentWinner ? winnerToNumber(currentWinner) : null);
-    const currentMultiplier = (settledForPeriod ? socketInstance?.state?.last_settled?.multiplier : null) || activeMultiplier || (currentWinner ? (currentWinner === "Tie" ? 5 : 2) : null);
+
+    const settledForPeriod = isRevealOrWinner && String(socketInstance?.state?.last_settled?.games_no) === String(period);
+    
+    // CRITICAL: If admin forced, winner, win_number and cards MUST ALWAYS reflect forcedWinner!
+    let currentWinner;
+    let winNumber;
+    let currentCards;
+    let currentMultiplier;
+
+    if (forcedWinner && forcedWinner !== "auto") {
+      currentWinner = forcedWinner;
+      winNumber = activeWinNumber || winnerToNumber(forcedWinner);
+      currentMultiplier = activeMultiplier || (forcedWinner === "Tie" ? 5 : 2);
+      if (activeCards) {
+        currentCards = activeCards;
+      } else {
+        const dealt = dealWinningCards(forcedWinner);
+        currentCards = { dragon: dealt.dragon, tiger: dealt.tiger };
+      }
+    } else if (settledForPeriod) {
+      currentWinner = socketInstance?.state?.last_settled?.winner || roundBets?.lowest_winner || null;
+      winNumber = socketInstance?.state?.last_settled?.win_number || (currentWinner ? winnerToNumber(currentWinner) : null);
+      currentCards = socketInstance?.state?.last_settled?.cards || null;
+      currentMultiplier = socketInstance?.state?.last_settled?.multiplier || (currentWinner === "Tie" ? 5 : 2);
+    } else {
+      currentWinner = roundBets?.lowest_winner || null;
+      winNumber = currentWinner ? winnerToNumber(currentWinner) : null;
+      currentCards = null;
+      currentMultiplier = currentWinner ? (currentWinner === "Tie" ? 5 : 2) : null;
+    }
 
     return res.status(200).json({
       status: 200,
@@ -237,11 +260,19 @@ async function adminControl(req, res) {
     }
 
     if (socketInstance) {
+      if (socketInstance.service) {
+        socketInstance.service.inMemoryForce = activeService.inMemoryForce;
+      }
+      if (result.winner && result.winner !== "auto") {
+        socketInstance.state.current_cards = result.cards;
+        socketInstance.state.current_winner = result.winner;
+        socketInstance.state.multiplier = result.multiplier;
+      }
       if (typeof socketInstance.broadcastForce === "function") {
-        socketInstance.broadcastForce(result);
+        await socketInstance.broadcastForce(result);
       } else {
         if (typeof socketInstance.emitClientState === "function") {
-          socketInstance.emitClientState();
+          await socketInstance.emitClientState();
         }
         if (typeof socketInstance.emitAdminState === "function") {
           socketInstance.emitAdminState();

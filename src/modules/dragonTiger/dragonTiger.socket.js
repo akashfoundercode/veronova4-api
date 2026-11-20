@@ -173,10 +173,10 @@ function createDragonTigerSocket(io, {
     try {
       roundBets = await service.getCurrentRoundBets(state.period, DRAGON_TIGER_GAME_ID);
     } catch (_) {}
-    const forceWinner = roundBets?.admin_force && roundBets.admin_force !== "auto"
+    const forceWinner = (roundBets?.admin_force && roundBets.admin_force !== "auto")
       ? roundBets.admin_force
-      : service.inMemoryForce?.period == null || String(service.inMemoryForce.period) === String(state.period)
-        ? service.inMemoryForce?.winner || null
+      : (service.inMemoryForce?.winner && service.inMemoryForce.winner !== "auto")
+        ? service.inMemoryForce.winner
         : null;
     const lowestWinner = roundBets?.lowest_winner || determineWinner({
       dragonTotal: activeRoundBets.totals.dragon,
@@ -185,18 +185,37 @@ function createDragonTigerSocket(io, {
     });
     const activeForce = forceWinner;
     const activeCards = forceWinner ? service.inMemoryForce?.cards || null : null;
-    const activeWinNumber = forceWinner ? service.inMemoryForce?.win_number || null : null;
-    const activeMultiplier = forceWinner ? service.inMemoryForce?.multiplier || null : null;
+    const activeWinNumber = forceWinner ? (service.inMemoryForce?.win_number || winnerToNumber(forceWinner)) : null;
+    const activeMultiplier = forceWinner ? (service.inMemoryForce?.multiplier || (forceWinner === "Tie" ? 5 : 2)) : null;
 
     const settledForPeriod = isRevealOrWinner && String(state.last_settled?.games_no) === String(state.period);
-    const cards = (settledForPeriod ? state.last_settled?.cards : null) || activeCards || null;
-    const winner = settledForPeriod
-      ? state.last_settled.winner
-      : (activeForce || lowestWinner);
-    const win_number = (settledForPeriod ? state.last_settled?.win_number : null) || activeWinNumber || (winner ? (winner === "D" ? 1 : winner === "T" ? 2 : 3) : null);
-    const multiplier = settledForPeriod
-      ? state.last_settled.multiplier
-      : (activeMultiplier || (winner === "Tie" ? 5 : 2));
+
+    let winner;
+    let win_number;
+    let cards;
+    let multiplier;
+
+    if (activeForce && activeForce !== "auto") {
+      winner = activeForce;
+      win_number = activeWinNumber || winnerToNumber(activeForce);
+      multiplier = activeMultiplier || (activeForce === "Tie" ? 5 : 2);
+      if (activeCards) {
+        cards = activeCards;
+      } else {
+        const dealt = dealWinningCards(activeForce);
+        cards = { dragon: dealt.dragon, tiger: dealt.tiger };
+      }
+    } else if (settledForPeriod) {
+      winner = state.last_settled.winner;
+      win_number = state.last_settled?.win_number || winnerToNumber(winner);
+      cards = state.last_settled?.cards || null;
+      multiplier = state.last_settled.multiplier || (winner === "Tie" ? 5 : 2);
+    } else {
+      winner = lowestWinner;
+      win_number = winnerToNumber(lowestWinner);
+      cards = null;
+      multiplier = lowestWinner === "Tie" ? 5 : 2;
+    }
 
     const payload = {
       status: state.status,
@@ -274,11 +293,34 @@ function createDragonTigerSocket(io, {
       tigerTotal: activeRoundBets.totals.tiger,
       tieTotal: activeRoundBets.totals.tie,
     });
-    const activeForce = roundBets?.admin_force && roundBets.admin_force !== "auto"
+    const activeForce = (roundBets?.admin_force && roundBets.admin_force !== "auto")
       ? roundBets.admin_force
-      : service.inMemoryForce?.period == null || String(service.inMemoryForce.period) === String(state.period)
-        ? service.inMemoryForce?.winner || null
+      : (service.inMemoryForce?.winner && service.inMemoryForce.winner !== "auto")
+        ? service.inMemoryForce.winner
         : null;
+
+    let adminWinner;
+    let adminWinNumber;
+    let adminCards;
+    let adminMultiplier;
+
+    if (activeForce && activeForce !== "auto") {
+      adminWinner = activeForce;
+      adminWinNumber = service.inMemoryForce?.win_number || winnerToNumber(activeForce);
+      adminMultiplier = service.inMemoryForce?.multiplier || (activeForce === "Tie" ? 5 : 2);
+      if (service.inMemoryForce?.cards) {
+        adminCards = service.inMemoryForce.cards;
+      } else {
+        const dealt = dealWinningCards(activeForce);
+        adminCards = { dragon: dealt.dragon, tiger: dealt.tiger };
+      }
+    } else {
+      adminWinner = lowestWinner;
+      adminWinNumber = winnerToNumber(lowestWinner);
+      adminMultiplier = lowestWinner === "Tie" ? 5 : 2;
+      adminCards = state.current_cards || null;
+    }
+
     const payload = {
       period: state.period,
       game_id: DRAGON_TIGER_GAME_ID,
@@ -291,10 +333,10 @@ function createDragonTigerSocket(io, {
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
       admin_force: activeForce || "auto",
-      winner: activeForce || lowestWinner,
-      win_number: activeForce ? service.inMemoryForce?.win_number || winnerToNumber(activeForce) : winnerToNumber(lowestWinner),
-      multiplier: activeForce ? service.inMemoryForce?.multiplier || (activeForce === "Tie" ? 5 : 2) : (lowestWinner === "Tie" ? 5 : 2),
-      cards: activeForce ? service.inMemoryForce?.cards || null : state.current_cards || null,
+      winner: adminWinner,
+      win_number: adminWinNumber,
+      multiplier: adminMultiplier,
+      cards: adminCards,
       bets: roundBets?.bets || activeRoundBets.bets.slice(0, 50),
       timings: PHASE_TIMINGS,
     };
@@ -398,13 +440,15 @@ function createDragonTigerSocket(io, {
 
     logger.log(`[DragonTigerSocket] Round ${state.period} - Phase 4: Revealing Cards & Winner Decide (6s)...`);
 
+    const activeForced = (service.inMemoryForce?.winner && service.inMemoryForce.winner !== "auto")
+      ? service.inMemoryForce.winner
+      : null;
+
     let settleResult = null;
     try {
       settleResult = await service.settleRound(
         DRAGON_TIGER_GAME_ID,
-        service.inMemoryForce && String(service.inMemoryForce.period) === String(state.period)
-          ? service.inMemoryForce.winner
-          : null,
+        activeForced,
         state.period,
       );
       logger.log(
@@ -413,9 +457,6 @@ function createDragonTigerSocket(io, {
     } catch (err) {
       logger.error("[DragonTigerSocket] Settle round error:", err.message);
       // Fallback in-memory settlement card reveal - RESPECT ACTIVE FORCE!
-      const activeForced = service.inMemoryForce && String(service.inMemoryForce.period) === String(state.period)
-        ? service.inMemoryForce.winner
-        : null;
       const fallbackWinner = activeForced ? activeForced : determineWinner({
         dragonTotal: activeRoundBets.totals.dragon,
         tigerTotal: activeRoundBets.totals.tiger,
