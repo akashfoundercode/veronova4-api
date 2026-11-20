@@ -258,30 +258,51 @@ class DragonTigerService {
       throw new AppError(400, "INVALID_WINNER", "Invalid winner selection. Must be D, T, Tie, or auto.");
     }
     const currentPeriod = period || (await this.getCurrentPeriod(gameId));
-    this.inMemoryForce = { winner: norm, period: currentPeriod };
 
     if (norm === "auto") {
+      this.inMemoryForce = null;
       try {
         await this.poolProvider().execute(
           "DELETE FROM admin_winner_results WHERE gamesno = ? AND gameId = ?",
           [String(currentPeriod), Number(gameId)],
         );
       } catch (_) {}
-      return { success: true, winner: "auto", period: currentPeriod };
+      return { success: true, winner: "auto", period: currentPeriod, cards: null, win_number: null };
     }
 
-    const cardNum = winnerToNumber(norm);
+    // Pre-deal 52-cards immediately matching forced winner
+    const dealt = dealWinningCards(norm);
+    const cardNum = dealt.win_number;
+    this.inMemoryForce = {
+      winner: norm,
+      win_number: cardNum,
+      period: currentPeriod,
+      multiplier: dealt.multiplier,
+      cards: { dragon: dealt.dragon, tiger: dealt.tiger },
+    };
+
     await this.addAdminResult({
       period_num: currentPeriod,
       card_number: cardNum,
       gameid: gameId,
     });
-    return { success: true, winner: norm, win_number: cardNum, period: currentPeriod };
+
+    return {
+      success: true,
+      winner: norm,
+      win_number: cardNum,
+      period: currentPeriod,
+      multiplier: dealt.multiplier,
+      cards: {
+        dragon: dealt.dragon,
+        tiger: dealt.tiger,
+      },
+    };
   }
 
   async getAdminForce(period = null, gameId = DRAGON_TIGER_GAME_ID) {
     const currentPeriod = period || (await this.getCurrentPeriod(gameId));
-    if (this.inMemoryForce && (!this.inMemoryForce.period || this.inMemoryForce.period === currentPeriod)) {
+    if (this.inMemoryForce && (!this.inMemoryForce.period || String(this.inMemoryForce.period) === String(currentPeriod))) {
       return this.inMemoryForce.winner;
     }
     try {
@@ -291,7 +312,18 @@ class DragonTigerService {
       );
       if (rows.length > 0) {
         const num = Number(rows[0].number);
-        return numberToWinner(num);
+        const norm = numberToWinner(num);
+        if (norm && norm !== "auto") {
+          const dealt = dealWinningCards(norm);
+          this.inMemoryForce = {
+            winner: norm,
+            win_number: dealt.win_number,
+            period: currentPeriod,
+            multiplier: dealt.multiplier,
+            cards: { dragon: dealt.dragon, tiger: dealt.tiger },
+          };
+          return norm;
+        }
       }
     } catch (_) {}
     return "auto";
@@ -982,6 +1014,11 @@ class DragonTigerService {
         });
       }
 
+      // Capture pre-dealt cards if this inMemoryForce had cards pre-dealt for this winner
+      const preDealtCards = (this.inMemoryForce?.cards && this.inMemoryForce.winner === winnerCode)
+        ? this.inMemoryForce.cards
+        : null;
+
       // Consume used admin force so it doesn't affect subsequent rounds
       if (this.inMemoryForce && (!this.inMemoryForce.period || String(this.inMemoryForce.period) === String(gameNo))) {
         this.inMemoryForce = null;
@@ -1002,8 +1039,16 @@ class DragonTigerService {
       const resultNumber = winnerToNumber(winnerCode);
       const payoutMultiplier = getPayoutMultiplier(winnerCode);
 
-      // Deal 52-card cards strictly matching winner
-      const dealt = dealWinningCards(winnerCode);
+      // Deal 52-card cards strictly matching winner (reusing pre-dealt cards if available)
+      const dealt = preDealtCards
+        ? {
+            dragon: preDealtCards.dragon,
+            tiger: preDealtCards.tiger,
+            winner: winnerCode,
+            win_number: resultNumber,
+            multiplier: payoutMultiplier,
+          }
+        : dealWinningCards(winnerCode);
       const cardIds = JSON.stringify({
         dragon: dealt.dragon,
         tiger: dealt.tiger,

@@ -504,3 +504,47 @@ test("DragonTigerService self-heals when tables are truncated/empty and settles 
   assert.equal(mockConnection.committed, true);
   assert.equal(mockConnection.rolledBack, false);
 });
+
+test("Admin force generates instant cards, reveals identical pre-dealt cards on settlement, and notifies frontend", async () => {
+  const calls = [];
+  const mockPool = {
+    execute: async (sql, params) => {
+      calls.push({ sql, params });
+      return [{ affectedRows: 1 }, []];
+    },
+    getConnection: async () => ({
+      beginTransaction: async () => {},
+      commit: async () => {},
+      rollback: async () => {},
+      release: () => {},
+      execute: async (sql, params) => {
+        calls.push({ sql, params });
+        if (sql.includes("FROM bet_results WHERE game_id = ? AND games_no = ?")) return [[], []];
+        if (sql.includes("FROM bet_results")) return [[{ games_no: "20261120000099" }], []];
+        if (sql.includes("FROM bets")) return [[], []];
+        return [{ affectedRows: 1 }, []];
+      },
+    }),
+  };
+
+  const service = new DragonTigerService(() => mockPool);
+  service.getCurrentPeriod = async () => "20261120000099";
+
+  // Force winner to Dragon (1)
+  const forceResult = await service.setAdminForce({ winner: "D", period: "20261120000099" });
+  assert.equal(forceResult.success, true);
+  assert.equal(forceResult.winner, "D");
+  assert.equal(forceResult.win_number, 1);
+  assert.ok(forceResult.cards);
+  assert.ok(forceResult.cards.dragon);
+  assert.ok(forceResult.cards.tiger);
+  assert.ok(forceResult.cards.dragon.rank > forceResult.cards.tiger.rank);
+
+  // Settle round and verify it used the EXACT same pre-dealt cards
+  const settled = await service.settleRound(10, null, "20261120000099");
+  assert.equal(settled.winner, "D");
+  assert.equal(settled.cards.dragon.symbol, forceResult.cards.dragon.symbol);
+  assert.equal(settled.cards.tiger.symbol, forceResult.cards.tiger.symbol);
+  assert.equal(settled.cards.dragon.suit, forceResult.cards.dragon.suit);
+  assert.equal(settled.cards.tiger.suit, forceResult.cards.tiger.suit);
+});

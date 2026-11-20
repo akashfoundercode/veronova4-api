@@ -2,7 +2,7 @@
 
 const AppError = require("../../shared/errors/AppError");
 const { DragonTigerService, DRAGON_TIGER_GAME_ID } = require("./dragonTiger.service");
-const { normalizeWinner, winnerToNumber } = require("./dragonTigerDeck");
+const { normalizeWinner, winnerToNumber, dealWinningCards } = require("./dragonTigerDeck");
 const { getDragonTigerSocket } = require("./dragonTiger.socket");
 
 const service = new DragonTigerService();
@@ -133,9 +133,29 @@ async function getCurrentRound(req, res) {
     const phaseDuration = socketInstance?.state?.phase_duration ?? 15;
     const isRevealOrWinner = phase === "revealing" || phase === "winner_popup";
 
-    const activeForce = socketInstance?.service?.inMemoryForce?.winner || service.inMemoryForce?.winner || null;
-    const currentWinner = isRevealOrWinner ? socketInstance?.state?.current_winner : null;
-    const winNumber = isRevealOrWinner ? (socketInstance?.state?.last_settled?.win_number ?? (currentWinner ? winnerToNumber(currentWinner) : null)) : null;
+    const activeForceObj = socketInstance?.service?.inMemoryForce || service.inMemoryForce || null;
+    let activeWinner = activeForceObj?.winner && activeForceObj.winner !== "auto" ? activeForceObj.winner : null;
+    let activeCards = activeForceObj?.cards || null;
+    let activeWinNumber = activeForceObj?.win_number || (activeWinner ? winnerToNumber(activeWinner) : null);
+    let activeMultiplier = activeForceObj?.multiplier || null;
+
+    if (!activeWinner) {
+      try {
+        const forceFromDb = await service.getAdminForce(period, DRAGON_TIGER_GAME_ID);
+        if (forceFromDb && forceFromDb !== "auto") {
+          activeWinner = forceFromDb;
+          const freshForce = service.inMemoryForce;
+          activeCards = freshForce?.cards || null;
+          activeWinNumber = freshForce?.win_number || winnerToNumber(forceFromDb);
+          activeMultiplier = freshForce?.multiplier || null;
+        }
+      } catch (_) {}
+    }
+
+    const currentCards = (isRevealOrWinner ? socketInstance?.state?.current_cards : null) || activeCards || null;
+    const currentWinner = (isRevealOrWinner ? socketInstance?.state?.current_winner : null) || activeWinner || null;
+    const winNumber = (isRevealOrWinner ? (socketInstance?.state?.last_settled?.win_number ?? (currentWinner ? winnerToNumber(currentWinner) : null)) : null) || activeWinNumber || null;
+    const currentMultiplier = (isRevealOrWinner ? socketInstance?.state?.multiplier : null) || activeMultiplier || null;
 
     return res.status(200).json({
       status: 200,
@@ -145,11 +165,11 @@ async function getCurrentRound(req, res) {
       game_status: status,
       time_remaining: timeRemaining,
       phase_duration: phaseDuration,
-      admin_force: activeForce !== "auto" ? activeForce : null,
+      admin_force: activeWinner,
       winner: currentWinner,
       win_number: winNumber,
-      cards: isRevealOrWinner ? socketInstance?.state?.current_cards : null,
-      multiplier: isRevealOrWinner ? socketInstance?.state?.multiplier : null,
+      cards: currentCards,
+      multiplier: currentMultiplier,
       last_settled: socketInstance?.state?.last_settled || null,
       timings: {
         versus: 4,
@@ -202,6 +222,28 @@ async function adminControl(req, res) {
     });
     if (socketInstance?.service && socketInstance.service !== service) {
       socketInstance.service.inMemoryForce = activeService.inMemoryForce;
+    }
+
+    if (socketInstance) {
+      if (typeof socketInstance.emitClientState === "function") {
+        socketInstance.emitClientState();
+      }
+      if (typeof socketInstance.emitAdminState === "function") {
+        socketInstance.emitAdminState();
+      }
+      const broadcastPayload = {
+        period: result.period,
+        winner: result.winner,
+        win_number: result.win_number,
+        multiplier: result.multiplier,
+        cards: result.cards,
+        admin_force: result.winner,
+      };
+      try {
+        if (socketInstance.io?.emit) {
+          socketInstance.io.emit("dragon_tiger:force_applied", broadcastPayload);
+        }
+      } catch (_) {}
     }
 
     return res.status(200).json({

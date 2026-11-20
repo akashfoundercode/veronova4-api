@@ -162,6 +162,15 @@ function createDragonTigerSocket(io, {
   function emitClientState(target = clientNsp) {
     const isRevealOrWinner = state.phase === PHASES.REVEALING || state.phase === PHASES.WINNER_POPUP;
     const activeForce = service.inMemoryForce?.winner || null;
+    const activeCards = service.inMemoryForce?.cards || null;
+    const activeWinNumber = service.inMemoryForce?.win_number || null;
+    const activeMultiplier = service.inMemoryForce?.multiplier || null;
+
+    const cards = (isRevealOrWinner ? state.current_cards : null) || activeCards || null;
+    const winner = (isRevealOrWinner ? state.current_winner : null) || (activeForce && activeForce !== "auto" ? activeForce : null);
+    const win_number = (isRevealOrWinner ? (state.last_settled?.win_number ?? (state.current_winner ? (state.current_winner === "D" ? 1 : state.current_winner === "T" ? 2 : 3) : null)) : null) || activeWinNumber || (winner ? (winner === "D" ? 1 : winner === "T" ? 2 : 3) : null);
+    const multiplier = (isRevealOrWinner ? state.multiplier : null) || activeMultiplier || null;
+
     const payload = {
       status: state.status,
       phase: state.phase,
@@ -170,11 +179,11 @@ function createDragonTigerSocket(io, {
       time_remaining: state.time_remaining,
       game_id: state.game_id,
       online_count: state.online_count,
-      admin_force: activeForce !== "auto" ? activeForce : null,
-      cards: isRevealOrWinner ? state.current_cards : null,
-      winner: isRevealOrWinner ? state.current_winner : null,
-      win_number: isRevealOrWinner ? (state.last_settled?.win_number ?? (state.current_winner ? (state.current_winner === "D" ? 1 : state.current_winner === "T" ? 2 : 3) : null)) : null,
-      multiplier: isRevealOrWinner ? state.multiplier : null,
+      admin_force: activeForce && activeForce !== "auto" ? activeForce : null,
+      cards,
+      winner,
+      win_number,
+      multiplier,
       last_settled: state.last_settled,
       timings: PHASE_TIMINGS,
     };
@@ -327,7 +336,14 @@ function createDragonTigerSocket(io, {
         tigerTotal: activeRoundBets.totals.tiger,
         tieTotal: activeRoundBets.totals.tie,
       });
-      const dealt = dealWinningCards(fallbackWinner);
+      const dealt = (service.inMemoryForce?.cards && service.inMemoryForce.winner === fallbackWinner)
+        ? {
+            dragon: service.inMemoryForce.cards.dragon,
+            tiger: service.inMemoryForce.cards.tiger,
+            win_number: service.inMemoryForce.win_number || (fallbackWinner === "D" ? 1 : fallbackWinner === "T" ? 2 : 3),
+            multiplier: service.inMemoryForce.multiplier || (fallbackWinner === "Tie" ? 9 : 2),
+          }
+        : dealWinningCards(fallbackWinner);
       settleResult = {
         games_no: state.period,
         winner: fallbackWinner,
