@@ -161,6 +161,7 @@ function createDragonTigerSocket(io, {
 
   function emitClientState(target = clientNsp) {
     const isRevealOrWinner = state.phase === PHASES.REVEALING || state.phase === PHASES.WINNER_POPUP;
+    const activeForce = service.inMemoryForce?.winner || null;
     const payload = {
       status: state.status,
       phase: state.phase,
@@ -169,9 +170,12 @@ function createDragonTigerSocket(io, {
       time_remaining: state.time_remaining,
       game_id: state.game_id,
       online_count: state.online_count,
+      admin_force: activeForce !== "auto" ? activeForce : null,
       cards: isRevealOrWinner ? state.current_cards : null,
       winner: isRevealOrWinner ? state.current_winner : null,
+      win_number: isRevealOrWinner ? (state.last_settled?.win_number ?? (state.current_winner ? (state.current_winner === "D" ? 1 : state.current_winner === "T" ? 2 : 3) : null)) : null,
       multiplier: isRevealOrWinner ? state.multiplier : null,
+      last_settled: state.last_settled,
       timings: PHASE_TIMINGS,
     };
 
@@ -306,7 +310,11 @@ function createDragonTigerSocket(io, {
 
     let settleResult = null;
     try {
-      settleResult = await service.settleRound(DRAGON_TIGER_GAME_ID);
+      settleResult = await service.settleRound(
+        DRAGON_TIGER_GAME_ID,
+        service.inMemoryForce?.winner || null,
+        state.period,
+      );
       logger.log(
         `[DragonTigerSocket] Round ${state.period} settled: Winner ${settleResult.winner} (${settleResult.win_number}) with Cards: D=${settleResult.cards?.dragon?.symbol}, T=${settleResult.cards?.tiger?.symbol}`
       );

@@ -835,7 +835,7 @@ class DragonTigerService {
    * 6. Insert bet_results with winner (1=D, 2=T, 3=Tie) and cards
    * 7. Advance betlogs.games_no
    */
-  async settleRound(gameId = DRAGON_TIGER_GAME_ID, explicitWinner = null) {
+  async settleRound(gameId = DRAGON_TIGER_GAME_ID, explicitWinner = null, periodOverride = null) {
     assertDragonTigerGameId(gameId);
     gameId = Number(gameId);
     const connection = await this.poolProvider().getConnection();
@@ -847,12 +847,14 @@ class DragonTigerService {
         "SELECT games_no, number, amount FROM betlogs WHERE game_id = ? ORDER BY id ASC FOR UPDATE",
         [gameId],
       );
-      let gameNo;
-      if (logRows.length === 0) {
-        gameNo = await this.getCurrentPeriod(gameId);
-        await this.ensureBetlogsSeeded(connection, gameId, gameNo);
-      } else {
-        gameNo = String(logRows[0].games_no);
+      let gameNo = periodOverride ? String(periodOverride) : null;
+      if (!gameNo) {
+        if (logRows.length === 0) {
+          gameNo = await this.getCurrentPeriod(gameId);
+          await this.ensureBetlogsSeeded(connection, gameId, gameNo);
+        } else {
+          gameNo = String(logRows[0].games_no);
+        }
       }
       const [existing] = await connection.execute(
         "SELECT id, number, card_id, json, win_number FROM bet_results WHERE game_id = ? AND games_no = ? LIMIT 1",
@@ -898,11 +900,9 @@ class DragonTigerService {
         : explicitWinner;
       let forced = explicitInput ? (normalizeWinner(explicitInput) || numberToWinner(explicitInput)) : null;
 
-      // 1. In-memory forced winner check
-      if (!forced && this.inMemoryForce) {
-        if (!this.inMemoryForce.period || String(this.inMemoryForce.period) === String(gameNo)) {
-          forced = this.inMemoryForce.winner;
-        }
+      // 1. In-memory forced winner check (direct)
+      if (!forced && this.inMemoryForce?.winner) {
+        forced = this.inMemoryForce.winner;
       }
 
       // 2. Query admin_winner_results by exact gamesno

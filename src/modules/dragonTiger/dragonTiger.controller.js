@@ -2,7 +2,7 @@
 
 const AppError = require("../../shared/errors/AppError");
 const { DragonTigerService, DRAGON_TIGER_GAME_ID } = require("./dragonTiger.service");
-const { normalizeWinner } = require("./dragonTigerDeck");
+const { normalizeWinner, winnerToNumber } = require("./dragonTigerDeck");
 const { getDragonTigerSocket } = require("./dragonTiger.socket");
 
 const service = new DragonTigerService();
@@ -131,6 +131,11 @@ async function getCurrentRound(req, res) {
     const status = socketInstance?.state?.status || phase;
     const timeRemaining = socketInstance?.state?.time_remaining ?? 15;
     const phaseDuration = socketInstance?.state?.phase_duration ?? 15;
+    const isRevealOrWinner = phase === "revealing" || phase === "winner_popup";
+
+    const activeForce = socketInstance?.service?.inMemoryForce?.winner || service.inMemoryForce?.winner || null;
+    const currentWinner = isRevealOrWinner ? socketInstance?.state?.current_winner : null;
+    const winNumber = isRevealOrWinner ? (socketInstance?.state?.last_settled?.win_number ?? (currentWinner ? winnerToNumber(currentWinner) : null)) : null;
 
     return res.status(200).json({
       status: 200,
@@ -140,6 +145,12 @@ async function getCurrentRound(req, res) {
       game_status: status,
       time_remaining: timeRemaining,
       phase_duration: phaseDuration,
+      admin_force: activeForce !== "auto" ? activeForce : null,
+      winner: currentWinner,
+      win_number: winNumber,
+      cards: isRevealOrWinner ? socketInstance?.state?.current_cards : null,
+      multiplier: isRevealOrWinner ? socketInstance?.state?.multiplier : null,
+      last_settled: socketInstance?.state?.last_settled || null,
       timings: {
         versus: 4,
         place_bet_popup: 2,
