@@ -132,30 +132,38 @@ function createDragonTigerSocket(io, {
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
       admin_force: service.inMemoryForce?.winner || "auto",
+      cards: service.inMemoryForce?.cards || state.current_cards || null,
       bets: activeRoundBets.bets.slice(0, 50),
       timings: PHASE_TIMINGS,
     };
 
-    // Broadcast unified live feed to Socket 2 (Admin)
+    // Broadcast unified live feed to Socket 2 (Admin) - Event: dragon_tiger:admin
     try {
+      adminNsp.emit("dragon_tiger:admin", streamPayload);
       adminNsp.emit("dragon_tiger:admin:live", streamPayload);
       adminNsp.emit("dragon_tiger:admin:bet_placed", streamPayload);
       adminNsp.emit("dragon_tiger:admin:state", streamPayload);
       if (io !== adminNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:admin", streamPayload);
         io.emit("dragon_tiger:admin:live", streamPayload);
         io.emit("dragon_tiger:admin:bet_placed", streamPayload);
         io.emit("dragon_tiger:admin_stream", streamPayload);
       }
     } catch (_) {}
 
-    // Broadcast bet pulse to client socket
+    // Broadcast bet pulse to client socket - Event: dragon_tiger:bet
     try {
-      clientNsp.emit("dragon_tiger:bet_pulse", {
+      const betPulsePayload = {
         period: state.period,
         spot: betRecord.spot,
         amount: betRecord.amount,
         totals: { ...activeRoundBets.totals },
-      });
+      };
+      clientNsp.emit("dragon_tiger:bet", betPulsePayload);
+      clientNsp.emit("dragon_tiger:bet_pulse", betPulsePayload);
+      if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:bet", betPulsePayload);
+      }
     } catch (_) {}
   }
 
@@ -198,6 +206,26 @@ function createDragonTigerSocket(io, {
     } catch (_) {}
   }
 
+  function broadcastForce(forceData) {
+    const payload = {
+      period: forceData.period || state.period,
+      winner: forceData.winner,
+      win_number: forceData.win_number,
+      multiplier: forceData.multiplier,
+      cards: forceData.cards,
+      admin_force: forceData.winner,
+    };
+    try {
+      clientNsp.emit("dragon_tiger:force", payload);
+      adminNsp.emit("dragon_tiger:force", payload);
+      if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:force", payload);
+      }
+    } catch (_) {}
+    emitClientState();
+    emitAdminState();
+  }
+
   function emitAdminState(target = adminNsp) {
     const lowestWinner = determineWinner({
       dragonTotal: activeRoundBets.totals.dragon,
@@ -216,14 +244,17 @@ function createDragonTigerSocket(io, {
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
       admin_force: service.inMemoryForce?.winner || "auto",
+      cards: service.inMemoryForce?.cards || state.current_cards || null,
       bets: activeRoundBets.bets.slice(0, 50),
       timings: PHASE_TIMINGS,
     };
 
     try {
+      target.emit("dragon_tiger:admin", payload);
       target.emit("dragon_tiger:admin:live", payload);
       target.emit("dragon_tiger:admin:state", payload);
       if (io !== adminNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:admin", payload);
         io.emit("dragon_tiger:admin:live", payload);
         io.emit("dragon_tiger:admin:state", payload);
       }
@@ -372,16 +403,20 @@ function createDragonTigerSocket(io, {
     };
 
     try {
+      clientNsp.emit("dragon_tiger:result", revealPayload);
       clientNsp.emit("dragon_tiger:revealing", revealPayload);
       if (io !== clientNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:result", revealPayload);
         io.emit("dragon_tiger:revealing", revealPayload);
       }
 
+      adminNsp.emit("dragon_tiger:admin", { type: "revealing", ...revealPayload });
       adminNsp.emit("dragon_tiger:admin:round_change", {
         type: "revealing",
         ...revealPayload,
       });
       if (io !== adminNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:admin", { type: "revealing", ...revealPayload });
         io.emit("dragon_tiger:admin:round_change", {
           type: "revealing",
           ...revealPayload,
@@ -554,7 +589,7 @@ function createDragonTigerSocket(io, {
     emitAdminState(adminClient);
 
     // Admin can force winner over socket
-    adminClient.on("dragon_tiger:admin:force_winner", async (data, callback) => {
+    const handleForce = async (data, callback) => {
       try {
         const res = await service.setAdminForce({
           winner: data?.winner,
@@ -564,13 +599,16 @@ function createDragonTigerSocket(io, {
         const resp = { status: 200, message: "Admin force configured", data: res };
         if (typeof callback === "function") callback(resp);
         adminClient.emit("dragon_tiger:admin:force_success", resp);
-        emitAdminState();
+        broadcastForce(res);
       } catch (err) {
         const errResp = { status: 400, message: err.message };
         if (typeof callback === "function") callback(errResp);
         adminClient.emit("dragon_tiger:admin:force_error", errResp);
       }
-    });
+    };
+
+    adminClient.on("dragon_tiger:force", handleForce);
+    adminClient.on("dragon_tiger:admin:force_winner", handleForce);
   });
 
   const instance = {
@@ -586,6 +624,9 @@ function createDragonTigerSocket(io, {
       clearIntervalImpl(intervalId);
     },
     syncPeriod,
+    broadcastForce,
+    emitClientState,
+    emitAdminState,
     // Methods for testing transitions directly
     startVersusPhase,
     startPlaceBetPopupPhase,

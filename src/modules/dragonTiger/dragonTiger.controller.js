@@ -225,25 +225,16 @@ async function adminControl(req, res) {
     }
 
     if (socketInstance) {
-      if (typeof socketInstance.emitClientState === "function") {
-        socketInstance.emitClientState();
-      }
-      if (typeof socketInstance.emitAdminState === "function") {
-        socketInstance.emitAdminState();
-      }
-      const broadcastPayload = {
-        period: result.period,
-        winner: result.winner,
-        win_number: result.win_number,
-        multiplier: result.multiplier,
-        cards: result.cards,
-        admin_force: result.winner,
-      };
-      try {
-        if (socketInstance.io?.emit) {
-          socketInstance.io.emit("dragon_tiger:force_applied", broadcastPayload);
+      if (typeof socketInstance.broadcastForce === "function") {
+        socketInstance.broadcastForce(result);
+      } else {
+        if (typeof socketInstance.emitClientState === "function") {
+          socketInstance.emitClientState();
         }
-      } catch (_) {}
+        if (typeof socketInstance.emitAdminState === "function") {
+          socketInstance.emitAdminState();
+        }
+      }
     }
 
     return res.status(200).json({
