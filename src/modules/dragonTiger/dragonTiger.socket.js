@@ -167,17 +167,36 @@ function createDragonTigerSocket(io, {
     } catch (_) {}
   }
 
-  function emitClientState(target = clientNsp) {
+  async function emitClientState(target = clientNsp) {
     const isRevealOrWinner = state.phase === PHASES.REVEALING || state.phase === PHASES.WINNER_POPUP;
-    const activeForce = service.inMemoryForce?.winner || null;
-    const activeCards = service.inMemoryForce?.cards || null;
-    const activeWinNumber = service.inMemoryForce?.win_number || null;
-    const activeMultiplier = service.inMemoryForce?.multiplier || null;
+    let roundBets = null;
+    try {
+      roundBets = await service.getCurrentRoundBets(state.period, DRAGON_TIGER_GAME_ID);
+    } catch (_) {}
+    const forceWinner = roundBets?.admin_force && roundBets.admin_force !== "auto"
+      ? roundBets.admin_force
+      : service.inMemoryForce?.period == null || String(service.inMemoryForce.period) === String(state.period)
+        ? service.inMemoryForce?.winner || null
+        : null;
+    const lowestWinner = roundBets?.lowest_winner || determineWinner({
+      dragonTotal: activeRoundBets.totals.dragon,
+      tigerTotal: activeRoundBets.totals.tiger,
+      tieTotal: activeRoundBets.totals.tie,
+    });
+    const activeForce = forceWinner;
+    const activeCards = forceWinner ? service.inMemoryForce?.cards || null : null;
+    const activeWinNumber = forceWinner ? service.inMemoryForce?.win_number || null : null;
+    const activeMultiplier = forceWinner ? service.inMemoryForce?.multiplier || null : null;
 
-    const cards = (isRevealOrWinner ? state.current_cards : null) || activeCards || null;
-    const winner = (isRevealOrWinner ? state.current_winner : null) || (activeForce && activeForce !== "auto" ? activeForce : null);
-    const win_number = (isRevealOrWinner ? (state.last_settled?.win_number ?? (state.current_winner ? (state.current_winner === "D" ? 1 : state.current_winner === "T" ? 2 : 3) : null)) : null) || activeWinNumber || (winner ? (winner === "D" ? 1 : winner === "T" ? 2 : 3) : null);
-    const multiplier = (isRevealOrWinner ? state.multiplier : null) || activeMultiplier || null;
+    const settledForPeriod = isRevealOrWinner && String(state.last_settled?.games_no) === String(state.period);
+    const cards = (settledForPeriod ? state.last_settled?.cards : null) || activeCards || null;
+    const winner = settledForPeriod
+      ? state.last_settled.winner
+      : (activeForce || lowestWinner);
+    const win_number = (settledForPeriod ? state.last_settled?.win_number : null) || activeWinNumber || (winner ? (winner === "D" ? 1 : winner === "T" ? 2 : 3) : null);
+    const multiplier = settledForPeriod
+      ? state.last_settled.multiplier
+      : (activeMultiplier || (winner === "Tie" ? 5 : 2));
 
     const payload = {
       status: state.status,
@@ -187,11 +206,12 @@ function createDragonTigerSocket(io, {
       time_remaining: state.time_remaining,
       game_id: state.game_id,
       online_count: state.online_count,
-      admin_force: activeForce && activeForce !== "auto" ? activeForce : null,
+      admin_force: activeForce,
       cards,
       winner,
       win_number,
       multiplier,
+      lowest_winner: lowestWinner,
       last_settled: state.last_settled,
       timings: PHASE_TIMINGS,
     };
@@ -204,16 +224,31 @@ function createDragonTigerSocket(io, {
         io.emit("dragon_tiger:timer", payload);
       }
     } catch (_) {}
+    return payload;
   }
 
-  function broadcastForce(forceData) {
+  async function broadcastForce(forceData) {
+    if (forceData.winner === "auto") {
+      // Clear any previous reveal cache so state reads cannot expose a stale
+      // forced winner while this period is running in automatic mode.
+      state.current_cards = null;
+      state.current_winner = null;
+      state.multiplier = 2;
+    }
+    const activeForceWinner = forceData.winner === "auto" ? null : forceData.winner;
+    const roundBets = await service.getCurrentRoundBets(forceData.period || state.period, DRAGON_TIGER_GAME_ID).catch(() => null);
+    const autoWinner = roundBets?.lowest_winner || determineWinner({
+      dragonTotal: activeRoundBets.totals.dragon,
+      tigerTotal: activeRoundBets.totals.tiger,
+      tieTotal: activeRoundBets.totals.tie,
+    });
     const payload = {
       period: forceData.period || state.period,
-      winner: forceData.winner,
-      win_number: forceData.win_number,
-      multiplier: forceData.multiplier,
-      cards: forceData.cards,
-      admin_force: forceData.winner,
+      winner: activeForceWinner || autoWinner,
+      win_number: activeForceWinner ? forceData.win_number : winnerToNumber(autoWinner),
+      multiplier: activeForceWinner ? forceData.multiplier : (autoWinner === "Tie" ? 5 : 2),
+      cards: activeForceWinner ? forceData.cards : null,
+      admin_force: activeForceWinner,
     };
     try {
       clientNsp.emit("dragon_tiger:force", payload);
@@ -222,16 +257,25 @@ function createDragonTigerSocket(io, {
         io.emit("dragon_tiger:force", payload);
       }
     } catch (_) {}
-    emitClientState();
+    await emitClientState();
     emitAdminState();
   }
 
-  function emitAdminState(target = adminNsp) {
-    const lowestWinner = determineWinner({
+  async function emitAdminState(target = adminNsp) {
+    let roundBets = null;
+    try {
+      roundBets = await service.getCurrentRoundBets(state.period, DRAGON_TIGER_GAME_ID);
+    } catch (_) {}
+    const lowestWinner = roundBets?.lowest_winner || determineWinner({
       dragonTotal: activeRoundBets.totals.dragon,
       tigerTotal: activeRoundBets.totals.tiger,
       tieTotal: activeRoundBets.totals.tie,
     });
+    const activeForce = roundBets?.admin_force && roundBets.admin_force !== "auto"
+      ? roundBets.admin_force
+      : service.inMemoryForce?.period == null || String(service.inMemoryForce.period) === String(state.period)
+        ? service.inMemoryForce?.winner || null
+        : null;
     const payload = {
       period: state.period,
       game_id: DRAGON_TIGER_GAME_ID,
@@ -239,13 +283,16 @@ function createDragonTigerSocket(io, {
       phase: state.phase,
       time_remaining: state.time_remaining,
       phase_duration: state.phase_duration,
-      totals: { ...activeRoundBets.totals },
-      counts: { ...activeRoundBets.counts },
+      totals: roundBets?.totals || { ...activeRoundBets.totals },
+      counts: roundBets?.counts || { ...activeRoundBets.counts },
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
-      admin_force: service.inMemoryForce?.winner || "auto",
-      cards: service.inMemoryForce?.cards || state.current_cards || null,
-      bets: activeRoundBets.bets.slice(0, 50),
+      admin_force: activeForce || "auto",
+      winner: activeForce || lowestWinner,
+      win_number: activeForce ? service.inMemoryForce?.win_number || winnerToNumber(activeForce) : winnerToNumber(lowestWinner),
+      multiplier: activeForce ? service.inMemoryForce?.multiplier || (activeForce === "Tie" ? 5 : 2) : (lowestWinner === "Tie" ? 5 : 2),
+      cards: activeForce ? service.inMemoryForce?.cards || null : state.current_cards || null,
+      bets: roundBets?.bets || activeRoundBets.bets.slice(0, 50),
       timings: PHASE_TIMINGS,
     };
 

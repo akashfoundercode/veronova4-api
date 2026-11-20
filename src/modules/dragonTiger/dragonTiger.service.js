@@ -263,8 +263,8 @@ class DragonTigerService {
       this.inMemoryForce = null;
       try {
         await this.poolProvider().execute(
-          "DELETE FROM admin_winner_results WHERE gamesno = ? AND gameId = ?",
-          [String(currentPeriod), Number(gameId)],
+          "DELETE FROM admin_winner_results WHERE (gamesno = ? OR gamesno = ?) AND (gameId = ? OR gameId = 10)",
+          [String(currentPeriod), currentPeriod, Number(gameId)],
         );
       } catch (_) {}
       return { success: true, winner: "auto", period: currentPeriod, cards: null, win_number: null };

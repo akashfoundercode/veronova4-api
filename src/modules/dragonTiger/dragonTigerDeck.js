@@ -175,6 +175,11 @@ function determineWinner({
     { code: "Tie", amount: Number(tieTotal) || 0 },
   ];
 
+  // With no bets at all, there is no low-bet side to favor; choose uniformly.
+  if (totals.every((t) => t.amount === 0)) {
+    return totals[Math.floor(random() * totals.length)].code;
+  }
+
   const minAmt = Math.min(...totals.map((t) => t.amount));
   const candidates = totals.filter((t) => t.amount === minAmt);
 

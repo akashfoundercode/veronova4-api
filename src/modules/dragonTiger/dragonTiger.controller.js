@@ -127,6 +127,7 @@ async function getCurrentRound(req, res) {
   try {
     const socketInstance = getDragonTigerSocket();
     const period = socketInstance?.state?.period || (await service.getCurrentPeriod(DRAGON_TIGER_GAME_ID));
+    const roundBets = await service.getCurrentRoundBets(period, DRAGON_TIGER_GAME_ID).catch(() => null);
     const phase = socketInstance?.state?.phase || "betting";
     const status = socketInstance?.state?.status || phase;
     const timeRemaining = socketInstance?.state?.time_remaining ?? 15;
@@ -152,10 +153,13 @@ async function getCurrentRound(req, res) {
       } catch (_) {}
     }
 
-    const currentCards = (isRevealOrWinner ? socketInstance?.state?.current_cards : null) || activeCards || null;
-    const currentWinner = (isRevealOrWinner ? socketInstance?.state?.current_winner : null) || activeWinner || null;
-    const winNumber = (isRevealOrWinner ? (socketInstance?.state?.last_settled?.win_number ?? (currentWinner ? winnerToNumber(currentWinner) : null)) : null) || activeWinNumber || null;
-    const currentMultiplier = (isRevealOrWinner ? socketInstance?.state?.multiplier : null) || activeMultiplier || null;
+    const settledForPeriod = isRevealOrWinner && String(socketInstance?.state?.last_settled?.games_no) === String(period);
+    const currentCards = (settledForPeriod ? socketInstance?.state?.last_settled?.cards : null) || activeCards || null;
+    const forcedWinner = activeWinner || (roundBets?.admin_force && roundBets.admin_force !== "auto" ? roundBets.admin_force : null);
+    const predictedWinner = forcedWinner || roundBets?.lowest_winner || null;
+    const currentWinner = (settledForPeriod ? socketInstance?.state?.last_settled?.winner : null) || predictedWinner;
+    const winNumber = (settledForPeriod ? socketInstance?.state?.last_settled?.win_number : null) || activeWinNumber || (currentWinner ? winnerToNumber(currentWinner) : null);
+    const currentMultiplier = (settledForPeriod ? socketInstance?.state?.last_settled?.multiplier : null) || activeMultiplier || (currentWinner ? (currentWinner === "Tie" ? 5 : 2) : null);
 
     return res.status(200).json({
       status: 200,
@@ -165,7 +169,9 @@ async function getCurrentRound(req, res) {
       game_status: status,
       time_remaining: timeRemaining,
       phase_duration: phaseDuration,
-      admin_force: activeWinner,
+      admin_force: forcedWinner,
+      lowest_winner: roundBets?.lowest_winner || null,
+      totals: roundBets?.totals || null,
       winner: currentWinner,
       win_number: winNumber,
       cards: currentCards,
