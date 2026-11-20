@@ -425,7 +425,7 @@ class DragonTigerService {
       `SELECT id, games_no, number, card_id, json, created_at
        FROM bet_results
        WHERE game_id = ?
-       ORDER BY id DESC
+       ORDER BY CAST(games_no AS UNSIGNED) DESC, id DESC
        LIMIT 120`,
       [Number(gameId)],
     );
@@ -477,6 +477,7 @@ class DragonTigerService {
       return {
         id: r.id,
         period: String(r.games_no),
+        games_no: String(r.games_no),
         winner,
         win_number: num,
         dragon_card: dragonCard,

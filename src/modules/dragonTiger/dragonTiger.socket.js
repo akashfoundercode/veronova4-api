@@ -1,7 +1,7 @@
 "use strict";
 
 const { DragonTigerService, DRAGON_TIGER_GAME_ID } = require("./dragonTiger.service");
-const { dealWinningCards, determineWinner } = require("./dragonTigerDeck");
+const { dealWinningCards, determineWinner, winnerToNumber } = require("./dragonTigerDeck");
 
 // User requested exact timing cycle:
 // 1. 4 sec versus pop up
@@ -236,7 +236,10 @@ function createDragonTigerSocket(io, {
       state.multiplier = 2;
     }
     const activeForceWinner = forceData.winner === "auto" ? null : forceData.winner;
-    const roundBets = await service.getCurrentRoundBets(forceData.period || state.period, DRAGON_TIGER_GAME_ID).catch(() => null);
+    let roundBets = null;
+    try {
+      roundBets = await service.getCurrentRoundBets(forceData.period || state.period, DRAGON_TIGER_GAME_ID);
+    } catch (_) {}
     const autoWinner = roundBets?.lowest_winner || determineWinner({
       dragonTotal: activeRoundBets.totals.dragon,
       tigerTotal: activeRoundBets.totals.tiger,

@@ -127,7 +127,12 @@ async function getCurrentRound(req, res) {
   try {
     const socketInstance = getDragonTigerSocket();
     const period = socketInstance?.state?.period || (await service.getCurrentPeriod(DRAGON_TIGER_GAME_ID));
-    const roundBets = await service.getCurrentRoundBets(period, DRAGON_TIGER_GAME_ID).catch(() => null);
+    let roundBets = null;
+    if (typeof service.getCurrentRoundBets === "function") {
+      try {
+        roundBets = await service.getCurrentRoundBets(period, DRAGON_TIGER_GAME_ID);
+      } catch (_) {}
+    }
     const phase = socketInstance?.state?.phase || "betting";
     const status = socketInstance?.state?.status || phase;
     const timeRemaining = socketInstance?.state?.time_remaining ?? 15;
