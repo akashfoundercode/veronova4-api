@@ -122,17 +122,26 @@ function createDragonTigerSocket(io, {
     const streamPayload = {
       period: state.period,
       game_id: DRAGON_TIGER_GAME_ID,
+      status: state.status,
+      phase: state.phase,
+      time_remaining: state.time_remaining,
+      phase_duration: state.phase_duration,
       latest_bet: betRecord,
       totals: { ...activeRoundBets.totals },
       counts: { ...activeRoundBets.counts },
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
+      bets: activeRoundBets.bets.slice(0, 50),
+      timings: PHASE_TIMINGS,
     };
 
-    // Broadcast to Socket 2 (Admin Live Bets Stream)
+    // Broadcast unified live feed to Socket 2 (Admin)
     try {
+      adminNsp.emit("dragon_tiger:admin:live", streamPayload);
       adminNsp.emit("dragon_tiger:admin:bet_placed", streamPayload);
+      adminNsp.emit("dragon_tiger:admin:state", streamPayload);
       if (io !== adminNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:admin:live", streamPayload);
         io.emit("dragon_tiger:admin:bet_placed", streamPayload);
         io.emit("dragon_tiger:admin_stream", streamPayload);
       }
@@ -197,8 +206,10 @@ function createDragonTigerSocket(io, {
     };
 
     try {
+      target.emit("dragon_tiger:admin:live", payload);
       target.emit("dragon_tiger:admin:state", payload);
       if (io !== adminNsp && typeof io.emit === "function") {
+        io.emit("dragon_tiger:admin:live", payload);
         io.emit("dragon_tiger:admin:state", payload);
       }
     } catch (_) {}
