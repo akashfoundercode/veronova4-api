@@ -345,7 +345,11 @@ async function ensureAllTables() {
     await safeExec("ALTER TABLE bet_results ADD COLUMN random_card VARCHAR(50) NULL");
     await safeExec("ALTER TABLE bet_results ADD COLUMN token VARCHAR(255) NULL");
     await safeExec("ALTER TABLE bet_results ADD COLUMN block BIGINT NULL DEFAULT 100");
-    await safeExec("ALTER TABLE bet_results ADD COLUMN card_id VARCHAR(255) NULL");
+    await safeExec("ALTER TABLE bet_results ADD COLUMN card_id TEXT NULL");
+    await safeExec("ALTER TABLE bet_results ADD COLUMN card_name VARCHAR(255) NULL");
+    await safeExec("ALTER TABLE bet_results ADD COLUMN image VARCHAR(255) NULL");
+    await safeExec("ALTER TABLE bet_results ADD COLUMN multiplier DECIMAL(10,2) NULL");
+    await safeExec("ALTER TABLE bet_results ADD COLUMN win_number VARCHAR(50) NULL");
     await safeExec("ALTER TABLE bet_results ADD COLUMN updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
 
     await safeExec(`

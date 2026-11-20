@@ -2,6 +2,7 @@
 
 const AppError = require("../../shared/errors/AppError");
 const { DragonTigerService, DRAGON_TIGER_GAME_ID } = require("./dragonTiger.service");
+const { normalizeWinner } = require("./dragonTigerDeck");
 const { getDragonTigerSocket } = require("./dragonTiger.socket");
 
 const service = new DragonTigerService();
@@ -161,26 +162,40 @@ async function getCurrentRound(req, res) {
  * Body: { winner: "D" | "T" | "Tie" | "auto" }
  */
 async function adminControl(req, res) {
-  const body = req.body ?? {};
-  const winner = body.winner || body.result || body.card_number;
-  if (!winner) {
+  const body = { ...(req.query || {}), ...(req.body || {}) };
+  const rawWinner = body.winner ?? body.result ?? body.card_number ?? body.number;
+  if (rawWinner === undefined || rawWinner === null || rawWinner === "") {
     return res.status(400).json({
       status: 400,
-      message: "Winner parameter is required (D, T, Tie, or auto)",
+      message: "Winner parameter is required (1/D/Dragon, 2/T/Tiger, 3/Tie, or 0/auto)",
+    });
+  }
+  const normWinner = normalizeWinner(rawWinner);
+  if (!normWinner) {
+    return res.status(400).json({
+      status: 400,
+      message: "Invalid winner. Must be 1/D/Dragon, 2/T/Tiger, 3/Tie, or 0/auto",
     });
   }
 
   try {
     const socketInstance = getDragonTigerSocket();
-    const period = body.period || socketInstance?.state?.period;
-    const result = await service.setAdminForce({
-      winner,
+    const period = body.period ?? body.game_no ?? body.gamesno ?? socketInstance?.state?.period;
+
+    // Use controller's service and sync to socket's service if available
+    const activeService = service;
+    const result = await activeService.setAdminForce({
+      winner: normWinner,
       period,
       gameId: DRAGON_TIGER_GAME_ID,
     });
+    if (socketInstance?.service && socketInstance.service !== service) {
+      socketInstance.service.inMemoryForce = activeService.inMemoryForce;
+    }
+
     return res.status(200).json({
       status: 200,
-      message: `Result force configured successfully to ${result.winner}`,
+      message: `Dragon Tiger result forced successfully to ${result.winner} (${result.win_number ?? result.winner})`,
       data: result,
     });
   } catch (error) {

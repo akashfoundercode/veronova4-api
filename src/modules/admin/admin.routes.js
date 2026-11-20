@@ -17,6 +17,12 @@ const router = express.Router();
 router.get(API_ROUTES.admin.dashboard, authenticate, requireAdmin, controller.dashboard);
 router.get(API_ROUTES.admin.dashboardCounts, authenticate, requireAdmin, controller.dashboardCounts);
 
+// Admin Credentials & Profile
+router.post("/admin/update-credentials", authenticate, requireAdmin, controller.updateAdminCredentials);
+router.post("/admin/change-password", authenticate, requireAdmin, controller.updateAdminCredentials);
+router.post("/api/admin/update-credentials", authenticate, requireAdmin, controller.updateAdminCredentials);
+router.post("/api/admin/change-password", authenticate, requireAdmin, controller.updateAdminCredentials);
+
 // Player Directory & Management
 router.get(API_ROUTES.admin.players, authenticate, requireAdmin, controller.getPlayers);
 router.post(API_ROUTES.admin.players, authenticate, requireAdmin, controller.addPlayer);

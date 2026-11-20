@@ -25,6 +25,10 @@ router.post("/dragon/bet-history", authenticate, controller.betHistory);
 // Admin Control & Live Monitoring Routes
 router.post("/admin/dragon/control", controller.adminControl);
 router.post("/admin/dragon-tiger/control", controller.adminControl);
+router.post("/api/admin/dragon/control", controller.adminControl);
+router.post("/api/admin/dragon-tiger/control", controller.adminControl);
+router.get("/admin/dragon/control", controller.adminControl);
+router.get("/api/admin/dragon/control", controller.adminControl);
 
 router.get("/admin/dragon/bets", controller.adminLiveBets);
 router.get("/admin/dragon-tiger/bets", controller.adminLiveBets);

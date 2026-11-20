@@ -855,7 +855,7 @@ class DragonTigerService {
         gameNo = String(logRows[0].games_no);
       }
       const [existing] = await connection.execute(
-        "SELECT id FROM bet_results WHERE game_id = ? AND games_no = ? LIMIT 1",
+        "SELECT id, number, card_id, json, win_number FROM bet_results WHERE game_id = ? AND games_no = ? LIMIT 1",
         [gameId, gameNo],
       );
       if (existing.length > 0) {
@@ -871,22 +871,85 @@ class DragonTigerService {
         }
         await connection.commit();
         transactionStarted = false;
-        return { message: "Dragon Tiger round already settled", games_no: nextNo, already_settled: true };
+        const existingNum = Number(existing[0].number || existing[0].win_number || 1);
+        const winner = numberToWinner(existingNum);
+        let cards = null;
+        try {
+          if (existing[0].card_id) cards = JSON.parse(existing[0].card_id);
+        } catch (_) {}
+        if (!cards) {
+          const dealt = dealWinningCards(winner);
+          cards = { dragon: dealt.dragon, tiger: dealt.tiger };
+        }
+        return {
+          message: "Dragon Tiger round already settled",
+          games_no: gameNo,
+          winner,
+          win_number: existingNum,
+          cards,
+          multiplier: getPayoutMultiplier(winner),
+          already_settled: true,
+        };
       }
 
       // Check for explicit or admin forced winner
-      let forced = explicitWinner ? normalizeWinner(explicitWinner) : null;
-      if (!forced) {
-        const [adminResults] = await connection.execute(
-          "SELECT number FROM admin_winner_results WHERE gamesno = ? AND gameId = ? AND status = '1' ORDER BY id DESC LIMIT 1",
-          [gameNo, gameId],
-        );
-        if (adminResults.length > 0) {
-          const adminNum = Number(adminResults[0].number);
-          if (adminNum >= 1 && adminNum <= 3) {
-            forced = numberToWinner(adminNum);
-          }
+      const explicitInput = typeof explicitWinner === "object" && explicitWinner !== null
+        ? (explicitWinner.forcedResult ?? explicitWinner.winner ?? explicitWinner.number)
+        : explicitWinner;
+      let forced = explicitInput ? (normalizeWinner(explicitInput) || numberToWinner(explicitInput)) : null;
+
+      // 1. In-memory forced winner check
+      if (!forced && this.inMemoryForce) {
+        if (!this.inMemoryForce.period || String(this.inMemoryForce.period) === String(gameNo)) {
+          forced = this.inMemoryForce.winner;
         }
+      }
+
+      // 2. Query admin_winner_results by exact gamesno
+      if (!forced) {
+        try {
+          const [adminResults] = await connection.execute(
+            "SELECT number FROM admin_winner_results WHERE (gamesno = ? OR gamesno = ?) AND (gameId = ? OR gameId = 10) AND (status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
+            [gameNo, String(gameNo), gameId],
+          );
+          if (adminResults.length > 0) {
+            const adminNum = Number(adminResults[0].number);
+            if (adminNum >= 1 && adminNum <= 3) {
+              forced = numberToWinner(adminNum);
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 3. Fallback: Query latest active force in admin_winner_results for Dragon Tiger (gameId 10)
+      if (!forced) {
+        try {
+          const [adminResultsAny] = await connection.execute(
+            "SELECT number FROM admin_winner_results WHERE (gameId = ? OR gameId = 10) AND (status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
+            [gameId],
+          );
+          if (adminResultsAny.length > 0) {
+            const adminNum = Number(adminResultsAny[0].number);
+            if (adminNum >= 1 && adminNum <= 3) {
+              forced = numberToWinner(adminNum);
+            }
+          }
+        } catch (_) {}
+      }
+
+      // 4. Fallback: Query dragon_admin_result (Laravel PHP Admin Panel table)
+      if (!forced) {
+        try {
+          const [dragonAdminRows] = await connection.execute(
+            "SELECT number FROM dragon_admin_result WHERE (status = '1' OR status = 1) ORDER BY id DESC LIMIT 1",
+          );
+          if (dragonAdminRows.length > 0) {
+            const dNum = Number(dragonAdminRows[0].number);
+            if (dNum >= 1 && dNum <= 3) {
+              forced = numberToWinner(dNum);
+            }
+          }
+        } catch (_) {}
       }
 
       // Determine winner
@@ -919,6 +982,23 @@ class DragonTigerService {
         });
       }
 
+      // Consume used admin force so it doesn't affect subsequent rounds
+      if (this.inMemoryForce && (!this.inMemoryForce.period || String(this.inMemoryForce.period) === String(gameNo))) {
+        this.inMemoryForce = null;
+      }
+      try {
+        await connection.execute(
+          "UPDATE admin_winner_results SET status = '0' WHERE (gamesno = ? OR gamesno = ? OR gameId = 10) AND (status = '1' OR status = 1)",
+          [gameNo, String(gameNo)],
+        );
+      } catch (_) {}
+      try {
+        await connection.execute(
+          "UPDATE dragon_admin_result SET status = '0' WHERE (gamesno = ? OR status = '1' OR status = 1)",
+          [gameNo],
+        );
+      } catch (_) {}
+
       const resultNumber = winnerToNumber(winnerCode);
       const payoutMultiplier = getPayoutMultiplier(winnerCode);
 
@@ -929,13 +1009,34 @@ class DragonTigerService {
         tiger: dealt.tiger,
       });
       const cardImages = JSON.stringify([dealt.dragon.image, dealt.tiger.image]);
+      const cardName = `${dealt.dragon.symbol} vs ${dealt.tiger.symbol}`;
 
-      // Insert into bet_results
-      await connection.execute(
-        `INSERT INTO bet_results (number, games_no, game_id, card_id, status, json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [resultNumber, gameNo, gameId, cardIds, cardImages],
-      );
+      // Insert into bet_results with full card details
+      try {
+        await connection.execute(
+          `INSERT INTO bet_results (number, win_number, games_no, game_id, card_id, card_name, image, multiplier, random_card, status, json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            resultNumber,
+            resultNumber,
+            gameNo,
+            gameId,
+            cardIds,
+            cardName,
+            dealt.dragon.image,
+            payoutMultiplier,
+            resultNumber,
+            cardImages,
+          ],
+        );
+      } catch (insertErr) {
+        // Fallback for minimal schema
+        await connection.execute(
+          `INSERT INTO bet_results (number, games_no, game_id, card_id, status, json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [resultNumber, gameNo, gameId, cardIds, cardImages],
+        );
+      }
 
       // Settle bets for this round
       // Winners: status = 1, win_amount = trade_amount * payoutMultiplier

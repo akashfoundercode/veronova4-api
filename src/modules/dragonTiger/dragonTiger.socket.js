@@ -131,6 +131,7 @@ function createDragonTigerSocket(io, {
       counts: { ...activeRoundBets.counts },
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
+      admin_force: service.inMemoryForce?.winner || "auto",
       bets: activeRoundBets.bets.slice(0, 50),
       timings: PHASE_TIMINGS,
     };
@@ -201,6 +202,7 @@ function createDragonTigerSocket(io, {
       counts: { ...activeRoundBets.counts },
       lowest_spot: lowestWinner === "D" ? "dragon" : lowestWinner === "T" ? "tiger" : "tie",
       lowest_winner: lowestWinner,
+      admin_force: service.inMemoryForce?.winner || "auto",
       bets: activeRoundBets.bets.slice(0, 50),
       timings: PHASE_TIMINGS,
     };
@@ -310,8 +312,9 @@ function createDragonTigerSocket(io, {
       );
     } catch (err) {
       logger.error("[DragonTigerSocket] Settle round error:", err.message);
-      // Fallback in-memory settlement card reveal
-      const fallbackWinner = determineWinner({
+      // Fallback in-memory settlement card reveal - RESPECT ACTIVE FORCE!
+      const activeForced = service.inMemoryForce?.winner || null;
+      const fallbackWinner = activeForced ? activeForced : determineWinner({
         dragonTotal: activeRoundBets.totals.dragon,
         tigerTotal: activeRoundBets.totals.tiger,
         tieTotal: activeRoundBets.totals.tie,
@@ -548,6 +551,7 @@ function createDragonTigerSocket(io, {
 
   const instance = {
     io,
+    service,
     clientNsp,
     adminNsp,
     state,

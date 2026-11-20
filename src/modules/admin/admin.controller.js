@@ -1258,7 +1258,21 @@ async function updateDemoUser(req, res) {
   }
 }
 
+async function updateAdminCredentials(req, res) {
+  try {
+    const adminId = req.user?.id || 1;
+    const result = await service.updateAdminCredentials(adminId, req.body || {});
+    return res.status(result.status || 200).json(result);
+  } catch (err) {
+    return res.status(500).json({
+      status: 500,
+      message: err.message || "Failed to update admin credentials.",
+    });
+  }
+}
+
 module.exports = {
+  updateAdminCredentials,
   addPlayer,
   createDemoUser,
   getDemoUsers,

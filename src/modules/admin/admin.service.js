@@ -2201,6 +2201,45 @@ class AdminService {
     }
   }
 
+  async updateAdminCredentials(adminId, { username, email, password } = {}) {
+    const pool = this.poolProvider();
+    const updates = [];
+    const params = [];
+
+    if (username) {
+      updates.push("username = ?");
+      params.push(String(username).trim());
+    }
+    if (email) {
+      updates.push("email = ?");
+      params.push(String(email).trim().toLowerCase());
+    }
+    if (password) {
+      const cleanPass = String(password).trim();
+      const bcrypt = require("bcryptjs");
+      const hash = bcrypt.hashSync(cleanPass, 10);
+      updates.push("password = ?, password_hash = ?");
+      params.push(cleanPass, hash);
+    }
+
+    if (updates.length === 0) {
+      return { status: 400, message: "No fields provided to update." };
+    }
+
+    updates.push("updated_at = CURRENT_TIMESTAMP");
+    params.push(adminId);
+
+    await pool.execute(
+      `UPDATE admins SET ${updates.join(", ")} WHERE id = ?`,
+      params
+    );
+
+    return {
+      status: 200,
+      message: "Admin credentials successfully updated.",
+    };
+  }
+
   async addPlayer(data = {}) {
     // If target player ID is provided in data, treat as player update (e.g. KYC verification, profile update)
     const targetId = Number(
