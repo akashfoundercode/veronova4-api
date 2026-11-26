@@ -109,6 +109,44 @@ function createPool() {
           previous_horse_racing_loss: 80,
         }], []];
       }
+      if (sql.includes("AS plinko_games")) {
+        return [[{
+          plinko_games: 60,
+          plinko_bets: 60,
+          plinko_wins: 22,
+          plinko_losses: 38,
+          plinko_bet_amount: 6000,
+          plinko_win_amount: 4200,
+          plinko_net: 1800,
+          plinko_loss: 2500,
+          current_plinko_games: 20,
+          previous_plinko_games: 10,
+          current_plinko_net: 700,
+          previous_plinko_net: 400,
+          current_plinko_loss: 900,
+          previous_plinko_loss: 500,
+        }], []];
+      }
+      if (sql.includes("AS dragon_tiger_games")) {
+        return [[{
+          dragon_tiger_games: 90,
+          dragon_tiger_bets: 210,
+          dragon_tiger_wins: 85,
+          dragon_tiger_losses: 125,
+          dragon_tiger_bet_amount: 21000,
+          dragon_tiger_win_amount: 16500,
+          dragon_tiger_net: 4500,
+          dragon_tiger_loss: 9500,
+          current_dragon_tiger_games: 30,
+          previous_dragon_tiger_games: 15,
+          current_dragon_tiger_bets: 70,
+          previous_dragon_tiger_bets: 40,
+          current_dragon_tiger_net: 1500,
+          previous_dragon_tiger_net: 800,
+          current_dragon_tiger_loss: 3200,
+          previous_dragon_tiger_loss: 1800,
+        }], []];
+      }
       if (sql.includes("DATE(b.created_at)")) {
         return [[{ day: new Date("2026-10-10T00:00:00.000Z"), value: 50 }], []];
       }
@@ -146,6 +184,19 @@ test("admin dashboard returns all cards and daily chart series for the selected 
   assert.equal(result.metrics.totalRevenue.previousPeriod, 50);
   assert.equal(result.metrics.totalRevenue.changePercent, 100);
   assert.equal(result.metrics.totalRevenue.trend, "up");
+  assert.equal(result.gameBreakdown.plinko.games, 60);
+  assert.equal(result.gameBreakdown.plinko.wins, 22);
+  assert.equal(result.gameBreakdown.plinko.losses, 38);
+  assert.equal(result.gameBreakdown.plinko.adminProfit, 1800);
+  assert.equal(result.gameBreakdown.plinko.adminLoss, 2500);
+  assert.equal(result.gameBreakdown.dragonTiger.games, 90);
+  assert.equal(result.gameBreakdown.dragonTiger.bets, 210);
+  assert.equal(result.gameBreakdown.dragonTiger.wins, 85);
+  assert.equal(result.gameBreakdown.dragonTiger.losses, 125);
+  assert.equal(result.gameBreakdown.dragonTiger.adminProfit, 4500);
+  assert.equal(result.gameBreakdown.dragonTiger.adminLoss, 9500);
+  assert.equal(result.counts.plinko_admin_profit, 1800);
+  assert.equal(result.counts.dragon_tiger_admin_profit, 4500);
   const revenueQuery = pool.calls.find(({ sql }) => sql.includes("AS total_revenue"));
   assert.match(revenueQuery.sql, /b\.amount - CASE WHEN b\.status = 1 THEN b\.win_amount/);
   assert.match(revenueQuery.sql, /ab\.win AS win_amount/);
@@ -234,7 +285,7 @@ test("admin dashboard returns all cards and daily chart series for the selected 
     value: 40,
   });
   assert.equal(result.charts.playerGrowth.at(-1).value, 2);
-  assert.equal(pool.calls.length, 9);
+  assert.equal(pool.calls.length, 11);
 });
 
 test("admin getDashboardCounts returns standalone dashboard counts", async () => {
@@ -293,6 +344,17 @@ test("admin getDashboardCounts returns standalone dashboard counts", async () =>
   assert.equal(counts.gameBreakdown.stackTower.games, 50);
   assert.equal(counts.gameBreakdown.wingo.games, 120);
   assert.equal(counts.gameBreakdown.horseRacing.games, 40);
+  assert.equal(counts.gameBreakdown.plinko.games, 60);
+  assert.equal(counts.gameBreakdown.plinko.wins, 22);
+  assert.equal(counts.gameBreakdown.plinko.losses, 38);
+  assert.equal(counts.gameBreakdown.plinko.adminProfit, 1800);
+  assert.equal(counts.gameBreakdown.plinko.adminLoss, 2500);
+  assert.equal(counts.gameBreakdown.dragonTiger.games, 90);
+  assert.equal(counts.gameBreakdown.dragonTiger.bets, 210);
+  assert.equal(counts.gameBreakdown.dragonTiger.wins, 85);
+  assert.equal(counts.gameBreakdown.dragonTiger.losses, 125);
+  assert.equal(counts.gameBreakdown.dragonTiger.adminProfit, 4500);
+  assert.equal(counts.gameBreakdown.dragonTiger.adminLoss, 9500);
   assert.equal(counts.active_player, 60);
   assert.equal(counts.activePlayer, 60);
   assert.equal(counts.today_user, 2);
@@ -309,7 +371,7 @@ test("admin getDashboardCounts returns standalone dashboard counts", async () =>
   assert.equal(counts.illegalBetters, 2);
   assert.equal(counts.demo_users, 4);
   assert.equal(counts.demoUsers, 4);
-  assert.equal(pool.calls.length, 5);
+  assert.equal(pool.calls.length, 7);
 });
 
 test("admin dashboard supports 30 days and rejects unknown periods", async () => {

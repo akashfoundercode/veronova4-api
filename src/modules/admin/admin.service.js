@@ -1219,6 +1219,26 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
   const horseRacingGames = number(extra.horse_racing_games);
   const horseRacingBets = number(extra.horse_racing_bets);
 
+  const plinkoNet = number(extra.plinko_net);
+  const plinkoProfit = Math.max(plinkoNet, 0);
+  const plinkoLoss = extra.plinko_loss !== undefined && extra.plinko_loss !== null && number(extra.plinko_loss) > 0 ? number(extra.plinko_loss) : Math.abs(Math.min(plinkoNet, 0));
+  const plinkoGames = number(extra.plinko_games);
+  const plinkoBets = number(extra.plinko_bets || plinkoGames);
+  const plinkoWins = number(extra.plinko_wins);
+  const plinkoLosses = number(extra.plinko_losses);
+  const plinkoBetAmount = number(extra.plinko_bet_amount);
+  const plinkoWinAmount = number(extra.plinko_win_amount);
+
+  const dragonTigerNet = number(extra.dragon_tiger_net);
+  const dragonTigerProfit = Math.max(dragonTigerNet, 0);
+  const dragonTigerLoss = extra.dragon_tiger_loss !== undefined && extra.dragon_tiger_loss !== null && number(extra.dragon_tiger_loss) > 0 ? number(extra.dragon_tiger_loss) : Math.abs(Math.min(dragonTigerNet, 0));
+  const dragonTigerGames = number(extra.dragon_tiger_games);
+  const dragonTigerBets = number(extra.dragon_tiger_bets);
+  const dragonTigerWins = number(extra.dragon_tiger_wins);
+  const dragonTigerLosses = number(extra.dragon_tiger_losses);
+  const dragonTigerBetAmount = number(extra.dragon_tiger_bet_amount);
+  const dragonTigerWinAmount = number(extra.dragon_tiger_win_amount);
+
   const gameBreakdown = {
     chickenRoad: {
       games: chickenGames,
@@ -1246,6 +1266,26 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
       bets: horseRacingBets,
       adminProfit: horseRacingProfit,
       adminLoss: horseRacingLoss,
+    },
+    plinko: {
+      games: plinkoGames,
+      bets: plinkoBets,
+      wins: plinkoWins,
+      losses: plinkoLosses,
+      betAmount: plinkoBetAmount,
+      winAmount: plinkoWinAmount,
+      adminProfit: plinkoProfit,
+      adminLoss: plinkoLoss,
+    },
+    dragonTiger: {
+      games: dragonTigerGames,
+      bets: dragonTigerBets,
+      wins: dragonTigerWins,
+      losses: dragonTigerLosses,
+      betAmount: dragonTigerBetAmount,
+      winAmount: dragonTigerWinAmount,
+      adminProfit: dragonTigerProfit,
+      adminLoss: dragonTigerLoss,
     },
   };
 
@@ -1279,6 +1319,24 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
     horse_racing_bets: horseRacingBets,
     horse_racing_admin_profit: horseRacingProfit,
     horse_racing_admin_loss: horseRacingLoss,
+
+    plinko_games: plinkoGames,
+    plinko_bets: plinkoBets,
+    plinko_wins: plinkoWins,
+    plinko_losses: plinkoLosses,
+    plinko_bet_amount: plinkoBetAmount,
+    plinko_win_amount: plinkoWinAmount,
+    plinko_admin_profit: plinkoProfit,
+    plinko_admin_loss: plinkoLoss,
+
+    dragon_tiger_games: dragonTigerGames,
+    dragon_tiger_bets: dragonTigerBets,
+    dragon_tiger_wins: dragonTigerWins,
+    dragon_tiger_losses: dragonTigerLosses,
+    dragon_tiger_bet_amount: dragonTigerBetAmount,
+    dragon_tiger_win_amount: dragonTigerWinAmount,
+    dragon_tiger_admin_profit: dragonTigerProfit,
+    dragon_tiger_admin_loss: dragonTigerLoss,
 
     active_player: number(user.active_players),
     today_user: number(user.today_players),
@@ -1320,6 +1378,24 @@ function buildCounts({ user = {}, bet = {}, deposit = {}, withdrawal = {}, extra
     horseRacingAdminProfit: horseRacingProfit,
     horseRacingAdminLoss: horseRacingLoss,
 
+    plinkoGames: plinkoGames,
+    plinkoBets: plinkoBets,
+    plinkoWins: plinkoWins,
+    plinkoLosses: plinkoLosses,
+    plinkoBetAmount: plinkoBetAmount,
+    plinkoWinAmount: plinkoWinAmount,
+    plinkoAdminProfit: plinkoProfit,
+    plinkoAdminLoss: plinkoLoss,
+
+    dragonTigerGames: dragonTigerGames,
+    dragonTigerBets: dragonTigerBets,
+    dragonTigerWins: dragonTigerWins,
+    dragonTigerLosses: dragonTigerLosses,
+    dragonTigerBetAmount: dragonTigerBetAmount,
+    dragonTigerWinAmount: dragonTigerWinAmount,
+    dragonTigerAdminProfit: dragonTigerProfit,
+    dragonTigerAdminLoss: dragonTigerLoss,
+
     activePlayer: number(user.active_players),
     todayUser: number(user.today_players),
     todayTurnover: number(bet.today_turnover),
@@ -1342,6 +1418,88 @@ async function safeDashboardQuery(pool, sql, params = [], fallback = [[]]) {
     console.warn("[Admin Dashboard Warning] Safe query fallback:", err.sqlMessage || err.message);
     return fallback;
   }
+}
+
+async function fetchNewGameStats(pool, { startDate = null, endDate = null, previousStartDate = null, previousEndDate = null } = {}) {
+  const hasPeriod = Boolean(startDate && endDate && previousStartDate && previousEndDate);
+  const plinkoPeriodSql = hasPeriod
+    ? `,
+       COALESCE(SUM(CASE WHEN pb.created_at >= ? AND pb.created_at < ? THEN 1 ELSE 0 END), 0) AS current_plinko_games,
+       COALESCE(SUM(CASE WHEN pb.created_at >= ? AND pb.created_at < ? THEN 1 ELSE 0 END), 0) AS previous_plinko_games,
+       COALESCE(SUM(CASE WHEN pb.created_at >= ? AND pb.created_at < ? THEN pb.amount - (CASE WHEN pb.status = 1 THEN COALESCE(pb.win_amount, 0) ELSE 0 END) ELSE 0 END), 0) AS current_plinko_net,
+       COALESCE(SUM(CASE WHEN pb.created_at >= ? AND pb.created_at < ? THEN pb.amount - (CASE WHEN pb.status = 1 THEN COALESCE(pb.win_amount, 0) ELSE 0 END) ELSE 0 END), 0) AS previous_plinko_net,
+       COALESCE(SUM(CASE WHEN (pb.status = 2 OR pb.is_out = 1) AND pb.created_at >= ? AND pb.created_at < ? THEN pb.amount ELSE 0 END), 0) AS current_plinko_loss,
+       COALESCE(SUM(CASE WHEN (pb.status = 2 OR pb.is_out = 1) AND pb.created_at >= ? AND pb.created_at < ? THEN pb.amount ELSE 0 END), 0) AS previous_plinko_loss`
+    : "";
+  const plinkoParams = hasPeriod
+    ? [
+        startDate, endDate, previousStartDate, previousEndDate,
+        startDate, endDate, previousStartDate, previousEndDate,
+        startDate, endDate, previousStartDate, previousEndDate,
+      ]
+    : [];
+
+  const dtPeriodSql = hasPeriod
+    ? `,
+       (SELECT COUNT(*) FROM bet_results WHERE game_id = 10 AND created_at >= ? AND created_at < ?) AS current_dragon_tiger_games,
+       (SELECT COUNT(*) FROM bet_results WHERE game_id = 10 AND created_at >= ? AND created_at < ?) AS previous_dragon_tiger_games,
+       COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN 1 ELSE 0 END), 0) AS current_dragon_tiger_bets,
+       COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN 1 ELSE 0 END), 0) AS previous_dragon_tiger_bets,
+       COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount - (CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END) ELSE 0 END), 0) AS current_dragon_tiger_net,
+       COALESCE(SUM(CASE WHEN b.created_at >= ? AND b.created_at < ? THEN b.amount - (CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END) ELSE 0 END), 0) AS previous_dragon_tiger_net,
+       COALESCE(SUM(CASE WHEN b.status IN ('2', 2) AND b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS current_dragon_tiger_loss,
+       COALESCE(SUM(CASE WHEN b.status IN ('2', 2) AND b.created_at >= ? AND b.created_at < ? THEN b.amount ELSE 0 END), 0) AS previous_dragon_tiger_loss`
+    : "";
+  const dtParams = hasPeriod
+    ? [
+        startDate, endDate, previousStartDate, previousEndDate,
+        startDate, endDate, previousStartDate, previousEndDate,
+        startDate, endDate, previousStartDate, previousEndDate,
+        startDate, endDate, previousStartDate, previousEndDate,
+      ]
+    : [];
+
+  const [plinkoRes, dtRes] = await Promise.all([
+    safeDashboardQuery(
+      pool,
+      `SELECT
+         COUNT(*) AS plinko_games,
+         COUNT(*) AS plinko_bets,
+         COALESCE(SUM(CASE WHEN pb.status = 1 THEN 1 ELSE 0 END), 0) AS plinko_wins,
+         COALESCE(SUM(CASE WHEN pb.status = 2 OR pb.is_out = 1 THEN 1 ELSE 0 END), 0) AS plinko_losses,
+         COALESCE(SUM(pb.amount), 0) AS plinko_bet_amount,
+         COALESCE(SUM(CASE WHEN pb.status = 1 THEN COALESCE(pb.win_amount, 0) ELSE 0 END), 0) AS plinko_win_amount,
+         COALESCE(SUM(pb.amount) - SUM(CASE WHEN pb.status = 1 THEN COALESCE(pb.win_amount, 0) ELSE 0 END), 0) AS plinko_net,
+         COALESCE(SUM(CASE WHEN pb.status = 2 OR pb.is_out = 1 THEN pb.amount ELSE 0 END), 0) AS plinko_loss${plinkoPeriodSql}
+       FROM plinko_bets pb
+       INNER JOIN users u ON u.id = pb.userid
+       WHERE u.account_type = 0`,
+      plinkoParams,
+      [[{}], []],
+    ),
+    safeDashboardQuery(
+      pool,
+      `SELECT
+         (SELECT COUNT(*) FROM bet_results WHERE game_id = 10) AS dragon_tiger_games,
+         COUNT(*) AS dragon_tiger_bets,
+         COALESCE(SUM(CASE WHEN b.status IN ('1', 1) THEN 1 ELSE 0 END), 0) AS dragon_tiger_wins,
+         COALESCE(SUM(CASE WHEN b.status IN ('2', 2) THEN 1 ELSE 0 END), 0) AS dragon_tiger_losses,
+         COALESCE(SUM(b.amount), 0) AS dragon_tiger_bet_amount,
+         COALESCE(SUM(CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END), 0) AS dragon_tiger_win_amount,
+         COALESCE(SUM(b.amount) - SUM(CASE WHEN b.status IN ('1', 1) THEN COALESCE(b.win_amount, 0) ELSE 0 END), 0) AS dragon_tiger_net,
+         COALESCE(SUM(CASE WHEN b.status IN ('2', 2) THEN b.amount ELSE 0 END), 0) AS dragon_tiger_loss${dtPeriodSql}
+       FROM bets b
+       INNER JOIN users u ON u.id = COALESCE(b.userid, b.user_id)
+       WHERE u.account_type = 0 AND b.game_id = 10`,
+      dtParams,
+      [[{}], []],
+    ),
+  ]);
+
+  return {
+    ...(plinkoRes[0]?.[0] ?? {}),
+    ...(dtRes[0]?.[0] ?? {}),
+  };
 }
 
 class AdminService {
@@ -1375,7 +1533,7 @@ class AdminService {
     const todayEndDate = endDate;
 
     const pool = this.poolProvider();
-    const [users, bets, deposits, withdrawals, misc, turnoverRows, depositRows, withdrawalRows, playerRows] =
+    const [users, bets, deposits, withdrawals, misc, turnoverRows, depositRows, withdrawalRows, playerRows, newGameStats] =
       await Promise.all([
         safeDashboardQuery(
           pool,
@@ -1580,13 +1738,14 @@ class AdminService {
           [startDate, endDate],
           [[], []],
         ),
+        fetchNewGameStats(pool, { startDate, endDate, previousStartDate, previousEndDate }),
       ]);
 
     const user = users[0][0] ?? {};
     const bet = bets[0][0] ?? {};
     const deposit = deposits[0][0] ?? {};
     const withdrawal = withdrawals[0][0] ?? {};
-    const extra = misc[0][0] ?? {};
+    const extra = { ...(newGameStats ?? {}), ...(misc[0][0] ?? {}) };
     const chickenNet = number(extra.chicken_net);
     const aviatorNet = number(extra.aviator_net);
     const chickenNow = number(extra.current_chicken_net);
@@ -1614,6 +1773,18 @@ class AdminService {
     const horseRacingLoss = extra.horse_racing_loss !== undefined && extra.horse_racing_loss !== null && number(extra.horse_racing_loss) > 0 ? number(extra.horse_racing_loss) : Math.abs(Math.min(horseRacingNet, 0));
     const horseRacingGames = number(extra.horse_racing_games);
     const horseRacingBets = number(extra.horse_racing_bets);
+
+    const plinkoNet = number(extra.plinko_net);
+    const plinkoProfit = Math.max(plinkoNet, 0);
+    const plinkoLoss = extra.plinko_loss !== undefined && extra.plinko_loss !== null && number(extra.plinko_loss) > 0 ? number(extra.plinko_loss) : Math.abs(Math.min(plinkoNet, 0));
+    const plinkoGames = number(extra.plinko_games);
+    const plinkoBets = number(extra.plinko_bets || plinkoGames);
+
+    const dragonTigerNet = number(extra.dragon_tiger_net);
+    const dragonTigerProfit = Math.max(dragonTigerNet, 0);
+    const dragonTigerLoss = extra.dragon_tiger_loss !== undefined && extra.dragon_tiger_loss !== null && number(extra.dragon_tiger_loss) > 0 ? number(extra.dragon_tiger_loss) : Math.abs(Math.min(dragonTigerNet, 0));
+    const dragonTigerGames = number(extra.dragon_tiger_games);
+    const dragonTigerBets = number(extra.dragon_tiger_bets);
 
     const metrics = {
       totalRevenue: metric(bet.total_revenue, bet.current_revenue, bet.previous_revenue),
@@ -1669,6 +1840,24 @@ class AdminService {
       horse_racing_admin_profit: metric(horseRacingProfit, Math.max(number(extra.current_horse_racing_net), 0), Math.max(number(extra.previous_horse_racing_net), 0)),
       horse_racing_admin_loss: metric(horseRacingLoss, number(extra.current_horse_racing_loss), number(extra.previous_horse_racing_loss)),
 
+      plinkoGames: metric(plinkoGames, number(extra.current_plinko_games), number(extra.previous_plinko_games)),
+      plinkoBets: metric(plinkoBets, number(extra.current_plinko_games), number(extra.previous_plinko_games)),
+      plinkoAdminProfit: metric(plinkoProfit, Math.max(number(extra.current_plinko_net), 0), Math.max(number(extra.previous_plinko_net), 0)),
+      plinkoAdminLoss: metric(plinkoLoss, number(extra.current_plinko_loss), number(extra.previous_plinko_loss)),
+      plinko_games: metric(plinkoGames, number(extra.current_plinko_games), number(extra.previous_plinko_games)),
+      plinko_bets: metric(plinkoBets, number(extra.current_plinko_games), number(extra.previous_plinko_games)),
+      plinko_admin_profit: metric(plinkoProfit, Math.max(number(extra.current_plinko_net), 0), Math.max(number(extra.previous_plinko_net), 0)),
+      plinko_admin_loss: metric(plinkoLoss, number(extra.current_plinko_loss), number(extra.previous_plinko_loss)),
+
+      dragonTigerGames: metric(dragonTigerGames, number(extra.current_dragon_tiger_games), number(extra.previous_dragon_tiger_games)),
+      dragonTigerBets: metric(dragonTigerBets || dragonTigerGames, number(extra.current_dragon_tiger_bets), number(extra.previous_dragon_tiger_bets)),
+      dragonTigerAdminProfit: metric(dragonTigerProfit, Math.max(number(extra.current_dragon_tiger_net), 0), Math.max(number(extra.previous_dragon_tiger_net), 0)),
+      dragonTigerAdminLoss: metric(dragonTigerLoss, number(extra.current_dragon_tiger_loss), number(extra.previous_dragon_tiger_loss)),
+      dragon_tiger_games: metric(dragonTigerGames, number(extra.current_dragon_tiger_games), number(extra.previous_dragon_tiger_games)),
+      dragon_tiger_bets: metric(dragonTigerBets || dragonTigerGames, number(extra.current_dragon_tiger_bets), number(extra.previous_dragon_tiger_bets)),
+      dragon_tiger_admin_profit: metric(dragonTigerProfit, Math.max(number(extra.current_dragon_tiger_net), 0), Math.max(number(extra.previous_dragon_tiger_net), 0)),
+      dragon_tiger_admin_loss: metric(dragonTigerLoss, number(extra.current_dragon_tiger_loss), number(extra.previous_dragon_tiger_loss)),
+
       otpPack: metric(extra.otp_pack, 0, 0),
       otpPackBalance: metric(extra.otp_pack, 0, 0),
     };
@@ -1698,7 +1887,7 @@ class AdminService {
     const todayEndDate = endDate;
 
     const pool = this.poolProvider();
-    const [users, bets, deposits, withdrawals, misc] = await Promise.all([
+    const [users, bets, deposits, withdrawals, misc, newGameStats] = await Promise.all([
       safeDashboardQuery(
         pool,
         `SELECT
@@ -1783,13 +1972,14 @@ class AdminService {
         [today, todayEndDate, yesterday, today],
         [[{}], []],
       ),
+      fetchNewGameStats(pool),
     ]);
 
     const user = users[0][0] ?? {};
     const bet = bets[0][0] ?? {};
     const deposit = deposits[0][0] ?? {};
     const withdrawal = withdrawals[0][0] ?? {};
-    const extra = misc[0][0] ?? {};
+    const extra = { ...(newGameStats ?? {}), ...(misc[0][0] ?? {}) };
 
     return buildCounts({ user, bet, deposit, withdrawal, extra });
   }
