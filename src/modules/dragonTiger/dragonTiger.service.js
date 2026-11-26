@@ -16,6 +16,54 @@ const DRAGON_TIGER_GAME_ID = 10;
 const BATCH_GAME_IDS = Object.freeze([DRAGON_TIGER_GAME_ID, 13, 15]);
 const RESULT_GAME_IDS = Object.freeze([DRAGON_TIGER_GAME_ID, 13]);
 
+/**
+ * Detects repeated winning patterns across a user's recent settled bets (newest first).
+ * Flags when a user wins consecutively 3+ times on the same side (e.g. D-D-D),
+ * 4+ times on a repeating 2-step pattern (e.g. D-T-D-T), or 6+ times on a 3-step pattern.
+ */
+function detectIllegalWinPattern(recentBets = []) {
+  if (!Array.isArray(recentBets) || recentBets.length < 3) {
+    return null;
+  }
+
+  // Collect unbroken winning streak starting from the most recent settled bet
+  const winStreakNumbers = [];
+  for (const row of recentBets) {
+    if (Number(row?.status) !== 1) break;
+    winStreakNumbers.push(Number(row.number));
+  }
+
+  if (winStreakNumbers.length < 3) {
+    return null;
+  }
+
+  // 1. Same-side consecutive wins (3 or more in a row, e.g. D-D-D or T-T-T)
+  if (winStreakNumbers[0] === winStreakNumbers[1] && winStreakNumbers[1] === winStreakNumbers[2]) {
+    return "SAME_SIDE_STREAK";
+  }
+
+  // 2. Repeating 2-step pattern (4+ consecutive wins, e.g. D-T-D-T)
+  if (
+    winStreakNumbers.length >= 4 &&
+    winStreakNumbers[0] === winStreakNumbers[2] &&
+    winStreakNumbers[1] === winStreakNumbers[3]
+  ) {
+    return "REPEATING_2_STEP_PATTERN";
+  }
+
+  // 3. Repeating 3-step pattern (6+ consecutive wins, e.g. D-D-T-D-D-T)
+  if (
+    winStreakNumbers.length >= 6 &&
+    winStreakNumbers[0] === winStreakNumbers[3] &&
+    winStreakNumbers[1] === winStreakNumbers[4] &&
+    winStreakNumbers[2] === winStreakNumbers[5]
+  ) {
+    return "REPEATING_3_STEP_PATTERN";
+  }
+
+  return null;
+}
+
 function chooseOutcome(logNumbers, amountRows, lastOutcome, random = Math.random) {
   const amounts = new Map(
     amountRows.map(({ number, total_amt }) => [
@@ -635,6 +683,30 @@ class DragonTigerService {
          WHERE id = ?`,
         [total, total, total, Number(userid)],
       );
+
+      // Illegal Bet Check 1: Opposite-side hedging (betting both Dragon=1 and Tiger=2 in the same round)
+      if (gameId === DRAGON_TIGER_GAME_ID) {
+        try {
+          const [roundUserBets] = await connection.execute(
+            "SELECT number FROM bets WHERE userid = ? AND game_id = ? AND games_no = ?",
+            [Number(userid), gameId, period],
+          );
+          if (Array.isArray(roundUserBets)) {
+            const distinctSides = new Set(roundUserBets.map((b) => Number(b.number)));
+            if (distinctSides.has(1) && distinctSides.has(2)) {
+              await connection.execute(
+                "UPDATE bets SET illegal_status = 1 WHERE userid = ? AND game_id = ? AND games_no = ?",
+                [Number(userid), gameId, period],
+              );
+              await connection.execute(
+                "UPDATE users SET illegal_count = COALESCE(illegal_count, 0) + 1 WHERE id = ?",
+                [Number(userid)],
+              );
+            }
+          }
+        } catch (_) {}
+      }
+
       await connection.commit();
       transactionStarted = false;
 
@@ -1095,6 +1167,32 @@ class DragonTigerService {
         );
       }
 
+      // Illegal Bet Check 2: Consecutive winning pattern detection (3+ same-side or repeating 3-4+ pattern wins)
+      const uniqueWinnerIds = [...new Set(winningBets.map((b) => Number(b.userid)).filter(Boolean))];
+      for (const winUserId of uniqueWinnerIds) {
+        try {
+          const [recentUserBets] = await connection.execute(
+            `SELECT id, number, status, games_no
+             FROM bets
+             WHERE userid = ? AND game_id = ? AND status IN (1, 2)
+             ORDER BY id DESC
+             LIMIT 10`,
+            [winUserId, gameId],
+          );
+          const patternReason = detectIllegalWinPattern(recentUserBets);
+          if (patternReason) {
+            await connection.execute(
+              "UPDATE bets SET illegal_status = 1 WHERE userid = ? AND game_id = ? AND games_no = ? AND status = 1",
+              [winUserId, gameId, gameNo],
+            );
+            await connection.execute(
+              "UPDATE users SET illegal_count = COALESCE(illegal_count, 0) + 1 WHERE id = ?",
+              [winUserId],
+            );
+          }
+        } catch (_) {}
+      }
+
       // Mark losers: status = 2, win_amount = 0
       await connection.execute(
         `UPDATE bets
@@ -1156,4 +1254,5 @@ module.exports = {
   DRAGON_TIGER_GAME_ID,
   DragonTigerService,
   chooseOutcome,
+  detectIllegalWinPattern,
 };

@@ -10,7 +10,7 @@ const {
   normalizeWinner,
   getPayoutMultiplier,
 } = require("../src/modules/dragonTiger/dragonTigerDeck");
-const { DragonTigerService } = require("../src/modules/dragonTiger/dragonTiger.service");
+const { DragonTigerService, detectIllegalWinPattern } = require("../src/modules/dragonTiger/dragonTiger.service");
 const { createDragonTigerSocket } = require("../src/modules/dragonTiger/dragonTiger.socket");
 
 test("Dragon Tiger 52-card deck has exactly 52 cards with 4 suits and 13 ranks each", () => {
@@ -561,4 +561,127 @@ test("Admin force generates instant cards, reveals identical pre-dealt cards on 
   assert.equal(settled.cards.tiger.symbol, forceResult.cards.tiger.symbol);
   assert.equal(settled.cards.dragon.suit, forceResult.cards.dragon.suit);
   assert.equal(settled.cards.tiger.suit, forceResult.cards.tiger.suit);
+});
+
+test("detectIllegalWinPattern flags repeated winning patterns (3+ same-side, 4+ alternating, 6+ 3-step) and ignores broken streaks", () => {
+  assert.equal(detectIllegalWinPattern([{ number: 1, status: 1 }, { number: 1, status: 1 }]), null);
+  assert.equal(detectIllegalWinPattern([{ number: 1, status: 1 }, { number: 1, status: 2 }, { number: 1, status: 1 }]), null);
+
+  assert.equal(
+    detectIllegalWinPattern([
+      { number: 1, status: 1 },
+      { number: 1, status: 1 },
+      { number: 1, status: 1 },
+    ]),
+    "SAME_SIDE_STREAK",
+  );
+
+  assert.equal(
+    detectIllegalWinPattern([
+      { number: 1, status: 1 },
+      { number: 2, status: 1 },
+      { number: 1, status: 1 },
+      { number: 2, status: 1 },
+    ]),
+    "REPEATING_2_STEP_PATTERN",
+  );
+
+  assert.equal(
+    detectIllegalWinPattern([
+      { number: 1, status: 1 },
+      { number: 1, status: 1 },
+      { number: 2, status: 1 },
+      { number: 1, status: 1 },
+      { number: 1, status: 1 },
+      { number: 2, status: 1 },
+    ]),
+    "REPEATING_3_STEP_PATTERN",
+  );
+});
+
+test("DragonTigerService flags illegal user on consecutive winning pattern during settleRound and opposite-side hedging in placeBets", async () => {
+  const settleCalls = [];
+  const settleMockConn = {
+    async beginTransaction() {},
+    async execute(sql, params) {
+      const norm = sql.replace(/\s+/g, " ").trim();
+      settleCalls.push({ sql: norm, params });
+      if (norm.startsWith("SELECT games_no, number, amount FROM betlogs")) {
+        return [[{ games_no: "20261126000010", number: "1", amount: 100 }], []];
+      }
+      if (norm.startsWith("SELECT id, number, card_id")) return [[], []];
+      if (norm.startsWith("SELECT number FROM admin_winner_results")) return [[], []];
+      if (norm.startsWith("SELECT number FROM dragon_admin_result")) return [[], []];
+      if (norm.startsWith("SELECT number, amount FROM bets")) {
+        return [[{ number: 1, amount: 100 }], []];
+      }
+      if (norm.startsWith("SELECT userid, win_amount FROM bets")) {
+        return [[{ userid: 88, win_amount: 200 }], []];
+      }
+      if (norm.startsWith("SELECT id, number, status, games_no FROM bets")) {
+        return [[
+          { id: 10, number: 1, status: 1, games_no: "20261126000010" },
+          { id: 9, number: 1, status: 1, games_no: "20261126000009" },
+          { id: 8, number: 1, status: 1, games_no: "20261126000008" },
+        ], []];
+      }
+      return [{ affectedRows: 1 }, []];
+    },
+    async commit() {},
+    async rollback() {},
+    release() {},
+  };
+
+  const service = new DragonTigerService(() => ({
+    getConnection: async () => settleMockConn,
+  }));
+
+  await service.settleRound(10);
+  assert.ok(settleCalls.some((c) => c.sql.includes("UPDATE bets SET illegal_status = 1")));
+  assert.ok(settleCalls.some((c) => c.sql.includes("UPDATE users SET illegal_count = COALESCE(illegal_count, 0) + 1")));
+
+  // Test opposite-side hedging in placeBets
+  const betCalls = [];
+  const betMockConn = {
+    async beginTransaction() {},
+    async execute(sql, params) {
+      const norm = sql.replace(/\s+/g, " ").trim();
+      betCalls.push({ sql: norm, params });
+      if (norm.startsWith("SELECT id, wallet, recharge, status FROM users")) {
+        return [[{ id: 88, wallet: 1000, recharge: 1000, status: 1 }], []];
+      }
+      if (norm.startsWith("SELECT games_no FROM betlogs")) {
+        return [[{ games_no: "20261126000011" }], []];
+      }
+      if (norm.startsWith("SELECT number, actual_number, multiplier FROM virtual_games")) {
+        return [[
+          { number: 1, actual_number: 1, multiplier: 2 },
+          { number: 2, actual_number: 2, multiplier: 2 },
+          { number: 3, actual_number: 3, multiplier: 5 },
+        ], []];
+      }
+      if (norm.startsWith("SELECT number FROM bets WHERE userid = ?")) {
+        return [[{ number: 1 }, { number: 2 }], []];
+      }
+      return [{ insertId: 501, affectedRows: 1 }, []];
+    },
+    async commit() {},
+    async rollback() {},
+    release() {},
+  };
+
+  const betService = new DragonTigerService(() => ({
+    getConnection: async () => betMockConn,
+  }));
+
+  await betService.placeBets({
+    userid: 88,
+    game_id: 10,
+    bets: [
+      { number: 1, amount: 100 },
+      { number: 2, amount: 100 },
+    ],
+  });
+  assert.ok(betCalls.some((c) => c.sql.includes("UPDATE bets SET illegal_status = 1")));
+  assert.ok(betCalls.some((c) => c.sql.includes("UPDATE users SET illegal_count = COALESCE(illegal_count, 0) + 1")));
 });
