@@ -26,7 +26,7 @@ module.exports = {
       ...req.query,
       ...req.body,
       userid: req.user?.id ?? req.body?.userid ?? req.body?.user_id ?? req.query?.userid ?? req.query?.user_id,
-      code: req.body?.code ?? req.body?.gift_code ?? req.query?.code ?? req.query?.gift_code,
+      code: req.body?.code ?? req.body?.gift_code ?? req.body?.giftCode ?? req.query?.code ?? req.query?.gift_code ?? req.query?.giftCode,
     };
     return service.applyGift(payload);
   }),

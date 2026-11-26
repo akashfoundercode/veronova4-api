@@ -101,9 +101,9 @@ class LegacyApiService {
     return { message: rows.length ? "Successfully" : "No record found", status: rows.length ? 200 : 400, data: rows };
   }
 
-  async applyGift({ userid, user_id, code, gift_code }) {
+  async applyGift({ userid, user_id, code, gift_code, giftCode: giftCodeCamel }) {
     const userId = Number(userid ?? user_id);
-    const giftCode = String(code ?? gift_code ?? "").trim();
+    const giftCode = String(code ?? gift_code ?? giftCodeCamel ?? "").trim();
     if (!Number.isInteger(userId) || userId < 1 || !giftCode) {
       throw new AppError(400, "VALIDATION_ERROR", "userid and code are required.");
     }
@@ -114,10 +114,21 @@ class LegacyApiService {
       await connection.beginTransaction();
       const [userRows] = await connection.execute("SELECT id, wallet, bonus FROM users WHERE id = ? AND status = 1 FOR UPDATE", [userId]);
       if (!userRows.length) throw new AppError(404, "USER_NOT_FOUND", "User not found.");
-      const [giftRows] = await connection.execute("SELECT * FROM gift_cart WHERE code = ? AND status = 1 LIMIT 1 FOR UPDATE", [giftCode]);
+      let [giftRows] = await connection.execute(
+        "SELECT * FROM gift_cart WHERE code = ? AND status = 1 LIMIT 1 FOR UPDATE",
+        [giftCode],
+      );
+      if (!giftRows.length) {
+        [giftRows] = await connection.execute(
+          "SELECT * FROM gift_cart WHERE LOWER(TRIM(code)) = LOWER(?) AND status != -1 ORDER BY id DESC LIMIT 1 FOR UPDATE",
+          [giftCode],
+        );
+      }
       const gift = giftRows[0];
       if (!gift) throw new AppError(400, "INVALID_GIFT_CODE", "Invalid Gift Code!");
-      const [claimed] = await connection.execute("SELECT id FROM gift_claim WHERE userid = ? AND gift_code = ? LIMIT 1", [userId, giftCode]);
+      if (Number(gift.status) !== 1) throw new AppError(400, "GIFT_INACTIVE", "This gift code is inactive.");
+      const canonicalCode = String(gift.code).trim();
+      const [claimed] = await connection.execute("SELECT id FROM gift_claim WHERE userid = ? AND gift_code = ? LIMIT 1", [userId, canonicalCode]);
       if (claimed.length) throw new AppError(409, "GIFT_ALREADY_CLAIMED", "You have already availed this offer!");
       const [todayClaims] = await connection.execute("SELECT COUNT(*) AS total FROM gift_claim WHERE userid = ? AND created_at >= CURDATE() AND created_at < CURDATE() + INTERVAL 1 DAY", [userId]);
       if (Number(todayClaims[0]?.total || 0) > 0) throw new AppError(409, "DAILY_GIFT_LIMIT", "You can only claim the gift once per day.");
@@ -129,7 +140,7 @@ class LegacyApiService {
       const amount = Number(gift.amount);
       await connection.execute("UPDATE users SET wallet = wallet + ?, bonus = COALESCE(bonus, 0) + ? WHERE id = ?", [amount, amount, userId]);
       await connection.execute("UPDATE gift_cart SET availed_num = availed_num + 1 WHERE id = ?", [gift.id]);
-      await connection.execute("INSERT INTO gift_claim (userid, gift_code, amount, created_at, datetime) VALUES (?, ?, ?, NOW(), NOW())", [userId, giftCode, amount]);
+      await connection.execute("INSERT INTO gift_claim (userid, gift_code, amount, created_at, datetime) VALUES (?, ?, ?, NOW(), NOW())", [userId, canonicalCode, amount]);
       await connection.execute("INSERT INTO wallet_history (userid, amount, subtypeid, created_at, updated_at) VALUES (?, ?, 20, NOW(), NOW())", [userId, amount]);
       await connection.commit();
       return { status: 200, message: `Gift of ₹${amount} added to your wallet successfully!` };
