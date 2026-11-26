@@ -98,14 +98,17 @@ class LegacyApiService {
     const pool = this.poolProvider();
     await this.ensureGiftTables(pool);
     const [rows] = await pool.execute("SELECT * FROM gift_claim WHERE userid = ? ORDER BY id DESC", [userId]);
-    return { message: rows.length ? "Successfully" : "No record found", status: rows.length ? 200 : 400, data: rows };
+    return { message: rows.length ? "Successfully" : "No record found", status: 200, data: rows };
   }
 
   async applyGift({ userid, user_id, code, gift_code, giftCode: giftCodeCamel }) {
     const userId = Number(userid ?? user_id);
     const giftCode = String(code ?? gift_code ?? giftCodeCamel ?? "").trim();
-    if (!Number.isInteger(userId) || userId < 1 || !giftCode) {
-      throw new AppError(400, "VALIDATION_ERROR", "userid and code are required.");
+    if (!Number.isInteger(userId) || userId < 1) {
+      throw new AppError(400, "VALIDATION_ERROR", "The userid field is required.");
+    }
+    if (!giftCode) {
+      throw new AppError(400, "VALIDATION_ERROR", "Please enter a gift code.");
     }
     const pool = this.poolProvider();
     await this.ensureGiftTables(pool);

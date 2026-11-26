@@ -1,20 +1,29 @@
 "use strict";
 
 const express = require("express");
+const multer = require("multer");
 const controller = require("./legacyApi.controller");
 
 const router = express.Router();
-router.get("/gift_redeem_list", controller.giftRedeemList);
-router.post("/gift_redeem_list", controller.giftRedeemList);
-router.get("/gift-redeem-list", controller.giftRedeemList);
-router.post("/gift-redeem-list", controller.giftRedeemList);
-router.get("/claim_list", controller.giftRedeemList);
-router.post("/claim_list", controller.giftRedeemList);
+const parseMultipartFields = multer().none();
 
-router.post("/gift_cart_apply", controller.applyGift);
-router.post("/gift-cart-apply", controller.applyGift);
-router.post("/apply_gift", controller.applyGift);
-router.post("/apply-gift", controller.applyGift);
+function acceptFormData(req, res, next) {
+  if (typeof req.is === "function" && req.is("multipart/form-data")) {
+    return parseMultipartFields(req, res, next);
+  }
+  return next();
+}
+router.get("/gift_redeem_list", controller.giftRedeemList);
+router.post("/gift_redeem_list", acceptFormData, controller.giftRedeemList);
+router.get("/gift-redeem-list", controller.giftRedeemList);
+router.post("/gift-redeem-list", acceptFormData, controller.giftRedeemList);
+router.get("/claim_list", controller.giftRedeemList);
+router.post("/claim_list", acceptFormData, controller.giftRedeemList);
+
+router.post("/gift_cart_apply", acceptFormData, controller.applyGift);
+router.post("/gift-cart-apply", acceptFormData, controller.applyGift);
+router.post("/apply_gift", acceptFormData, controller.applyGift);
+router.post("/apply-gift", acceptFormData, controller.applyGift);
 router.get("/total_bet_details", controller.totalBetDetails);
 router.get("/beginner_guide", controller.beginnerGuide);
 router.post("/beginner_guide", controller.beginnerGuide);

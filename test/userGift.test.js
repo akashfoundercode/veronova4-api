@@ -119,6 +119,10 @@ test("LegacyApiService.giftRedeemList returns claim history", async () => {
   assert.equal(res.message, "Successfully");
   assert.equal(res.data.length, 1);
   assert.equal(res.data[0].gift_code, "123456789012345");
+
+  const emptyRes = await service.giftRedeemList(999);
+  assert.equal(emptyRes.status, 200);
+  assert.deepEqual(emptyRes.data, []);
 });
 
 test("LegacyApiController handles gift endpoints", async () => {
