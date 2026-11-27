@@ -742,6 +742,19 @@ class PaymentService {
       return { status: 400, message: "Minimum withdrawal is 110 and maximum is 50000." };
     }
 
+    // If account_id was omitted, resolve user's latest bank account automatically
+    let resolvedAccountId = account_id;
+    if (!resolvedAccountId) {
+      const [acctRows] = await pool.execute(
+        "SELECT id FROM account_details WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        [user_id],
+      );
+      if (!acctRows.length) {
+        return { status: 400, message: "Please add a bank account first." };
+      }
+      resolvedAccountId = acctRows[0].id;
+    }
+
     const [users] = await pool.execute("SELECT * FROM users WHERE id = ? LIMIT 1", [user_id]);
     const user = users[0];
     if (!user) {
@@ -763,7 +776,7 @@ class PaymentService {
       );
       await pool.execute(
         "INSERT INTO withdraw_histories (user_id, amount, account_id, type, order_id, status, typeimage, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 2, 'https://root.veronova.co.in/uploads/fastpay_image.png', NOW(), NOW())",
-        [user_id, numAmount, account_id, String(type ?? 0), orderid],
+        [user_id, numAmount, resolvedAccountId, String(type ?? 0), orderid],
       );
       return { status: 200, message: "Withdraw Successfully ..!" };
     }
@@ -798,7 +811,7 @@ class PaymentService {
       await conn.execute(
         `INSERT INTO withdraw_histories (user_id, amount, account_id, type, order_id, status, typeimage, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, 1, 'https://root.veronova.co.in/uploads/fastpay_image.png', NOW(), NOW())`,
-        [user_id, numAmount, account_id, String(type ?? 0), orderid],
+        [user_id, numAmount, resolvedAccountId, String(type ?? 0), orderid],
       );
       await conn.commit();
       return { status: 200, message: "Withdraw Request Successfully ..!" };
@@ -836,17 +849,39 @@ class PaymentService {
       }
 
       const [rows] = await pool.execute(
-        `SELECT cash, type, status, order_id, typeimage, created_at
+        `SELECT cash, type, status, order_id, typeimage, redirect_url, created_at
          FROM payins
          WHERE ${conditions.join(" AND ")}
          ORDER BY id DESC LIMIT 100`,
         params,
       );
 
+      // Sync recent pending GiftAura orders with live /payinstatus so history always reflects real status
+      const pendingGiftAura = rows
+        .filter((r) => Number(r.status) === 1 && r.order_id && String(r.redirect_url || "").includes("giftaura"))
+        .slice(0, 5);
+      for (const pendingRow of pendingGiftAura) {
+        try {
+          const checkRes = await this.giftAuraCheckStatus(pendingRow.order_id);
+          if (checkRes.payment_status === "success") pendingRow.status = 2;
+          else if (checkRes.payment_status === "failed") pendingRow.status = 3;
+        } catch (_) {}
+      }
+
+      const formattedRows = rows.map((r) => ({
+        cash: r.cash,
+        type: r.type,
+        status: r.status,
+        status_label: Number(r.status) === 2 ? "Success" : Number(r.status) === 3 ? "Failed" : "Pending",
+        order_id: r.order_id,
+        typeimage: r.typeimage,
+        created_at: r.created_at,
+      }));
+
       return {
-        message: rows.length ? "Successfully" : "No record found",
-        status: rows.length ? 200 : 400,
-        data: rows,
+        message: formattedRows.length ? "Successfully" : "No record found",
+        status: formattedRows.length ? 200 : 400,
+        data: formattedRows,
       };
     } catch (_) {
       return {
@@ -910,7 +945,7 @@ class PaymentService {
     try {
       const pool = this.getPool();
       const [rows] = await pool.execute(
-        "SELECT id, user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at FROM account_details WHERE user_id = ? ORDER BY id DESC",
+        "SELECT * FROM account_details WHERE user_id = ? ORDER BY id DESC",
         [userId]
       );
       if (rows && rows.length > 0) {
@@ -923,7 +958,7 @@ class PaymentService {
       }
       return {
         message: "No record found",
-        status: 400,
+        status: 200,
         data: [],
       };
     } catch (_) {
@@ -1356,19 +1391,21 @@ class PaymentService {
       const responseData = await response.json().catch(() => null);
 
       if (!response.ok || !responseData) {
-        await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+        await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?", [orderId]);
         return {
           status: 502,
           message: "Invalid GiftAura gateway response",
+          order_id: orderId,
           response: responseData,
         };
       }
 
       if (String(responseData.status).toUpperCase() !== "SUCCESS") {
-        await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+        await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?", [orderId]);
         return {
           status: 400,
           message: responseData.error || responseData.message || "GiftAura payment initiation failed",
+          order_id: orderId,
           response: responseData,
         };
       }
@@ -1391,10 +1428,11 @@ class PaymentService {
         },
       };
     } catch (err) {
-      await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+      await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?", [orderId]);
       return {
         status: 502,
         message: err.message || "Unable to reach GiftAura gateway",
+        order_id: orderId,
       };
     }
   }
@@ -1458,7 +1496,7 @@ class PaymentService {
         };
       }
 
-      if (gatewayStatus === "success") {
+      if (["success", "completed", "paid"].includes(gatewayStatus)) {
         const cash = Number(payin.cash);
         await connection.execute("UPDATE payins SET status = 2, updated_at = NOW() WHERE id = ?", [payin.id]);
         await connection.execute(
@@ -1490,7 +1528,7 @@ class PaymentService {
         };
       }
 
-      if (gatewayStatus === "failed") {
+      if (["failed", "fail", "cancelled", "canceled", "expired", "rejected"].includes(gatewayStatus)) {
         await connection.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE id = ?", [payin.id]);
         await connection.commit();
         txStarted = false;

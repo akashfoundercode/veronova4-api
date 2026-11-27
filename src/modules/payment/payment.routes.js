@@ -1,14 +1,24 @@
 "use strict";
 
 const express = require("express");
+const multer = require("multer");
 const controller = require("./payment.controller");
 const authenticate = require("../../middleware/authenticate");
 const { optionalAuthenticate } = authenticate;
 const { requireAdmin } = require("../horseRace/middleware/auth.middleware");
 
 const router = express.Router();
+const parseMultipartFields = multer().none();
+
+function acceptFormData(req, res, next) {
+  if (typeof req.is === "function" && req.is("multipart/form-data")) {
+    return parseMultipartFields(req, res, next);
+  }
+  return next();
+}
 
 router.use(optionalAuthenticate);
+router.use(acceptFormData);
 
 // 1. Innersoul Cares Payment Gateway
 router.post("/innersoulcares", controller.innersoulcares);

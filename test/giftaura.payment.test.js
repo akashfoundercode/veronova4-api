@@ -41,6 +41,11 @@ function createMockDb() {
       if (p) p.status = 2;
       return [{ affectedRows: 1 }, []];
     }
+    if (norm.startsWith("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?")) {
+      const p = payins.find((x) => x.order_id === params[0]);
+      if (p) p.status = 3;
+      return [{ affectedRows: 1 }, []];
+    }
     if (norm.startsWith("UPDATE payins SET status = 3")) {
       const p = payins.find((x) => x.id === Number(params[0]));
       if (p) p.status = 3;
@@ -162,6 +167,21 @@ test("GiftAura payin validates integer >= 10, sends all string params, and credi
     });
     assert.equal(repeatRes.status, 200);
     assert.equal(db.users.get(10).wallet, 600);
+
+    // 6. Failed payment initiation & failed status check are preserved in payins history with status = 3
+    const failedInit = await service.giftAuraPayin({
+      user_id: 10,
+      amount: 200,
+      fetchImpl: async () => ({
+        ok: true,
+        async json() {
+          return { status: 400, error: "Gateway error" };
+        },
+      }),
+    });
+    assert.equal(failedInit.status, 400);
+    assert.equal(db.payins.length, 2);
+    assert.equal(db.payins[1].status, 3);
   } finally {
     if (prevKey === undefined) delete process.env.GIFTAURA_MERCHANT_ID;
     else process.env.GIFTAURA_MERCHANT_ID = prevKey;

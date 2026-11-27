@@ -167,13 +167,24 @@ async function usdtWithdraw(req, res) {
 // 14. Withdraw Request
 async function withdraw(req, res) {
   const body = req.body || {};
-  const user_id = body.user_id || req.user?.id;
-  const account_id = body.account_id;
-  const amount = body.amount;
-  const type = body.type ?? 0;
+  const query = req.query || {};
+  const user_id =
+    body.user_id ?? body.userid ?? body.userId ?? body.uid ??
+    query.user_id ?? query.userid ?? query.userId ??
+    req.user?.id;
+  const account_id =
+    body.account_id ?? body.accountId ?? body.bank_id ?? body.bankId ??
+    query.account_id ?? query.accountId ?? query.bank_id;
+  const amount =
+    body.amount ?? body.cash ?? body.withdraw_amount ??
+    query.amount ?? query.cash;
+  const type = body.type ?? query.type ?? 0;
 
-  if (!user_id || !account_id || !amount) {
-    return res.status(400).json({ status: 400, message: "Missing required fields" });
+  if (!user_id) {
+    return res.status(400).json({ status: 400, message: "The user_id field is required." });
+  }
+  if (!amount) {
+    return res.status(400).json({ status: 400, message: "The amount field is required." });
   }
 
   const result = await service.withdraw({ user_id, account_id, amount, type });
