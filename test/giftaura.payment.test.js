@@ -93,10 +93,10 @@ test("GiftAura payin validates integer >= 10, sends all string params, and credi
     const service = new PaymentService(() => db.pool);
     service.tablesEnsured = true;
 
-    // 1. Reject decimal or < 10
+    // 1. Reject decimal or < 1
     const badDecimal = await service.giftAuraPayin({ user_id: 10, amount: 10.5 });
     assert.equal(badDecimal.status, 400);
-    const badLow = await service.giftAuraPayin({ user_id: 10, amount: 5 });
+    const badLow = await service.giftAuraPayin({ user_id: 10, amount: 0 });
     assert.equal(badLow.status, 400);
 
     // 2. Successful Payin initiation

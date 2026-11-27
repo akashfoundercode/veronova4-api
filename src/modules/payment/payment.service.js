@@ -1460,8 +1460,8 @@ class PaymentService {
     if (!Number.isInteger(uid) || uid < 1) {
       return { status: 400, message: "The user_id field is required." };
     }
-    if (!Number.isFinite(rawAmount) || rawAmount < 10 || !Number.isInteger(rawAmount)) {
-      return { status: 400, message: "Amount must be a positive integer of at least ₹10 (no decimals)." };
+    if (!Number.isFinite(rawAmount) || rawAmount < 1 || !Number.isInteger(rawAmount)) {
+      return { status: 400, message: "Amount must be a positive integer of at least ₹1 (no decimals)." };
     }
 
     const [users] = await pool.execute("SELECT id, username, email, mobile FROM users WHERE id = ? LIMIT 1", [uid]);
