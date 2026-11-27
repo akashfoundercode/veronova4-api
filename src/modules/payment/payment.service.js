@@ -204,11 +204,27 @@ class PaymentService {
         body: JSON.stringify(payload),
       });
 
-      const responseData = await response.json().catch(() => null);
+      const rawText = await response.text();
+      let responseData = null;
+      try {
+        responseData = JSON.parse(rawText);
+      } catch (_) {
+        const jsonMatch = /\{[\s\S]*\}/.exec(rawText);
+        if (jsonMatch) {
+          try {
+            responseData = JSON.parse(jsonMatch[0]);
+          } catch (_) {}
+        }
+      }
 
       if (!response.ok || !responseData) {
-        await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
-        return { status: 500, message: "Invalid Gateway Response", response: responseData };
+        await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?", [orderId]);
+        return {
+          status: 500,
+          message: "Invalid Gateway Response",
+          http_status: response.status,
+          response: responseData || rawText?.slice(0, 500) || null,
+        };
       }
 
       if (responseData.status !== "SUCCESS") {
@@ -1490,15 +1506,31 @@ class PaymentService {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const responseData = await response.json().catch(() => null);
+      const rawText = typeof response.text === "function" ? await response.text() : null;
+      let responseData = null;
+      if (rawText !== null) {
+        try {
+          responseData = JSON.parse(rawText);
+        } catch (_) {
+          const jsonMatch = /\{[\s\S]*\}/.exec(rawText);
+          if (jsonMatch) {
+            try {
+              responseData = JSON.parse(jsonMatch[0]);
+            } catch (_) {}
+          }
+        }
+      } else if (typeof response.json === "function") {
+        responseData = await response.json().catch(() => null);
+      }
 
       if (!response.ok || !responseData) {
         await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?", [orderId]);
         return {
           status: 502,
           message: "Invalid GiftAura gateway response",
+          http_status: response.status,
           order_id: orderId,
-          response: responseData,
+          response: responseData || rawText?.slice(0, 500) || null,
         };
       }
 
