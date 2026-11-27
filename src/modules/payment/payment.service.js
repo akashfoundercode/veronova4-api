@@ -185,13 +185,18 @@ class PaymentService {
 
     const merchantId = process.env.GIFTAURA_MERCHANT_ID || "GIFTAURA00014";
     const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
+    const safeName = String(user.username || "User").replace(/[^a-zA-Z0-9 ]/g, "").trim() || "User";
+    const safeEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(user.email || "").trim())
+      ? String(user.email).trim()
+      : "user@example.com";
+    const safeMobile = String(user.mobile || "").replace(/\D/g, "").slice(-10) || "9876543210";
     const payload = {
       merchantid: String(merchantId),
       orderid: String(orderId),
       amount: String(Math.trunc(Number(cash))),
-      name: String(user.username || "N/A"),
-      email: String(user.email || "johndoe@gmail.com"),
-      mobile: String(user.mobile ? String(user.mobile) : "9876543210"),
+      name: safeName,
+      email: safeEmail,
+      mobile: safeMobile,
       remark: "Wallet Recharge",
       type: "2",
       redirect_url: String(redirectUrl),
@@ -228,10 +233,10 @@ class PaymentService {
       }
 
       if (responseData.status !== "SUCCESS") {
-        await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+        await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ?", [orderId]);
         return {
           status: 400,
-          message: responseData.message || "Payment Link Generation Failed",
+          message: responseData.error || responseData.message || "Payment Link Generation Failed",
           response: responseData,
         };
       }
