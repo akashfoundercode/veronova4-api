@@ -193,7 +193,7 @@ class PaymentService {
       email: String(user.email || "johndoe@gmail.com"),
       mobile: String(user.mobile ? String(user.mobile) : "9876543210"),
       remark: "Wallet Recharge",
-      type: "0",
+      type: "2",
       redirect_url: String(redirectUrl),
     };
 

@@ -9,7 +9,7 @@ async function innersoulcares(req, res) {
   const body = req.body || {};
   const user_id = body.user_id || req.user?.id;
   const cash = Number(body.cash);
-  const type = body.type ?? 0;
+  const type = body.type ?? 2;
 
   if (!user_id) {
     return res.status(200).json({ status: 400, message: "The user id field is required." });
