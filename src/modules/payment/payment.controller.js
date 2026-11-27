@@ -254,11 +254,11 @@ async function addAccount(req, res) {
     req.headers?.["user-id"] ||
     req.headers?.userid;
 
-  const name = body.name || body.account_holder_name || body.holder_name || query.name;
-  const account_number = body.account_number || body.account_no || body.accountno || query.account_number;
+  const name = body.name || body.account_holder_name || body.account_holder || body.holder_name || body.holderName || query.name;
+  const account_number = body.account_number || body.account_no || body.accountno || body.accountNo || body.acc_no || query.account_number;
   const ifsc_code = body.ifsc_code || body.ifsc || body.ifscCode || query.ifsc_code;
   const bank_name = body.bank_name || body.bankName || body.bname || body.bank || query.bank_name;
-  const branch = body.branch || query.branch || "";
+  const branch = body.branch || body.branch_name || body.branchName || query.branch || "";
   const upi_id = body.upi_id || body.upi || query.upi_id || null;
 
   if (!user_id || !name || !account_number || !ifsc_code || !bank_name) {

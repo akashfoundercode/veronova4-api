@@ -991,15 +991,56 @@ class PaymentService {
         return { status: 400, message: "The account number has already been taken." };
       }
 
-      await pool.execute(
-        `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-        [user_id, name, account_number, ifsc_code, bank_name, branch || "", upi_id || null],
-      );
+      let insertRes = null;
+      try {
+        [insertRes] = await pool.execute(
+          `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+          [user_id, name, account_number, ifsc_code, bank_name, branch || "", upi_id || null],
+        );
+      } catch (insertErr) {
+        if (insertErr && (insertErr.code === "ER_BAD_FIELD_ERROR" || String(insertErr.message).includes("Unknown column"))) {
+          try {
+            [insertRes] = await pool.execute(
+              `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+              [user_id, name, account_number, ifsc_code, bank_name, branch || ""],
+            );
+          } catch (fallbackErr) {
+            if (fallbackErr && (fallbackErr.code === "ER_BAD_FIELD_ERROR" || String(fallbackErr.message).includes("Unknown column"))) {
+              [insertRes] = await pool.execute(
+                `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, status)
+                 VALUES (?, ?, ?, ?, ?, 1)`,
+                [user_id, name, account_number, ifsc_code, bank_name],
+              );
+            } else {
+              throw fallbackErr;
+            }
+          }
+        } else {
+          throw insertErr;
+        }
+      }
 
-      return { status: 200, message: "Account added successfully!" };
+      const accountId = insertRes?.insertId ?? null;
+      return {
+        status: 200,
+        message: "Account added successfully!",
+        account_id: accountId,
+        data: {
+          id: accountId,
+          user_id,
+          name,
+          account_number,
+          ifsc_code,
+          bank_name,
+          branch: branch || "",
+          upi_id: upi_id || null,
+          status: 1,
+        },
+      };
     } catch (e) {
-      return { status: 200, message: "Account added successfully!" };
+      return { status: 400, message: e.message || "Failed to add bank account." };
     }
   }
 
