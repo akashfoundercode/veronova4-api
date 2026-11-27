@@ -9,7 +9,8 @@ async function innersoulcares(req, res) {
   const body = req.body || {};
   const user_id = body.user_id || req.user?.id;
   const cash = Number(body.cash);
-  const type = body.type ?? "2";
+  // GiftAura expects type "2" (same as the working Postman request).
+  const type = "2";
 
   if (!user_id) {
     return res.status(200).json({ status: 400, message: "The user id field is required." });
