@@ -9,7 +9,7 @@ async function innersoulcares(req, res) {
   const body = req.body || {};
   const user_id = body.user_id || req.user?.id;
   const cash = Number(body.cash);
-  const type = body.type ?? 2;
+  const type = body.type ?? "2";
 
   if (!user_id) {
     return res.status(200).json({ status: 400, message: "The user id field is required." });
@@ -18,8 +18,15 @@ async function innersoulcares(req, res) {
     return res.status(200).json({ status: 400, message: "The cash must be at least 1." });
   }
 
-  const result = await service.innersoulcares({ user_id, cash, type, req });
-  return res.status(result.status || 200).json(result);
+  const result = await service.giftAuraPayin({
+    user_id,
+    amount: cash,
+    type,
+    remark: body.remark ?? "Wallet Recharge",
+    redirect_url: body.redirect_url,
+    req,
+  });
+  return res.status(result.status === 400 || result.status >= 500 ? 200 : result.status || 200).json(result);
 }
 
 // 2. Check Innersoul Payment
