@@ -112,7 +112,27 @@ router.post("/userpayin", controller.payin);
 router.post("/callbackfunc", controller.payzaaarCallback);
 router.post("/callbackfunc_payout", (req, res) => res.json({ status: 200, message: "Payout callback processed" }));
 router.post("/payin_call_back", controller.payzaaarCallback);
-router.get("/payin-successfully", (req, res) => res.redirect("https://root.veronova.co.in/uploads/payment_success.php"));
+router.get("/payin-successfully", (req, res) => {
+  const orderId = req.query.order_id || req.query.orderid || "";
+  if (req.accepts("html") && !req.xhr) {
+    return res.status(200).send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Payment Successful</h2><p>Order: ${String(orderId).replace(/[<>&"]/g, "")}</p></body></html>`);
+  }
+  return res.json({ status: 200, payment_status: "success", order_id: orderId, message: "Payment Successful" });
+});
+router.get("/payin-pending", (req, res) => {
+  const orderId = req.query.order_id || req.query.orderid || "";
+  if (req.accepts("html") && !req.xhr) {
+    return res.status(200).send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Payment Pending / Cancelled</h2><p>Order: ${String(orderId).replace(/[<>&"]/g, "")}</p></body></html>`);
+  }
+  return res.json({ status: 202, payment_status: "pending", order_id: orderId, message: "Payment Pending" });
+});
+router.get("/payin-failed", (req, res) => {
+  const orderId = req.query.order_id || req.query.orderid || "";
+  if (req.accepts("html") && !req.xhr) {
+    return res.status(200).send(`<html><body style="font-family:sans-serif;text-align:center;padding:40px"><h2>Payment Failed / Cancelled</h2><p>Order: ${String(orderId).replace(/[<>&"]/g, "")}</p></body></html>`);
+  }
+  return res.json({ status: 400, payment_status: "failed", order_id: orderId, message: "Payment Failed" });
+});
 router.get("/camlenio", controller.checkPayment);
 router.post("/camleniopaycallback", controller.payzaaarCallback);
 

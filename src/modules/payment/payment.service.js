@@ -5,6 +5,19 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { getPool } = require("../../config/database");
 
+function getPaymentBaseUrl(req) {
+  const configured = (process.env.BASE_URL || process.env.API_BASE_URL || "").trim();
+  if (configured) return configured.replace(/\/$/, "");
+  if (req) {
+    const proto = (typeof req.get === "function" ? req.get("x-forwarded-proto") : null) || req.protocol || "https";
+    const host = typeof req.get === "function" ? (req.get("x-forwarded-host") || req.get("host")) : req.headers?.host;
+    if (host) return `${proto}://${host}`;
+  }
+  const appUrl = (process.env.APP_URL || "").trim();
+  if (appUrl && !appUrl.includes("localhost")) return appUrl.replace(/\/$/, "");
+  return "https://api.wingo4all.site";
+}
+
 class PaymentService {
   constructor(poolProvider = getPool) {
     this.poolProvider = poolProvider;
@@ -150,7 +163,7 @@ class PaymentService {
   }
 
   // 1. Innersoul Cares Payment Initiation
-  async innersoulcares({ user_id, cash, type }) {
+  async innersoulcares({ user_id, cash, type, req = null }) {
     await this.ensureTables();
     const pool = this.getPool();
 
@@ -160,13 +173,14 @@ class PaymentService {
       return { status: 400, message: "User not found" };
     }
 
+    const baseUrl = getPaymentBaseUrl(req);
     const orderId = "ORD" + Date.now() + Math.floor(1000 + Math.random() * 9000);
-    const redirectUrl = `https://root.veronova.co.in/api/checkInnersoulPayment?order_id=${orderId}`;
+    const redirectUrl = `${baseUrl}/api/checkInnersoulPayment?order_id=${orderId}`;
 
     await pool.execute(
       `INSERT INTO payins (user_id, cash, type, order_id, redirect_url, status, typeimage, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, 'https://root.veronova.co.in/public/uploads/payzaar.jpg', NOW(), NOW())`,
-      [user_id, cash, String(type ?? 0), orderId, redirectUrl],
+       VALUES (?, ?, ?, ?, ?, 1, ?, NOW(), NOW())`,
+      [user_id, cash, String(type ?? 0), orderId, redirectUrl, `${baseUrl}/public/uploads/payzaar.jpg`],
     );
 
     const merchantId = process.env.GIFTAURA_MERCHANT_ID || "GIFTAURA00014";
@@ -234,61 +248,88 @@ class PaymentService {
     }
   }
 
-  // 2. Check Innersoul Payment
-  async checkInnersoulPayment(orderId) {
+  // 2. Check Innersoul / GiftAura Payment (never credit wallet on back/pending!)
+  async checkInnersoulPayment(orderId, { req = null } = {}) {
     await this.ensureTables();
     const pool = this.getPool();
+    const baseUrl = getPaymentBaseUrl(req);
+    const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
 
     const [payins] = await pool.execute("SELECT * FROM payins WHERE order_id = ? LIMIT 1", [orderId]);
     const payin = payins[0];
     if (!payin) {
-      return { success: false, redirect: "https://root.veronova.co.in/uploads/payment_failed.php" };
+      return {
+        success: false,
+        status: 404,
+        payment_status: "failed",
+        message: "Order not found",
+        redirect: `${baseUrl}/api/payin-failed?order_id=${encodeURIComponent(orderId)}`,
+      };
     }
 
     if (Number(payin.status) === 2) {
-      return { success: true, redirect: "https://root.veronova.co.in/uploads/payment_success.php" };
+      return {
+        success: true,
+        status: 200,
+        payment_status: "success",
+        message: "Payment already verified",
+        redirect: `${baseUrl}/api/payin-successfully?order_id=${encodeURIComponent(orderId)}`,
+      };
     }
     if (Number(payin.status) === 3) {
-      return { success: false, redirect: "https://root.veronova.co.in/uploads/payment_failed.php" };
+      return {
+        success: false,
+        status: 400,
+        payment_status: "failed",
+        message: "Payment failed or cancelled",
+        redirect: `${baseUrl}/api/payin-failed?order_id=${encodeURIComponent(orderId)}`,
+      };
     }
 
-    let gatewayStatus = "success";
+    let gatewayStatus = "pending";
     try {
-      const res = await fetch(`https://root.veronova.co.in/pg/v1/api/payinstatus?order_id=${orderId}`);
+      const res = await fetch(`${apiBaseUrl}/payinstatus?order_id=${encodeURIComponent(orderId)}`);
       const data = await res.json().catch(() => null);
       if (data && data.status) {
-        gatewayStatus = String(data.status).toLowerCase();
+        gatewayStatus = String(data.status).trim().toLowerCase();
       }
     } catch (_) {
-      gatewayStatus = "success";
+      gatewayStatus = "pending";
     }
 
-    if (gatewayStatus === "pending") {
-      return { success: false, pending: true, redirect: "https://root.veronova.co.in/uploads/payment_pending.php" };
-    }
-
-    if (gatewayStatus === "failed") {
+    if (["failed", "fail", "cancelled", "canceled", "expired", "rejected"].includes(gatewayStatus)) {
       await pool.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE order_id = ? AND status = 1", [orderId]);
-      return { success: false, redirect: "https://root.veronova.co.in/uploads/payment_failed.php" };
+      return {
+        success: false,
+        status: 400,
+        payment_status: "failed",
+        message: "Payment failed or cancelled",
+        redirect: `${baseUrl}/api/payin-failed?order_id=${encodeURIComponent(orderId)}`,
+      };
     }
 
-    if (gatewayStatus === "success") {
+    if (["success", "completed", "paid"].includes(gatewayStatus)) {
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
         const [locked] = await conn.execute("SELECT * FROM payins WHERE id = ? AND status = 1 FOR UPDATE", [payin.id]);
         if (!locked.length) {
           await conn.commit();
-          return { success: true, redirect: "https://root.veronova.co.in/uploads/payment_success.php" };
+          return {
+            success: true,
+            status: 200,
+            payment_status: "success",
+            redirect: `${baseUrl}/api/payin-successfully?order_id=${encodeURIComponent(orderId)}`,
+          };
         }
 
         const cash = Number(payin.cash);
         await conn.execute(
           `UPDATE users SET
             wallet = wallet + ?,
-            deposit_balance = deposit_balance + ?,
-            total_payin = total_payin + ?,
-            no_of_payin = no_of_payin + 1,
+            recharge = COALESCE(recharge, 0) + ?,
+            total_payin = COALESCE(total_payin, 0) + ?,
+            no_of_payin = COALESCE(no_of_payin, 0) + 1,
             updated_at = NOW()
            WHERE id = ?`,
           [cash, cash, cash, payin.user_id],
@@ -296,16 +337,34 @@ class PaymentService {
 
         await conn.execute("UPDATE payins SET status = 2, updated_at = NOW() WHERE id = ?", [payin.id]);
         await conn.commit();
-        return { success: true, redirect: "https://root.veronova.co.in/uploads/payment_success.php" };
+        return {
+          success: true,
+          status: 200,
+          payment_status: "success",
+          message: "Payment verified and credited",
+          redirect: `${baseUrl}/api/payin-successfully?order_id=${encodeURIComponent(orderId)}`,
+        };
       } catch (e) {
         await conn.rollback();
-        return { success: false, redirect: "https://root.veronova.co.in/uploads/payment_failed.php" };
+        return {
+          success: false,
+          status: 500,
+          payment_status: "failed",
+          redirect: `${baseUrl}/api/payin-failed?order_id=${encodeURIComponent(orderId)}`,
+        };
       } finally {
         conn.release();
       }
     }
 
-    return { success: false, redirect: "https://root.veronova.co.in/uploads/payment_failed.php" };
+    return {
+      success: false,
+      pending: true,
+      status: 202,
+      payment_status: "pending",
+      message: "Payment not completed (pending)",
+      redirect: `${baseUrl}/api/payin-pending?order_id=${encodeURIComponent(orderId)}`,
+    };
   }
 
   // 3. Payzaaar Callback
@@ -415,7 +474,8 @@ class PaymentService {
     const dateStr = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
     const rand = Math.floor(11 + Math.random() * 88);
     const orderid = `TXT${dateStr}${rand}`;
-    const redirectUrl = `https://root.veronova.co.in/api/checkPayment?order_id=${orderid}`;
+    const baseUrl = getPaymentBaseUrl(req);
+    const redirectUrl = `${baseUrl}/api/checkPayment?order_id=${orderid}`;
 
     // Demo user instant balance
     if (Number(user.account_type) === 1) {
@@ -1375,7 +1435,7 @@ class PaymentService {
    * GiftAura Payin API (POST https://pgapi.giftaura.shop/paynow)
    * Spec: all params must be strings; amount >= 10 integer only; orderid >= 8 digits.
    */
-  async giftAuraPayin({ user_id, cash, amount, type = "2", remark = "Wallet Recharge", redirect_url, fetchImpl = fetch } = {}) {
+  async giftAuraPayin({ user_id, cash, amount, type = "2", remark = "Wallet Recharge", redirect_url, req = null, fetchImpl = fetch } = {}) {
     await this.ensureTables();
     const pool = this.getPool();
 
@@ -1400,8 +1460,9 @@ class PaymentService {
     }
 
     const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
+    const baseUrl = getPaymentBaseUrl(req);
     const orderId = `${Date.now()}${Math.floor(100 + Math.random() * 900)}`; // 16-digit unique string (>= 8 digits)
-    const baseRedirect = redirect_url || `${process.env.APP_URL || "https://api.wingo4all.site"}/api/giftaura/callback`;
+    const baseRedirect = redirect_url || `${baseUrl}/api/giftaura/callback`;
     const separator = baseRedirect.includes("?") ? "&" : "?";
     const dynamicRedirectUrl = `${baseRedirect}${separator}orderid=${encodeURIComponent(orderId)}`;
 

@@ -18,22 +18,22 @@ async function innersoulcares(req, res) {
     return res.status(200).json({ status: 400, message: "The cash must be at least 1." });
   }
 
-  const result = await service.innersoulcares({ user_id, cash, type });
+  const result = await service.innersoulcares({ user_id, cash, type, req });
   return res.status(result.status || 200).json(result);
 }
 
 // 2. Check Innersoul Payment
 async function checkInnersoulPayment(req, res) {
-  const orderId = req.query.order_id || req.body.order_id;
+  const orderId = req.query.order_id || req.query.orderid || req.body.order_id || req.body.orderid;
   if (!orderId) {
-    return res.redirect("https://root.veronova.co.in/uploads/payment_failed.php");
+    return res.redirect("/api/payin-failed");
   }
 
-  const result = await service.checkInnersoulPayment(orderId);
-  if (req.accepts("html")) {
+  const result = await service.checkInnersoulPayment(orderId, { req });
+  if (req.accepts("html") && !req.xhr) {
     return res.redirect(result.redirect);
   }
-  return res.json(result);
+  return res.status(result.status === 202 ? 200 : result.status || 200).json(result);
 }
 
 // 3. Payzaaar Callback
@@ -376,6 +376,7 @@ async function giftAuraPayin(req, res) {
     type,
     remark,
     redirect_url,
+    req,
   });
   return res.status(result.status || 200).json(result);
 }
@@ -390,7 +391,7 @@ async function giftAuraCallback(req, res) {
   const orderId = req.query?.orderid ?? req.query?.order_id ?? req.body?.orderid ?? req.body?.order_id;
   if (!orderId) {
     if (req.accepts("html") && !req.xhr) {
-      return res.redirect("https://root.veronova.co.in/uploads/payment_failed.php");
+      return res.redirect("/api/payin-failed");
     }
     return res.status(400).json({ status: 400, message: "orderid is required" });
   }
@@ -398,11 +399,12 @@ async function giftAuraCallback(req, res) {
   const result = await service.giftAuraCheckStatus(orderId);
   if (req.accepts("html") && !req.xhr) {
     if (result.payment_status === "success") {
-      return res.redirect("https://root.veronova.co.in/uploads/payment_success.php");
+      return res.redirect(`/api/payin-successfully?order_id=${encodeURIComponent(orderId)}`);
     }
-    if (result.payment_status === "failed") {
-      return res.redirect("https://root.veronova.co.in/uploads/payment_failed.php");
+    if (result.payment_status === "pending") {
+      return res.redirect(`/api/payin-pending?order_id=${encodeURIComponent(orderId)}`);
     }
+    return res.redirect(`/api/payin-failed?order_id=${encodeURIComponent(orderId)}`);
   }
   return res.status(result.status === 202 ? 200 : result.status || 200).json(result);
 }
