@@ -106,4 +106,11 @@ router.get("/payin-successfully", (req, res) => res.redirect("https://root.veron
 router.get("/camlenio", controller.checkPayment);
 router.post("/camleniopaycallback", controller.payzaaarCallback);
 
+// 9. GiftAura Payment Gateway (Doc-compliant Payin, Status Check, & Callback)
+router.post("/giftaura/payin", controller.giftAuraPayin);
+router.get("/giftaura/status", controller.giftAuraStatus);
+router.post("/giftaura/status", controller.giftAuraStatus);
+router.get("/giftaura/callback", controller.giftAuraCallback);
+router.post("/giftaura/callback", controller.giftAuraCallback);
+
 module.exports = router;

@@ -169,20 +169,22 @@ class PaymentService {
       [user_id, cash, String(type ?? 0), orderId, redirectUrl],
     );
 
+    const merchantId = process.env.GIFTAURA_MERCHANT_ID || "GIFTAURA00014";
+    const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
     const payload = {
-      merchantid: "GIFTAURA00014",
-      orderid: orderId,
-      amount: String(cash),
-      name: user.username || "N/A",
-      email: user.email || "johndoe@gmail.com",
-      mobile: user.mobile ? String(user.mobile) : "9876543210",
+      merchantid: String(merchantId),
+      orderid: String(orderId),
+      amount: String(Math.trunc(Number(cash))),
+      name: String(user.username || "N/A"),
+      email: String(user.email || "johndoe@gmail.com"),
+      mobile: String(user.mobile ? String(user.mobile) : "9876543210"),
       remark: "Wallet Recharge",
       type: "0",
-      redirect_url: redirectUrl,
+      redirect_url: String(redirectUrl),
     };
 
     try {
-      const response = await fetch("https://pgapi.giftaura.shop/paynow", {
+      const response = await fetch(`${apiBaseUrl}/paynow`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -430,20 +432,22 @@ class PaymentService {
       [user_id, numCash, String(type), orderid, redirectUrl],
     );
 
+    const merchantId = process.env.GIFTAURA_MERCHANT_ID || "GIFTAURA00008";
+    const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
     const postParameter = {
-      merchantid: "GIFTAURA00008",
-      orderid,
-      amount: numCash,
-      name: user.username || "user",
-      email: user.email || `${Math.random().toString(36).substring(7)}@example.com`,
-      mobile: user.mobile ? String(user.mobile) : "9876543210",
+      merchantid: String(merchantId),
+      orderid: String(orderid),
+      amount: String(Math.trunc(numCash)),
+      name: String(user.username || "user"),
+      email: String(user.email || `${Math.random().toString(36).substring(7)}@example.com`),
+      mobile: String(user.mobile ? String(user.mobile) : "9876543210"),
       remark: "payIn",
       type: "2",
-      redirect_url: redirectUrl,
+      redirect_url: String(redirectUrl),
     };
 
     try {
-      const response = await fetch("https://pgapi.giftaura.shop/paynow", {
+      const response = await fetch(`${apiBaseUrl}/paynow`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(postParameter),
@@ -1289,6 +1293,231 @@ class PaymentService {
       wallet: Number(users[0]?.wallet ?? 0),
       debited: num,
     };
+  }
+
+  /**
+   * GiftAura Payin API (POST https://pgapi.giftaura.shop/paynow)
+   * Spec: all params must be strings; amount >= 10 integer only; orderid >= 8 digits.
+   */
+  async giftAuraPayin({ user_id, cash, amount, type = "2", remark = "Wallet Recharge", redirect_url, fetchImpl = fetch } = {}) {
+    await this.ensureTables();
+    const pool = this.getPool();
+
+    const uid = Number(user_id);
+    const rawAmount = Number(amount ?? cash);
+    if (!Number.isInteger(uid) || uid < 1) {
+      return { status: 400, message: "The user_id field is required." };
+    }
+    if (!Number.isFinite(rawAmount) || rawAmount < 10 || !Number.isInteger(rawAmount)) {
+      return { status: 400, message: "Amount must be a positive integer of at least ₹10 (no decimals)." };
+    }
+
+    const [users] = await pool.execute("SELECT id, username, email, mobile FROM users WHERE id = ? LIMIT 1", [uid]);
+    const user = users[0];
+    if (!user) {
+      return { status: 404, message: "User not found" };
+    }
+
+    const merchantId = (process.env.GIFTAURA_MERCHANT_ID || "").trim();
+    if (!merchantId) {
+      return { status: 500, message: "GIFTAURA_MERCHANT_ID is not configured in .env" };
+    }
+
+    const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
+    const orderId = `${Date.now()}${Math.floor(100 + Math.random() * 900)}`; // 16-digit unique string (>= 8 digits)
+    const baseRedirect = redirect_url || `${process.env.APP_URL || "https://api.wingo4all.site"}/api/giftaura/callback`;
+    const separator = baseRedirect.includes("?") ? "&" : "?";
+    const dynamicRedirectUrl = `${baseRedirect}${separator}orderid=${encodeURIComponent(orderId)}`;
+
+    await pool.execute(
+      `INSERT INTO payins (user_id, cash, bonus, type, order_id, redirect_url, status, typeimage, created_at, updated_at)
+       VALUES (?, ?, 0, ?, ?, ?, 1, 'https://root.veronova.co.in/public/uploads/payzaar.jpg', NOW(), NOW())`,
+      [uid, rawAmount, String(type ?? "2"), orderId, dynamicRedirectUrl],
+    );
+
+    const payload = {
+      merchantid: String(merchantId),
+      orderid: String(orderId),
+      amount: String(rawAmount),
+      name: String(user.username || "User"),
+      email: String(user.email || "user@example.com"),
+      mobile: String(user.mobile || "9876543210"),
+      remark: String(remark || "Wallet Recharge"),
+      type: String(type ?? "2"),
+      redirect_url: String(dynamicRedirectUrl),
+    };
+
+    try {
+      const response = await fetchImpl(`${apiBaseUrl}/paynow`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const responseData = await response.json().catch(() => null);
+
+      if (!response.ok || !responseData) {
+        await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+        return {
+          status: 502,
+          message: "Invalid GiftAura gateway response",
+          response: responseData,
+        };
+      }
+
+      if (String(responseData.status).toUpperCase() !== "SUCCESS") {
+        await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+        return {
+          status: 400,
+          message: responseData.error || responseData.message || "GiftAura payment initiation failed",
+          response: responseData,
+        };
+      }
+
+      const cleanLink = responseData.payment_link ? String(responseData.payment_link).replace(/\s+/g, "") : "";
+      const qrLink = cleanLink
+        ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(cleanLink)}`
+        : null;
+
+      return {
+        status: 200,
+        message: "Payment Link Generated Successfully",
+        data: {
+          status: "SUCCESS",
+          amount: String(responseData.amount || rawAmount),
+          order_id: String(responseData.order_id || orderId),
+          payment_link: cleanLink,
+          Qr_Link: qrLink,
+          gateway_txn: String(responseData.gateway_txn || orderId),
+        },
+      };
+    } catch (err) {
+      await pool.execute("DELETE FROM payins WHERE order_id = ?", [orderId]);
+      return {
+        status: 502,
+        message: err.message || "Unable to reach GiftAura gateway",
+      };
+    }
+  }
+
+  /**
+   * GiftAura Payin Status Check API (GET https://pgapi.giftaura.shop/payinstatus?order_id=...)
+   * Verifies transaction status and atomically credits user wallet on "success".
+   */
+  async giftAuraCheckStatus(orderId, { fetchImpl = fetch } = {}) {
+    await this.ensureTables();
+    const pool = this.getPool();
+    const cleanOrderId = String(orderId || "").trim();
+    if (!cleanOrderId) {
+      return { status: 400, message: "order_id is required" };
+    }
+
+    const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
+    let statusData = null;
+    try {
+      const response = await fetchImpl(`${apiBaseUrl}/payinstatus?order_id=${encodeURIComponent(cleanOrderId)}`, {
+        method: "GET",
+      });
+      statusData = await response.json().catch(() => null);
+    } catch (err) {
+      return { status: 502, message: err.message || "Failed to verify status with GiftAura" };
+    }
+
+    if (!statusData || !statusData.status) {
+      return { status: 502, message: "Invalid status response from GiftAura", gateway_response: statusData };
+    }
+
+    const gatewayStatus = String(statusData.status).trim().toLowerCase();
+    const connection = await pool.getConnection();
+    let txStarted = false;
+    try {
+      await connection.beginTransaction();
+      txStarted = true;
+
+      const [payins] = await connection.execute(
+        "SELECT * FROM payins WHERE order_id = ? LIMIT 1 FOR UPDATE",
+        [cleanOrderId],
+      );
+      const payin = payins[0];
+      if (!payin) {
+        await connection.rollback();
+        txStarted = false;
+        return { status: 404, message: "Order not found", order_id: cleanOrderId, gateway_response: statusData };
+      }
+
+      if (Number(payin.status) === 2) {
+        await connection.commit();
+        txStarted = false;
+        return {
+          status: 200,
+          payment_status: "success",
+          message: "Payment already verified and credited",
+          order_id: cleanOrderId,
+          amount: Number(payin.cash),
+          utr: statusData.utr || "",
+          gateway_response: statusData,
+        };
+      }
+
+      if (gatewayStatus === "success") {
+        const cash = Number(payin.cash);
+        await connection.execute("UPDATE payins SET status = 2, updated_at = NOW() WHERE id = ?", [payin.id]);
+        await connection.execute(
+          `UPDATE users SET
+             wallet = wallet + ?,
+             recharge = COALESCE(recharge, 0) + ?,
+             total_payin = COALESCE(total_payin, 0) + ?,
+             no_of_payin = COALESCE(no_of_payin, 0) + 1
+           WHERE id = ?`,
+          [cash, cash, cash, payin.user_id],
+        );
+        try {
+          await connection.execute(
+            "INSERT INTO wallet_history (userid, amount, subtypeid, created_at, updated_at) VALUES (?, ?, 1, NOW(), NOW())",
+            [payin.user_id, cash],
+          );
+        } catch (_) {}
+
+        await connection.commit();
+        txStarted = false;
+        return {
+          status: 200,
+          payment_status: "success",
+          message: "Payment verified and credited successfully",
+          order_id: cleanOrderId,
+          amount: cash,
+          utr: statusData.utr || "",
+          gateway_response: statusData,
+        };
+      }
+
+      if (gatewayStatus === "failed") {
+        await connection.execute("UPDATE payins SET status = 3, updated_at = NOW() WHERE id = ?", [payin.id]);
+        await connection.commit();
+        txStarted = false;
+        return {
+          status: 400,
+          payment_status: "failed",
+          message: "Payment failed",
+          order_id: cleanOrderId,
+          gateway_response: statusData,
+        };
+      }
+
+      await connection.commit();
+      txStarted = false;
+      return {
+        status: 202,
+        payment_status: "pending",
+        message: "Payment is pending",
+        order_id: cleanOrderId,
+        gateway_response: statusData,
+      };
+    } catch (error) {
+      if (txStarted) await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
 

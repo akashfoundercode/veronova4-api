@@ -351,6 +351,51 @@ async function extraFirstDepositBonus(req, res) {
   return res.status(httpStatus).json(result);
 }
 
+async function giftAuraPayin(req, res) {
+  const body = req.body || {};
+  const user_id = body.user_id ?? body.userid ?? req.user?.id;
+  const amount = body.amount ?? body.cash;
+  const type = body.type ?? "2";
+  const remark = body.remark ?? "Wallet Recharge";
+  const redirect_url = body.redirect_url;
+
+  const result = await service.giftAuraPayin({
+    user_id,
+    amount,
+    type,
+    remark,
+    redirect_url,
+  });
+  return res.status(result.status || 200).json(result);
+}
+
+async function giftAuraStatus(req, res) {
+  const orderId = req.query?.order_id ?? req.query?.orderid ?? req.body?.order_id ?? req.body?.orderid;
+  const result = await service.giftAuraCheckStatus(orderId);
+  return res.status(result.status === 202 ? 200 : result.status || 200).json(result);
+}
+
+async function giftAuraCallback(req, res) {
+  const orderId = req.query?.orderid ?? req.query?.order_id ?? req.body?.orderid ?? req.body?.order_id;
+  if (!orderId) {
+    if (req.accepts("html") && !req.xhr) {
+      return res.redirect("https://root.veronova.co.in/uploads/payment_failed.php");
+    }
+    return res.status(400).json({ status: 400, message: "orderid is required" });
+  }
+
+  const result = await service.giftAuraCheckStatus(orderId);
+  if (req.accepts("html") && !req.xhr) {
+    if (result.payment_status === "success") {
+      return res.redirect("https://root.veronova.co.in/uploads/payment_success.php");
+    }
+    if (result.payment_status === "failed") {
+      return res.redirect("https://root.veronova.co.in/uploads/payment_failed.php");
+    }
+  }
+  return res.status(result.status === 202 ? 200 : result.status || 200).json(result);
+}
+
 module.exports = {
   innersoulcares,
   checkInnersoulPayment,
@@ -377,4 +422,7 @@ module.exports = {
   payModes,
   getPaymentLimits,
   deductAmount,
+  giftAuraPayin,
+  giftAuraStatus,
+  giftAuraCallback,
 };
