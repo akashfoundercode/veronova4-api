@@ -1456,7 +1456,7 @@ class PaymentService {
    * GiftAura Payin API (POST https://pgapi.giftaura.shop/paynow)
    * Spec: all params must be strings; amount >= 10 integer only; orderid >= 8 digits.
    */
-  async giftAuraPayin({ user_id, cash, amount, type = "2", remark = "Wallet Recharge", redirect_url, req = null, fetchImpl = fetch } = {}) {
+  async giftAuraPayin({ user_id, cash, amount, type = "2", name, email, mobile, remark = "Wallet Recharge", redirect_url, req = null, fetchImpl = fetch } = {}) {
     await this.ensureTables();
     const pool = this.getPool();
 
@@ -1483,9 +1483,12 @@ class PaymentService {
     const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
     const baseUrl = getPaymentBaseUrl(req);
     const orderId = `${Date.now()}${Math.floor(100 + Math.random() * 900)}`; // 16-digit unique string (>= 8 digits)
-    const baseRedirect = redirect_url || `${baseUrl}/api/giftaura/callback`;
+    const callbackUrl = `${baseUrl}/api/giftaura/callback`;
+    const baseRedirect = redirect_url || callbackUrl;
     const separator = baseRedirect.includes("?") ? "&" : "?";
-    const dynamicRedirectUrl = `${baseRedirect}${separator}orderid=${encodeURIComponent(orderId)}`;
+    const dynamicRedirectUrl = redirect_url
+      ? String(redirect_url)
+      : `${baseRedirect}${separator}orderid=${encodeURIComponent(orderId)}`;
 
     await pool.execute(
       `INSERT INTO payins (user_id, cash, bonus, type, order_id, redirect_url, status, typeimage, created_at, updated_at)
@@ -1497,9 +1500,9 @@ class PaymentService {
       merchantid: String(merchantId),
       orderid: String(orderId),
       amount: String(rawAmount),
-      name: String(user.username || "User"),
-      email: String(user.email || "user@example.com"),
-      mobile: String(user.mobile || "9876543210"),
+      name: String(name || user.username || "User"),
+      email: String(email || user.email || "user@example.com"),
+      mobile: String(mobile || user.mobile || "9876543210"),
       remark: String(remark || "Wallet Recharge"),
       type: String(type ?? "2"),
       redirect_url: String(dynamicRedirectUrl),
