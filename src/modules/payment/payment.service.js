@@ -1482,13 +1482,12 @@ class PaymentService {
 
     const apiBaseUrl = (process.env.GIFTAURA_API_BASE_URL || "https://pgapi.giftaura.shop").replace(/\/$/, "");
     const baseUrl = getPaymentBaseUrl(req);
-    const orderId = `${Date.now()}${Math.floor(100 + Math.random() * 900)}`; // 16-digit unique string (>= 8 digits)
+    const orderIdPrefix = String(process.env.GIFTAURA_ORDER_ID_PREFIX || "").replace(/\D/g, "");
+    const orderId = `${orderIdPrefix}${Date.now()}${Math.floor(100 + Math.random() * 900)}`;
     const callbackUrl = `${baseUrl}/api/giftaura/callback`;
-    const baseRedirect = redirect_url || callbackUrl;
+    const baseRedirect = redirect_url || process.env.GIFTAURA_REDIRECT_URL || callbackUrl;
     const separator = baseRedirect.includes("?") ? "&" : "?";
-    const dynamicRedirectUrl = redirect_url
-      ? String(redirect_url)
-      : `${baseRedirect}${separator}orderid=${encodeURIComponent(orderId)}`;
+    const dynamicRedirectUrl = `${baseRedirect}${separator}orderid=${encodeURIComponent(orderId)}`;
 
     await pool.execute(
       `INSERT INTO payins (user_id, cash, bonus, type, order_id, redirect_url, status, typeimage, created_at, updated_at)
