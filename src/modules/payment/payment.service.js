@@ -1072,38 +1072,58 @@ class PaymentService {
         return { status: 400, message: "The account number has already been taken." };
       }
 
-      let insertRes = null;
-      try {
-        [insertRes] = await pool.execute(
-          `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-          [user_id, name, account_number, ifsc_code, bank_name, branch || "", upi_id || null],
-        );
-      } catch (insertErr) {
-        if (insertErr && (insertErr.code === "ER_BAD_FIELD_ERROR" || String(insertErr.message).includes("Unknown column"))) {
-          try {
-            [insertRes] = await pool.execute(
-              `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, branch, status, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
-              [user_id, name, account_number, ifsc_code, bank_name, branch || ""],
-            );
-          } catch (fallbackErr) {
-            if (fallbackErr && (fallbackErr.code === "ER_BAD_FIELD_ERROR" || String(fallbackErr.message).includes("Unknown column"))) {
-              [insertRes] = await pool.execute(
-                `INSERT INTO account_details (user_id, name, account_number, ifsc_code, bank_name, status)
-                 VALUES (?, ?, ?, ?, ?, 1)`,
-                [user_id, name, account_number, ifsc_code, bank_name],
+      const runAccountInsert = async (explicitId = null) => {
+        const idCol = explicitId !== null ? "id, " : "";
+        const idVal = explicitId !== null ? "?, " : "";
+        const idParams = explicitId !== null ? [explicitId] : [];
+        try {
+          const [res] = await pool.execute(
+            `INSERT INTO account_details (${idCol}user_id, name, account_number, ifsc_code, bank_name, branch, upi_id, status, created_at, updated_at)
+             VALUES (${idVal}?, ?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+            [...idParams, user_id, name, account_number, ifsc_code, bank_name, branch || "", upi_id || null],
+          );
+          return res;
+        } catch (insertErr) {
+          if (insertErr && (insertErr.code === "ER_BAD_FIELD_ERROR" || String(insertErr.message).includes("Unknown column"))) {
+            try {
+              const [res] = await pool.execute(
+                `INSERT INTO account_details (${idCol}user_id, name, account_number, ifsc_code, bank_name, branch, status, created_at, updated_at)
+                 VALUES (${idVal}?, ?, ?, ?, ?, ?, 1, NOW(), NOW())`,
+                [...idParams, user_id, name, account_number, ifsc_code, bank_name, branch || ""],
               );
-            } else {
+              return res;
+            } catch (fallbackErr) {
+              if (fallbackErr && (fallbackErr.code === "ER_BAD_FIELD_ERROR" || String(fallbackErr.message).includes("Unknown column"))) {
+                const [res] = await pool.execute(
+                  `INSERT INTO account_details (${idCol}user_id, name, account_number, ifsc_code, bank_name, status)
+                   VALUES (${idVal}?, ?, ?, ?, ?, 1)`,
+                  [...idParams, user_id, name, account_number, ifsc_code, bank_name],
+                );
+                return res;
+              }
               throw fallbackErr;
             }
           }
-        } else {
           throw insertErr;
+        }
+      };
+
+      let insertRes = null;
+      let usedExplicitId = null;
+      try {
+        insertRes = await runAccountInsert(null);
+      } catch (primaryErr) {
+        const msg = String(primaryErr?.message || "");
+        if (primaryErr?.code === "ER_DUP_ENTRY" || msg.includes("Duplicate entry") && msg.includes("PRIMARY")) {
+          const [maxRows] = await pool.execute("SELECT COALESCE(MAX(id), 0) + 1 AS next_id FROM account_details");
+          usedExplicitId = Number(maxRows[0]?.next_id || 1);
+          insertRes = await runAccountInsert(usedExplicitId);
+        } else {
+          throw primaryErr;
         }
       }
 
-      const accountId = insertRes?.insertId ?? null;
+      const accountId = usedExplicitId ?? insertRes?.insertId ?? null;
       return {
         status: 200,
         message: "Account added successfully!",
