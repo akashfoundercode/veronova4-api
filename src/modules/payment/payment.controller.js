@@ -377,7 +377,8 @@ async function giftAuraPayin(req, res) {
   const body = req.body || {};
   const user_id = body.user_id ?? body.userid ?? req.user?.id;
   const amount = body.amount ?? body.cash;
-  const type = body.type ?? "2";
+  const rawType = body.type;
+  const type = !rawType || String(rawType) === "0" ? "2" : String(rawType);
   const remark = body.remark ?? "Wallet Recharge";
   const redirect_url = body.redirect_url;
 
