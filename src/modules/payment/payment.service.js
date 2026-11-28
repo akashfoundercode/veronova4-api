@@ -247,6 +247,8 @@ class PaymentService {
         responseData.Qr_Link = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(cleanLink)}`;
       }
 
+      this.scheduleGiftAuraStatusPoll(String(responseData.order_id || orderId));
+
       return {
         status: 200,
         message: "Payment Link Generated Successfully",
@@ -937,11 +939,11 @@ class PaymentService {
         params,
       );
 
-      // Sync recent pending GiftAura orders with live /payinstatus so history always reflects real status
-      const pendingGiftAura = rows
-        .filter((r) => Number(r.status) === 1 && r.order_id && String(r.redirect_url || "").includes("giftaura"))
+      // Sync recent pending orders (GiftAura / Innersoul / Payin) with live /payinstatus
+      const pendingOrders = rows
+        .filter((r) => Number(r.status) === 1 && r.order_id)
         .slice(0, 5);
-      for (const pendingRow of pendingGiftAura) {
+      for (const pendingRow of pendingOrders) {
         try {
           const checkRes = await this.giftAuraCheckStatus(pendingRow.order_id);
           if (checkRes.payment_status === "success") pendingRow.status = 2;
@@ -1576,6 +1578,8 @@ class PaymentService {
         ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(cleanLink)}`
         : null;
 
+      this.scheduleGiftAuraStatusPoll(String(responseData.order_id || orderId));
+
       return {
         status: 200,
         message: "Payment Link Generated Successfully",
@@ -1599,6 +1603,28 @@ class PaymentService {
   }
 
   /**
+   * Non-blocking background poll so payments are verified even if user does not return to redirect_url.
+   */
+  scheduleGiftAuraStatusPoll(orderId) {
+    const delaysMs = [15000, 35000, 75000, 150000];
+    let idx = 0;
+    const runNext = () => {
+      if (idx >= delaysMs.length) return;
+      const delay = delaysMs[idx++];
+      const timer = setTimeout(async () => {
+        try {
+          const res = await this.giftAuraCheckStatus(orderId);
+          if (res?.payment_status === "pending") {
+            runNext();
+          }
+        } catch (_) {}
+      }, delay);
+      if (typeof timer.unref === "function") timer.unref();
+    };
+    runNext();
+  }
+
+  /**
    * GiftAura Payin Status Check API (GET https://pgapi.giftaura.shop/payinstatus?order_id=...)
    * Verifies transaction status and atomically credits user wallet on "success".
    */
@@ -1616,7 +1642,21 @@ class PaymentService {
       const response = await fetchImpl(`${apiBaseUrl}/payinstatus?order_id=${encodeURIComponent(cleanOrderId)}`, {
         method: "GET",
       });
-      statusData = await response.json().catch(() => null);
+      const rawText = typeof response.text === "function" ? await response.text() : null;
+      if (rawText !== null) {
+        try {
+          statusData = JSON.parse(rawText);
+        } catch (_) {
+          const jsonMatch = /\{[\s\S]*\}/.exec(rawText);
+          if (jsonMatch) {
+            try {
+              statusData = JSON.parse(jsonMatch[0]);
+            } catch (_) {}
+          }
+        }
+      } else if (typeof response.json === "function") {
+        statusData = await response.json().catch(() => null);
+      }
     } catch (err) {
       return { status: 502, message: err.message || "Failed to verify status with GiftAura" };
     }
